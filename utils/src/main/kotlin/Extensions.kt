@@ -54,11 +54,11 @@ fun ByteArray.toHexString(): String = joinToString("") { String.format("%02x", i
  * Return the absolute file with a leading "~" in a Unix path expanded to the current user's home directory.
  */
 fun File.expandTilde(): File =
-    if (System.getenv("SHELL") != null) {
-        File(path.replace(Regex("^~"), Regex.escapeReplacement(System.getProperty("user.home"))))
-    } else {
-        this
-    }.absoluteFile
+    //if (System.getenv("SHELL") != null) {
+    File(path.replace(Regex("^~"), Regex.escapeReplacement(System.getProperty("user.home")))).absoluteFile
+    //} else {
+    //    this
+    //}.absoluteFile
 
 /**
  * Return the hexadecimal digest of the given hash [algorithm] for this [File].

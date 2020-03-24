@@ -253,7 +253,7 @@ subprojects {
 
             systemProperties = listOf("kotlintest.tags.include", "kotlintest.tags.exclude").associateWith {
                 System.getProperty(it)
-            }
+            } + ("kotlintest.assertions.multi-line-diff" to "simple")
 
             testLogging {
                 events = setOf(TestLogEvent.STARTED, TestLogEvent.PASSED, TestLogEvent.SKIPPED, TestLogEvent.FAILED)

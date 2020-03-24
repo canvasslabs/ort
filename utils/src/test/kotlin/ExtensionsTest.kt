@@ -37,7 +37,7 @@ class ExtensionsTest : WordSpec({
 
     "File.expandTilde" should {
         "only make the path absolute on Windows".config(enabled = Os.isWindows) {
-            File("~/Desktop").expandTilde() shouldBe File("~/Desktop").absoluteFile
+            File("~/Desktop").expandTilde() shouldBe getUserHomeDirectory().resolve("Desktop").absoluteFile
         }
 
         "expand the path on Unix".config(enabled = !Os.isWindows) {
