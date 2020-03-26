@@ -84,6 +84,17 @@ class PackageFindingsTable extends React.Component {
                 filters: (
                     () => Array.from(webAppPackage.detectedLicenses)
                         .map((license) => ({ text: license, value: license }))
+                        .sort(
+                            (a, b) => {
+                                if (a.text < b.text) {
+                                    return -1;
+                                }
+                                if (a.text > b.text) {
+                                    return 1;
+                                }
+                                return 0;
+                            }
+                        )
                 )(),
                 onFilter: (value, row) => value === row.value,
                 key: 'value',
