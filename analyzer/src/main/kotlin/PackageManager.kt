@@ -149,18 +149,13 @@ abstract class PackageManager(
          *                     first element of the list that is recognized as a VCS URL is used.
          */
         fun processPackageVcs(vcsFromPackage: VcsInfo, fallbackUrls: List<String> = emptyList()): VcsInfo {
-            val normalizedVcsFromPackage = vcsFromPackage.normalize()
+            val applicableVcsInfo = sequenceOf(vcsFromPackage.url, *fallbackUrls.toTypedArray()).map {
+                VcsHost.toVcsInfo(normalizeVcsUrl(it))
+            }.find {
+                VersionControlSystem.forUrl(it.url) != null
+            }
 
-            val normalizedUrl = normalizedVcsFromPackage.url.takeIf { it.isNotEmpty() }
-                ?: fallbackUrls
-                    .asSequence()
-                    .map { normalizeVcsUrl(it) }
-                    .filterNot { VersionControlSystem.forUrl(it) == null }
-                    .firstOrNull()
-                    .orEmpty()
-
-            val vcsFromUrl = VcsHost.toVcsInfo(normalizedUrl)
-            return vcsFromUrl.merge(normalizedVcsFromPackage)
+            return applicableVcsInfo?.merge(vcsFromPackage) ?: vcsFromPackage
         }
 
         /**
