@@ -143,7 +143,7 @@ class GoMod(
     }
 
     private fun getVendorModules(projectDir: File): Set<Identifier> {
-        val vendorModulesJson = run("list", "-json", "-m", "-mod=vendor", "all", workingDir = projectDir)
+        val vendorModulesJson = run("list", "-json", "-m", "-mod=readonly", "all", workingDir = projectDir)
             .requireSuccess()
             .stdout
 
@@ -225,7 +225,7 @@ class GoMod(
 @JsonIgnoreProperties(ignoreUnknown = true)
 private data class ModuleDependency(
     @JsonProperty("Path") val name: String,
-    @JsonProperty("Dir") val dir: String,
+    @JsonProperty("Dir") val dir: String? = null,
     @JsonProperty("Version") val version: String?,
     @JsonProperty("Main") val isMain: Boolean = false
 )

@@ -62,6 +62,9 @@ project:
       linkage: "PROJECT_STATIC"
     - id: "GoMod::github.com/hashicorp/go-multierror:v1.0.0"
       linkage: "PROJECT_STATIC"
+      dependencies:
+      - id: "GoMod::github.com/hashicorp/errwrap:v1.0.0"
+        linkage: "PROJECT_STATIC"
     - id: "GoMod::github.com/mattn/go-colorable:v0.1.4"
       linkage: "PROJECT_STATIC"
     - id: "GoMod::github.com/mattn/go-isatty:v0.0.10"
@@ -71,6 +74,20 @@ project:
         linkage: "PROJECT_STATIC"
     - id: "GoMod::golang.org/x/oauth2:v0.0.0-20190226205417-e64efc72b421"
       linkage: "PROJECT_STATIC"
+      dependencies:
+      - id: "GoMod::cloud.google.com/go:v0.34.0"
+        linkage: "PROJECT_STATIC"
+      - id: "GoMod::golang.org/x/net:v0.0.0-20190108225652-1e06a53dbb7e"
+        linkage: "PROJECT_STATIC"
+      - id: "GoMod::golang.org/x/sync:v0.0.0-20181221193216-37e7f081c4d4"
+        linkage: "PROJECT_STATIC"
+      - id: "GoMod::google.golang.org/appengine:v1.4.0"
+        linkage: "PROJECT_STATIC"
+        dependencies:
+        - id: "GoMod::github.com/golang/protobuf:v1.2.0"
+          linkage: "PROJECT_STATIC"
+        - id: "GoMod::golang.org/x/text:v0.3.0"
+          linkage: "PROJECT_STATIC"
 packages:
 - package:
     id: "GoMod::cloud.google.com/go:v0.34.0"
