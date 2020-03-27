@@ -43,6 +43,9 @@ class ScanCodeTest : WordSpec({
         "be correctly summarized" {
             val resultFile = File("src/test/assets/mime-types-2.1.18_scancode-2.9.7.json")
             val result = scanner.getRawResult(resultFile)
+
+            // Misuse the "resultFile" as the "scanPath" even if semantical nonsense to have a simpe way for testing
+            // the calculation of the package verification code.
             val summary = scanner.generateSummary(Instant.now(), Instant.now(), resultFile, result)
 
             summary.fileCount shouldBe 10
@@ -54,6 +57,9 @@ class ScanCodeTest : WordSpec({
         "be correctly summarized" {
             val resultFile = File("src/test/assets/mime-types-2.1.18_scancode-3.0.2.json")
             val result = scanner.getRawResult(resultFile)
+
+            // Misuse the "resultFile" as the "scanPath" even if semantical nonsense to have a simpe way for testing
+            // the calculation of the package verification code.
             val summary = scanner.generateSummary(Instant.now(), Instant.now(), resultFile, result)
 
             summary.fileCount shouldBe 10
@@ -65,7 +71,11 @@ class ScanCodeTest : WordSpec({
         "return true for scan results with only timeout errors" {
             val resultFile = File("src/test/assets/esprima-2.7.3_scancode-2.2.1.post277.4d68f9377.json")
             val result = scanner.getRawResult(resultFile)
+
+            // Misuse the "resultFile" as the "scanPath" even if semantical nonsense to have a simpe way for testing
+            // the calculation of the package verification code.
             val summary = scanner.generateSummary(Instant.now(), Instant.now(), resultFile, result)
+
             val issues = summary.issues.toMutableList()
 
             ScanCode.mapTimeoutErrors(issues) shouldBe true
@@ -101,6 +111,9 @@ class ScanCodeTest : WordSpec({
         "return false for scan results without errors" {
             val resultFile = File("src/test/assets/esprima-2.7.3_scancode-2.2.1.json")
             val result = scanner.getRawResult(resultFile)
+
+            // Misuse the "resultFile" as the "scanPath" even if semantical nonsense to have a simpe way for testing
+            // the calculation of the package verification code.
             val summary = scanner.generateSummary(Instant.now(), Instant.now(), resultFile, result)
 
             ScanCode.mapTimeoutErrors(summary.issues.toMutableList()) shouldBe false
@@ -111,7 +124,11 @@ class ScanCodeTest : WordSpec({
         "return true for scan results with only memory errors" {
             val resultFile = File("src/test/assets/very-long-json-lines_scancode-2.2.1.post277.4d68f9377.json")
             val result = scanner.getRawResult(resultFile)
+
+            // Misuse the "resultFile" as the "scanPath" even if semantical nonsense to have a simpe way for testing
+            // the calculation of the package verification code.
             val summary = scanner.generateSummary(Instant.now(), Instant.now(), resultFile, result)
+
             val issues = summary.issues.toMutableList()
 
             ScanCode.mapUnknownIssues(issues) shouldBe true
@@ -123,7 +140,11 @@ class ScanCodeTest : WordSpec({
         "return false for scan results with other unknown errors" {
             val resultFile = File("src/test/assets/kotlin-annotation-processing-gradle-1.2.21_scancode.json")
             val result = scanner.getRawResult(resultFile)
+
+            // Misuse the "resultFile" as the "scanPath" even if semantical nonsense to have a simpe way for testing
+            // the calculation of the package verification code.
             val summary = scanner.generateSummary(Instant.now(), Instant.now(), resultFile, result)
+
             val issues = summary.issues.toMutableList()
 
             ScanCode.mapUnknownIssues(issues) shouldBe false
@@ -136,6 +157,9 @@ class ScanCodeTest : WordSpec({
         "return false for scan results without errors" {
             val resultFile = File("src/test/assets/esprima-2.7.3_scancode-2.2.1.json")
             val result = scanner.getRawResult(resultFile)
+
+            // Misuse the "resultFile" as the "scanPath" even if semantical nonsense to have a simpe way for testing
+            // the calculation of the package verification code.
             val summary = scanner.generateSummary(Instant.now(), Instant.now(), resultFile, result)
 
             ScanCode.mapUnknownIssues(summary.issues.toMutableList()) shouldBe false
@@ -518,6 +542,9 @@ class ScanCodeTest : WordSpec({
 
             val resultFile = File("src/test/assets/esprima-2.7.3_scancode-2.2.1.json")
             val result = scanner.getRawResult(resultFile)
+
+            // Misuse the "resultFile" as the "scanPath" even if semantical nonsense to have a simpe way for testing
+            // the calculation of the package verification code.
             val summary = scanner.generateSummary(Instant.now(), Instant.now(), resultFile, result)
 
             summary.licenseFindings shouldContainExactlyInAnyOrder expectedLicenseFindings
@@ -704,6 +731,9 @@ class ScanCodeTest : WordSpec({
 
             val resultFile = File("src/test/assets/esprima-2.7.3_scancode-2.2.1.json")
             val result = scanner.getRawResult(resultFile)
+
+            // Misuse the "resultFile" as the "scanPath" even if semantical nonsense to have a simpe way for testing
+            // the calculation of the package verification code.
             val summary = scanner.generateSummary(Instant.now(), Instant.now(), resultFile, result)
 
             summary.copyrightFindings shouldContainExactlyInAnyOrder expectedCopyrightFindings
@@ -714,6 +744,8 @@ class ScanCodeTest : WordSpec({
             val result = scanner.getRawResult(resultFile)
 
             val actualFindings = scanner
+                // Misuse the "resultFile" as the "scanPath" even if semantical nonsense to have a simpe way for testing
+                // the calculation of the package verification code.
                 .generateSummary(Instant.now(), Instant.now(), resultFile, result)
                 .licenseFindings
 
@@ -738,6 +770,8 @@ class ScanCodeTest : WordSpec({
             val result = scanner.getRawResult(resultFile)
 
             val actualFindings = scanner
+                // Misuse the "resultFile" as the "scanPath" even if semantical nonsense to have a simpe way for testing
+                // the calculation of the package verification code.
                 .generateSummary(Instant.now(), Instant.now(), resultFile, result)
                 .copyrightFindings
 
