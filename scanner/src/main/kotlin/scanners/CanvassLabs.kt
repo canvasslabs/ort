@@ -79,8 +79,8 @@ class CanvassLabs(name: String, config: ScannerConfiguration) : LocalScanner(nam
         }
 
         val archive = "ORTClient-$scannerVersion-$platform.zip"
-        //val url = "https://127.0.0.1:5000/lian_ort/download/v$scannerVersion/$archive"
-        val url = "http://127.0.0.1:5000/lian_ort/download/v$scannerVersion/$archive"
+        val url = "https://s3.us-west-2.amazonaws.com/ortclient/v1.3.1/x86_64-unknown-linux/ORTClient-1.3.1-x86_64-unknown-linux.zip"
+        //val url = "http://127.0.0.1:5000/lian_ort/download/v$scannerVersion/$archive"
 
         log.info { "Downloading $scannerName from $url... " }
 
@@ -162,16 +162,17 @@ class CanvassLabs(name: String, config: ScannerConfiguration) : LocalScanner(nam
         val licenseFindings = sortedSetOf<LicenseFinding>()
 
         result.flatMapTo(licenseFindings) { file ->
-            val filePath = File(file["file_path"].textValue())
+            // local_file_path contains the original file name and path of the client's file.
+            // file_path is the deidentified file name given to the local file before sending metadata off to the server.
+            // LiAn depends on having a filename on the server side.
+            val filePath = File(file["local_file_path"].textValue())
             file["matches"].map {
-               LicenseFinding(
-                    license = it["matched_license"].textValue(),
-                    location = TextLocation(
-                        relativizePath(scanPath, filePath),
-			it["start_line_ind"].intValue(),
-			it["end_line_ind"].intValue()
-                    )
-                )
+               val license = it["matched_license"].textValue()
+               // ORT expects line numbers to begin at 1, not 0. Set the range to start at 1 and end at end + 1
+               val start_line = it["start_line_ind"].intValue() + 1
+               val end_line = it["end_line_ind"].intValue() + 1 
+               val location = TextLocation(relativizePath(scanPath, filePath), start_line, end_line)
+               LicenseFinding(license, location)
             }
         }
 
