@@ -26,18 +26,21 @@ import com.fasterxml.jackson.core.JsonGenerator
 import com.fasterxml.jackson.databind.JsonNode
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.fasterxml.jackson.databind.SerializationFeature
-import com.fasterxml.jackson.databind.json.JsonMapper
-import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule
 import com.fasterxml.jackson.databind.introspect.ObjectIdInfo
+import com.fasterxml.jackson.databind.json.JsonMapper
 import com.fasterxml.jackson.databind.node.ArrayNode
 import com.fasterxml.jackson.databind.node.ObjectNode
 import com.fasterxml.jackson.dataformat.yaml.YAMLMapper
+import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule
 import com.fasterxml.jackson.module.kotlin.registerKotlinModule
+
+import java.io.Writer
 
 import org.ossreviewtoolkit.model.CustomData
 import org.ossreviewtoolkit.model.OrtIssue
 import org.ossreviewtoolkit.model.OrtResult
 import org.ossreviewtoolkit.model.PROPERTY_NAMING_STRATEGY
+import org.ossreviewtoolkit.model.Repository
 import org.ossreviewtoolkit.model.RuleViolation
 import org.ossreviewtoolkit.model.config.IssueResolution
 import org.ossreviewtoolkit.model.config.LicenseFindingCuration
@@ -49,8 +52,6 @@ import org.ossreviewtoolkit.reporter.Reporter
 import org.ossreviewtoolkit.reporter.ReporterInput
 import org.ossreviewtoolkit.reporter.reporters.WebAppReporter
 import org.ossreviewtoolkit.reporter.utils.IntIdModule
-
-import java.io.Writer
 
 /**
  * The [EvaluatedModel] represents the outcome of the evaluation of a [ReporterInput]. This means that all additional
@@ -98,7 +99,7 @@ data class EvaluatedModel(
     val scopeExcludes: List<ScopeExclude>,
     val copyrights: List<CopyrightStatement>,
     val licenses: List<LicenseId>,
-    val scopes: List<ScopeName>,
+    val scopes: List<EvaluatedScope>,
     val issueResolutions: List<IssueResolution>,
     val issues: List<EvaluatedOrtIssue>,
     val scanResults: List<EvaluatedScanResult>,
@@ -108,9 +109,14 @@ data class EvaluatedModel(
     val ruleViolationResolutions: List<RuleViolationResolution>,
     val ruleViolations: List<EvaluatedRuleViolation>,
     val statistics: Statistics,
-    // TODO: Ideally this would be an instance of RepositoryConfiguration, but for now it has to be a string to not be
-    //       converted to JSON when using it as input for the web app reporter.
+    val repository: Repository,
+
+    /**
+     * The repository configuration as YAML string. Required to be able to easily show the repository configuration in
+     * the web app reporter without any of the serialization optimizations.
+     */
     val repositoryConfiguration: String,
+
     val customData: CustomData
 ) {
     companion object {
@@ -121,11 +127,11 @@ data class EvaluatedModel(
             EvaluatedPackagePath::class.java,
             EvaluatedRuleViolation::class.java,
             EvaluatedScanResult::class.java,
+            EvaluatedScope::class.java,
             IssueResolution::class.java,
             LicenseId::class.java,
             PathExclude::class.java,
             RuleViolationResolution::class.java,
-            ScopeName::class.java,
             ScopeExclude::class.java
         )
 
@@ -150,8 +156,19 @@ data class EvaluatedModel(
         fun create(input: ReporterInput): EvaluatedModel = EvaluatedModelMapper(input).build()
     }
 
-    fun toJson(writer: Writer): Unit = JSON_MAPPER.writerWithDefaultPrettyPrinter().writeValue(writer, toSortedTree())
+    /**
+     * Serialize this [EvaluatedModel] to JSON and write the output to the [writer], optionally
+     * [pretty printed][prettyPrint].
+     */
+    fun toJson(writer: Writer, prettyPrint: Boolean = true) =
+        when {
+            prettyPrint -> JSON_MAPPER.writerWithDefaultPrettyPrinter()
+            else -> JSON_MAPPER.writer()
+        }.writeValue(writer, toSortedTree())
 
+    /**
+     * Serialize this [EvaluatedModel] to YAML and write the output to the [writer].
+     */
     fun toYaml(writer: Writer): Unit = YAML_MAPPER.writeValue(writer, toSortedTree())
 
     /**
@@ -163,8 +180,7 @@ data class EvaluatedModel(
         tree.forEach { node ->
             if (node is ArrayNode) {
                 if (!node.isEmpty && node[0].has("_id")) {
-                    val sortedChildren =
-                        node.elements().asSequence().toList().sortedBy { it["_id"].intValue() }.toList()
+                    val sortedChildren = node.elements().asSequence().sortedBy { it["_id"].intValue() }.toList()
                     node.removeAll()
                     node.addAll(sortedChildren)
                 }

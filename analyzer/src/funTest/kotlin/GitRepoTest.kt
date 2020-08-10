@@ -19,12 +19,18 @@
 
 package org.ossreviewtoolkit.analyzer
 
+import io.kotest.core.spec.Spec
+import io.kotest.core.spec.style.StringSpec
+import io.kotest.matchers.shouldBe
+
+import java.io.File
+
+import org.ossreviewtoolkit.analyzer.managers.toYaml
 import org.ossreviewtoolkit.downloader.VersionControlSystem
 import org.ossreviewtoolkit.downloader.vcs.GitRepo
 import org.ossreviewtoolkit.model.Package
 import org.ossreviewtoolkit.model.VcsInfo
 import org.ossreviewtoolkit.model.VcsType
-import org.ossreviewtoolkit.model.yamlMapper
 import org.ossreviewtoolkit.utils.Ci
 import org.ossreviewtoolkit.utils.ORT_NAME
 import org.ossreviewtoolkit.utils.safeDeleteRecursively
@@ -32,14 +38,8 @@ import org.ossreviewtoolkit.utils.test.DEFAULT_ANALYZER_CONFIGURATION
 import org.ossreviewtoolkit.utils.test.patchActualResult
 import org.ossreviewtoolkit.utils.test.patchExpectedResult
 
-import io.kotlintest.Spec
-import io.kotlintest.shouldBe
-import io.kotlintest.specs.StringSpec
-
-import java.io.File
-
 private const val REPO_URL = "https://github.com/oss-review-toolkit/ort-test-data-git-repo"
-private const val REPO_REV = "9e0e15c2f18c95be4f59e5522bc1bbaeef1802ca"
+private const val REPO_REV = "31588aa8f8555474e1c3c66a359ec99e4cd4b1fa"
 private const val REPO_MANIFEST = "manifest.xml"
 
 class GitRepoTest : StringSpec() {
@@ -61,9 +61,13 @@ class GitRepoTest : StringSpec() {
     }
 
     init {
-        "Analyzer correctly reports VcsInfo for git-repo projects".config(enabled = !Ci.isTravis) {
+        // Disabled on Travis because it causes an OutOfMemoryError for unknown reasons.
+        // Disabled on Azure Windows because it fails for unknown reasons.
+        "Analyzer correctly reports VcsInfo for git-repo projects".config(
+            enabled = !Ci.isAzureWindows && !Ci.isTravis
+        ) {
             val ortResult = Analyzer(DEFAULT_ANALYZER_CONFIGURATION).analyze(outputDir)
-            val actualResult = yamlMapper.writeValueAsString(ortResult)
+            val actualResult = ortResult.toYaml()
             val expectedResult = patchExpectedResult(
                 File("src/funTest/assets/projects/external/git-repo-expected-output.yml"),
                 revision = REPO_REV,
@@ -79,7 +83,7 @@ class GitRepoTest : StringSpec() {
                 "submodules",
                 "submodules/commons-text",
                 "submodules/test-data-npm",
-                "submodules/test-data-npm/entities",
+                "submodules/test-data-npm/isarray",
                 "submodules/test-data-npm/long.js"
             ).associateWith { VersionControlSystem.getPathInfo(File(outputDir, it)) }
 

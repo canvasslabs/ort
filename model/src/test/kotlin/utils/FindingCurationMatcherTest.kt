@@ -19,17 +19,23 @@
 
 package org.ossreviewtoolkit.model.utils
 
+import io.kotest.core.spec.IsolationMode
+import io.kotest.core.spec.style.WordSpec
+import io.kotest.matchers.collections.containExactlyInAnyOrder
+import io.kotest.matchers.nulls.shouldBeNull
+import io.kotest.matchers.should
+import io.kotest.matchers.shouldBe
+
+import kotlin.random.Random
+
 import org.ossreviewtoolkit.model.LicenseFinding
 import org.ossreviewtoolkit.model.TextLocation
 import org.ossreviewtoolkit.model.config.LicenseFindingCuration
 import org.ossreviewtoolkit.model.config.LicenseFindingCurationReason.INCORRECT
-
-import io.kotlintest.IsolationMode
-import io.kotlintest.matchers.collections.shouldContainExactlyInAnyOrder
-import io.kotlintest.shouldBe
-import io.kotlintest.specs.WordSpec
-
-import kotlin.random.Random
+import org.ossreviewtoolkit.model.licenses.LicenseFindingCurationResult
+import org.ossreviewtoolkit.spdx.SpdxConstants
+import org.ossreviewtoolkit.spdx.toSpdx
+import org.ossreviewtoolkit.utils.test.shouldNotBeNull
 
 class FindingCurationMatcherTest : WordSpec() {
     private val matcher = FindingCurationMatcher()
@@ -50,15 +56,15 @@ class FindingCurationMatcherTest : WordSpec() {
         path: String,
         startLines: List<Int>,
         lineCount: Int?,
-        concludedLicense: String = "concluded_license_${Random.nextInt()}",
+        concludedLicense: String = "concluded-license-${Random.nextInt()}",
         comment: String = "comment_${Random.nextInt()}"
     ) {
         curation = LicenseFindingCuration(
             path = path,
             startLines = startLines,
             lineCount = lineCount,
-            detectedLicense = license,
-            concludedLicense = concludedLicense,
+            detectedLicense = license?.toSpdx(),
+            concludedLicense = concludedLicense.toSpdx(),
             reason = INCORRECT,
             comment = comment
         )
@@ -175,10 +181,12 @@ class FindingCurationMatcherTest : WordSpec() {
                     concludedLicense = "Apache-2.0"
                 )
 
-                val curatedFinding = matcher.apply(finding, curation)!!
+                val curatedFinding = matcher.apply(finding, curation)
 
-                curatedFinding.license shouldBe "Apache-2.0"
-                curatedFinding.location shouldBe finding.location
+                curatedFinding shouldNotBeNull {
+                    license shouldBe "Apache-2.0".toSpdx()
+                    location shouldBe finding.location
+                }
             }
         }
 
@@ -193,7 +201,7 @@ class FindingCurationMatcherTest : WordSpec() {
                     concludedLicense = "NONE"
                 )
 
-                matcher.apply(finding, curation) shouldBe null
+                matcher.apply(finding, curation).shouldBeNull()
             }
         }
 
@@ -201,7 +209,7 @@ class FindingCurationMatcherTest : WordSpec() {
             "return the original finding" {
                 setupFinding(license = "MIT", path = "a/path", startLine = 8, endLine = 13)
                 setupCuration(
-                    license = "Non matching license",
+                    license = "Non-matching-license",
                     path = "**",
                     startLines = emptyList(),
                     lineCount = null,
@@ -226,37 +234,60 @@ class FindingCurationMatcherTest : WordSpec() {
                     LicenseFinding(
                         license = "MIT",
                         location = TextLocation(path = "some/other/path", startLine = 3, endLine = 3)
+                    ),
+                    LicenseFinding(
+                        license = "MIT",
+                        location = TextLocation(path = "one/more/path", startLine = 4, endLine = 4)
                     )
                 )
                 val curations = listOf(
                     LicenseFindingCuration(
                         path = "some/path",
-                        detectedLicense = "MIT",
+                        detectedLicense = "MIT".toSpdx(),
                         reason = INCORRECT,
-                        concludedLicense = "Apache-2.0"
+                        concludedLicense = "Apache-2.0".toSpdx()
                     ),
                     LicenseFindingCuration(
                         path = "another/path",
-                        detectedLicense = "MIT",
+                        detectedLicense = "MIT".toSpdx(),
                         reason = INCORRECT,
-                        concludedLicense = "BSD-3-Clause"
+                        concludedLicense = "BSD-3-Clause".toSpdx()
+                    ),
+                    LicenseFindingCuration(
+                        path = "one/more/path",
+                        detectedLicense = "MIT".toSpdx(),
+                        reason = INCORRECT,
+                        concludedLicense = SpdxConstants.NONE.toSpdx()
                     )
                 )
 
                 val result = matcher.applyAll(findings, curations)
 
-                result shouldContainExactlyInAnyOrder listOf(
-                    LicenseFinding(
-                        license = "Apache-2.0",
-                        location = TextLocation(path = "some/path", startLine = 1, endLine = 1)
+                result should containExactlyInAnyOrder(
+                    LicenseFindingCurationResult(
+                        curatedFinding = LicenseFinding(
+                            license = "Apache-2.0",
+                            location = TextLocation(path = "some/path", startLine = 1, endLine = 1)
+                        ),
+                        originalFindings = listOf(Pair(findings[0], curations[0]))
                     ),
-                    LicenseFinding(
-                        license = "BSD-3-Clause",
-                        location = TextLocation(path = "another/path", startLine = 2, endLine = 2)
+                    LicenseFindingCurationResult(
+                        curatedFinding = LicenseFinding(
+                            license = "BSD-3-Clause",
+                            location = TextLocation(path = "another/path", startLine = 2, endLine = 2)
+                        ),
+                        originalFindings = listOf(Pair(findings[1], curations[1]))
                     ),
-                    LicenseFinding(
-                        license = "MIT",
-                        location = TextLocation(path = "some/other/path", startLine = 3, endLine = 3)
+                    LicenseFindingCurationResult(
+                        curatedFinding = LicenseFinding(
+                            license = "MIT",
+                            location = TextLocation(path = "some/other/path", startLine = 3, endLine = 3)
+                        ),
+                        originalFindings = emptyList()
+                    ),
+                    LicenseFindingCurationResult(
+                        curatedFinding = null,
+                        originalFindings = listOf(Pair(findings[3], curations[2]))
                     )
                 )
             }
@@ -273,28 +304,38 @@ class FindingCurationMatcherTest : WordSpec() {
                 val curations = listOf(
                     LicenseFindingCuration(
                         path = "some/path",
-                        detectedLicense = "MIT",
+                        detectedLicense = "MIT".toSpdx(),
                         reason = INCORRECT,
-                        concludedLicense = "MIT-old-style"
+                        concludedLicense = "MIT-old-style".toSpdx()
                     ),
                     LicenseFindingCuration(
                         path = "some/path",
-                        detectedLicense = "MIT",
+                        detectedLicense = "MIT".toSpdx(),
                         reason = INCORRECT,
-                        concludedLicense = "Apache-2.0"
+                        concludedLicense = "Apache-2.0".toSpdx()
                     )
                 )
 
                 val result = matcher.applyAll(findings, curations)
 
-                result shouldContainExactlyInAnyOrder listOf(
-                    LicenseFinding(
-                        license = "MIT-old-style",
-                        location = TextLocation(path = "some/path", startLine = 1, endLine = 1)
+                result should containExactlyInAnyOrder(
+                    LicenseFindingCurationResult(
+                        curatedFinding = LicenseFinding(
+                            license = "MIT-old-style",
+                            location = TextLocation(path = "some/path", startLine = 1, endLine = 1)
+                        ),
+                        originalFindings = listOf(
+                            Pair(findings.first(), curations[0])
+                        )
                     ),
-                    LicenseFinding(
-                        license = "Apache-2.0",
-                        location = TextLocation(path = "some/path", startLine = 1, endLine = 1)
+                    LicenseFindingCurationResult(
+                        curatedFinding = LicenseFinding(
+                            license = "Apache-2.0",
+                            location = TextLocation(path = "some/path", startLine = 1, endLine = 1)
+                        ),
+                        originalFindings = listOf(
+                            Pair(findings.first(), curations[1])
+                        )
                     )
                 )
             }

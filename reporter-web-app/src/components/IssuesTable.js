@@ -105,16 +105,7 @@ const IssuesTable = (props) => {
             ])(),
             filteredValue: filteredInfo.severityIndex || null,
             onFilter: (value, webAppOrtIssue) => webAppOrtIssue.severityIndex === Number(value),
-            sorter: (a, b) => {
-                if (a.severityIndex < b.severityIndex) {
-                    return -1;
-                }
-                if (a.severityIndex > b.severityIndex) {
-                    return 1;
-                }
-
-                return 0;
-            },
+            sorter: (a, b) => a.severityIndex - b.severityIndex,
             render: (text, webAppOrtIssue) => (
                 webAppOrtIssue.isResolved
                     ? (
@@ -206,7 +197,7 @@ const IssuesTable = (props) => {
                     <span className="ort-excludes">
                         <Tooltip
                             placement="right"
-                            title={Array.from(webAppPackage.pathExcludeReasons).join(', ')}
+                            title={Array.from(webAppPackage.excludeReasons).join(', ')}
                         >
                             <FileExcelOutlined className="ort-excluded" />
                         </Tooltip>

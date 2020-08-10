@@ -21,10 +21,15 @@
 
 package org.ossreviewtoolkit.spdx
 
+import com.fasterxml.jackson.dataformat.yaml.YAMLMapper
+import com.fasterxml.jackson.module.kotlin.registerKotlinModule
+
 import java.io.File
 import java.net.URL
 import java.security.MessageDigest
 import java.util.EnumSet
+
+import org.ossreviewtoolkit.spdx.SpdxExpression.Strictness
 
 /**
  * A list of globs that match file names which are not license files but typically trigger false-positives.
@@ -46,6 +51,16 @@ internal val VCS_DIRECTORIES = listOf(
 )
 
 /**
+ * A comparator that sorts parent paths before child paths.
+ */
+internal val PATH_STRING_COMPARATOR = compareBy<String>({ path -> path.count { it == '/' } }, { it })
+
+/**
+ * A mapper to read license mapping from YAML resource files.
+ */
+internal val yamlMapper = YAMLMapper().registerKotlinModule()
+
+/**
  * Return a string of hexadecimal digits representing the bytes in the array.
  */
 private fun ByteArray.toHexString(): String = joinToString("") { String.format("%02x", it) }
@@ -53,7 +68,7 @@ private fun ByteArray.toHexString(): String = joinToString("") { String.format("
 /**
  * Calculate the [SPDX package verification code][1] for a list of [known SHA1s][sha1sums] of files and [excludes].
  *
- * [1]: https://spdx.org/spdx_specification_2_0_html#h.2p2csry
+ * [1]: https://spdx.dev/spdx_specification_2_0_html#h.2p2csry
  */
 @JvmName("calculatePackageVerificationCodeForStrings")
 fun calculatePackageVerificationCode(sha1sums: Sequence<String>, excludes: Sequence<String> = emptySequence()): String {
@@ -71,7 +86,7 @@ fun calculatePackageVerificationCode(sha1sums: Sequence<String>, excludes: Seque
 /**
  * Calculate the [SPDX package verification code][1] for a list of [files] and paths of [excludes].
  *
- * [1]: https://spdx.org/spdx_specification_2_0_html#h.2p2csry
+ * [1]: https://spdx.dev/spdx_specification_2_0_html#h.2p2csry
  */
 @JvmName("calculatePackageVerificationCodeForFiles")
 fun calculatePackageVerificationCode(files: Sequence<File>, excludes: Sequence<String> = emptySequence()): String =
@@ -83,8 +98,8 @@ fun calculatePackageVerificationCode(files: Sequence<File>, excludes: Sequence<S
 private fun sha1sum(file: File): String =
     file.inputStream().use { inputStream ->
         // 4MB has been chosen rather arbitrary hoping that it provides a good enough performance while not consuming
-        // too a lot of memory, also considering that this function could potentially be run on multiple thread in
-        // parallel.
+        // a lot of memory at the same time, also considering that this function could potentially be run on multiple
+        // threads in parallel.
         val buffer = ByteArray(4 * 1024 * 1024)
         val digest = MessageDigest.getInstance("SHA-1")
 
@@ -102,11 +117,11 @@ private fun sha1sum(file: File): String =
  * All files with the extension ".spdx" are automatically excluded from the generated code. Additionally files from
  * [VCS directories][VCS_DIRECTORIES] are excluded.
  *
- * [1]: https://spdx.org/spdx_specification_2_0_html#h.2p2csry
+ * [1]: https://spdx.dev/spdx_specification_2_0_html#h.2p2csry
  */
 @JvmName("calculatePackageVerificationCodeForDirectory")
 fun calculatePackageVerificationCode(directory: File): String {
-    val allFiles = directory.walkTopDown().filter { it.isFile }
+    val allFiles = directory.walk().onEnter { !it.isSymbolicLink() }.filter { !it.isSymbolicLink() && it.isFile }
     val spdxFiles = allFiles.filter { it.extension == "spdx" }
     val files = allFiles.filter { it.extension != "spdx" }
 
@@ -118,7 +133,7 @@ fun calculatePackageVerificationCode(directory: File): String {
     }
 
     val sortedExcludes = spdxFiles.map { "./${it.relativeTo(directory).invariantSeparatorsPath}" }
-        .sortedWith(compareBy({ it.count { char -> char == '/' } }, { it }))
+            .sortedWith(PATH_STRING_COMPARATOR)
 
     return calculatePackageVerificationCode(filteredFiles, sortedExcludes)
 }
@@ -152,6 +167,19 @@ fun getLicenseTextReader(
         SpdxLicense.forId(id)?.let { { it.text } }
             ?: SpdxLicenseException.forId(id)?.takeIf { handleExceptions }?.let { { it.text } }
     }
+
+/**
+ * Return true if and only if this String can be successfully parsed to a [SpdxExpression].
+ */
+internal fun String.isSpdxExpression(): Boolean =
+    runCatching { SpdxExpression.parse(this, Strictness.ALLOW_DEPRECATED) }.isSuccess
+
+/**
+ * Return true if and only if this String can be successfully parsed to an [SpdxExpression] or if it equals
+ * [SpdxConstants.NONE] or [SpdxConstants.NOASSERTION].
+ */
+internal fun String.isSpdxExpressionOrNotPresent(): Boolean =
+    SpdxConstants.isNotPresent(this) || isSpdxExpression()
 
 private fun getLicenseTextResource(id: String): URL? =
     object {}.javaClass.getResource("/licenserefs/$id")

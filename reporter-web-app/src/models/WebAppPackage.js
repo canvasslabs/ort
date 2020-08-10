@@ -50,9 +50,15 @@ class WebAppPackage {
 
     #description;
 
+    #detectedExcludedLicenses = new Set();
+
+    #detectedExcludedLicensesIndexes = new Set();
+
     #detectedLicenses = new Set();
 
     #detectedLicensesIndexes = new Set();
+
+    #detectedLicensesProcessed = new Set();
 
     #findings = [];
 
@@ -170,6 +176,12 @@ class WebAppPackage {
                 this.#description = obj.description;
             }
 
+            if (obj.detected_excluded_licenses || obj.detectedExcludedLicenses) {
+                const detectedExcludedLicensesIndexes = obj.detected_excluded_licenses
+                    || obj.detectedExcludedLicenses;
+                this.#detectedExcludedLicensesIndexes = new Set(detectedExcludedLicensesIndexes);
+            }
+
             if (obj.detected_licenses || obj.detectedLicenses) {
                 const detectedLicensesIndexes = obj.detected_licenses
                     || obj.detectedLicenses;
@@ -247,49 +259,49 @@ class WebAppPackage {
 
             if (webAppOrtResult) {
                 this.#webAppOrtResult = webAppOrtResult;
+                const getLicenseNames = (indexes) => {
+                    const licenses = [];
+                    indexes.forEach((index) => {
+                        const webAppLicense = webAppOrtResult.getLicenseByIndex(index);
+                        if (webAppLicense) {
+                            const { id } = webAppLicense;
+                            licenses.push(id);
+                        }
+                    });
+
+                    return new Set(licenses.sort());
+                };
 
                 if (this.#declaredLicensesIndexes.size !== 0) {
-                    this.#declaredLicensesIndexes.forEach((index) => {
-                        const webAppLicense = webAppOrtResult.getLicenseByIndex(index);
-                        if (webAppLicense) {
-                            const { id } = webAppLicense;
-                            this.#declaredLicenses.add(id);
-                        }
-                    });
-                }
-
-                if (this.#detectedLicensesIndexes.size !== 0) {
-                    this.#detectedLicensesIndexes.forEach((index) => {
-                        const webAppLicense = webAppOrtResult.getLicenseByIndex(index);
-                        if (webAppLicense) {
-                            const { id } = webAppLicense;
-                            this.#detectedLicenses.add(id);
-                        }
-                    });
+                    this.#declaredLicenses = getLicenseNames(this.#declaredLicensesIndexes);
                 }
 
                 if (this.#declaredLicensesMappedIndexes.size !== 0) {
-                    this.#declaredLicensesMappedIndexes.forEach((index) => {
-                        const webAppLicense = webAppOrtResult.getLicenseByIndex(index);
-                        if (webAppLicense) {
-                            const { id } = webAppLicense;
-                            this.#declaredLicensesMapped.add(id);
-                        }
-                    });
+                    this.#declaredLicensesMapped = getLicenseNames(this.#declaredLicensesMappedIndexes);
                 }
 
                 if (this.#declaredLicensesUnmappedIndexes.size !== 0) {
-                    this.#declaredLicensesUnmappedIndexes.forEach((index) => {
-                        const webAppLicense = webAppOrtResult.getLicenseByIndex(index);
-                        if (webAppLicense) {
-                            const { id } = webAppLicense;
-                            this.#declaredLicensesUnmapped.add(id);
-                        }
-                    });
+                    this.#declaredLicensesUnmapped = getLicenseNames(this.#declaredLicensesUnmappedIndexes);
                 }
 
-                this.key = randomStringGenerator(20);
+                if (this.#detectedLicensesIndexes.size !== 0) {
+                    this.#detectedLicenses = getLicenseNames(this.#detectedLicensesIndexes);
+                }
+
+                if (this.#detectedExcludedLicensesIndexes.size !== 0) {
+                    this.#detectedExcludedLicenses = getLicenseNames(this.#detectedExcludedLicensesIndexes);
+
+                    this.#detectedLicensesProcessed = getLicenseNames(new Set(
+                        [...this.#detectedLicensesIndexes].filter(
+                            (license) => !this.#detectedExcludedLicensesIndexes.has(license)
+                        )
+                    ));
+                } else {
+                    this.#detectedLicensesProcessed = this.#detectedLicenses;
+                }
             }
+
+            this.key = randomStringGenerator(20);
         }
     }
 
@@ -337,6 +349,14 @@ class WebAppPackage {
         return this.#description;
     }
 
+    get detectedExcludedLicenses() {
+        return this.#detectedExcludedLicenses;
+    }
+
+    get detectedExcludedLicensesIndexes() {
+        return this.#detectedExcludedLicensesIndexes;
+    }
+
     get detectedLicenses() {
         return this.#detectedLicenses;
     }
@@ -345,8 +365,22 @@ class WebAppPackage {
         return this.#detectedLicensesIndexes;
     }
 
+    get detectedLicensesProcessed() {
+        return this.#detectedLicensesProcessed;
+    }
+
+    get excludeReasons() {
+        const { pathExcludeReasons, scopeExcludeReasons } = this;
+
+        return new Set([...pathExcludeReasons, ...scopeExcludeReasons]);
+    }
+
     get findings() {
         return this.#findings;
+    }
+
+    get homepageUrl() {
+        return this.#homepageUrl;
     }
 
     get id() {
@@ -450,6 +484,14 @@ class WebAppPackage {
         return this.#purl;
     }
 
+    get ruleViolations() {
+        if (!this.#ruleViolations && this.#webAppOrtResult) {
+            this.#ruleViolations = this.#webAppOrtResult.getRuleViolationsForPackageIndex(this.#_id);
+        }
+
+        return this.#ruleViolations;
+    }
+
     get scanResults() {
         return this.#scanResults;
     }
@@ -523,28 +565,25 @@ class WebAppPackage {
         return this.#sourceArtifact;
     }
 
-    get ruleViolations() {
-        if (!this.#ruleViolations && this.#webAppOrtResult) {
-            this.#ruleViolations = this.#webAppOrtResult.getRuleViolationsForPackageIndex(this.#_id);
-        }
-
-        return this.#ruleViolations;
-    }
-
     get vcs() {
         return this.#vcs;
+    }
+
+    get vcsUrl() {
+        return this.#vcs.url;
     }
 
     get vcsProcessed() {
         return this.#vcsProcessed;
     }
 
-    hasConcludedLicense() {
-        if (this.#concludedLicense) {
-            return this.#concludedLicense.length !== 0;
-        }
+    get vcsProcessedUrl() {
+        return this.#vcsProcessed.url;
+    }
 
-        return false;
+    hasConcludedLicense() {
+        return this.#concludedLicense
+            && this.#concludedLicense.length !== 0;
     }
 
     hasDeclaredLicenses() {
@@ -552,31 +591,26 @@ class WebAppPackage {
     }
 
     hasDeclaredLicensesMapped() {
-        if (this.#declaredLicensesMapped) {
-            return this.#declaredLicensesMapped.size !== 0;
-        }
-
-        return false;
+        return this.#declaredLicensesMapped
+            && this.#declaredLicensesMapped.size !== 0;
     }
 
     hasDeclaredLicensesSpdxExpression() {
-        if (this.#declaredLicensesSpdxExpression) {
-            return this.#declaredLicensesSpdxExpression.length !== 0;
-        }
-
-        return false;
+        return this.#declaredLicensesSpdxExpression
+            && this.#declaredLicensesSpdxExpression.length !== 0;
     }
 
     hasDeclaredLicensesUnmapped() {
-        if (this.#declaredLicensesUnmapped) {
-            return this.#declaredLicensesUnmapped.size !== 0;
-        }
-
-        return false;
+        return this.#declaredLicensesUnmapped
+            && this.#declaredLicensesUnmapped.size !== 0;
     }
 
     hasDetectedLicenses() {
         return this.#detectedLicenses.size !== 0;
+    }
+
+    hasDetectedExcludedLicenses() {
+        return this.#detectedExcludedLicenses.size !== 0;
     }
 
     hasFindings() {
@@ -592,28 +626,16 @@ class WebAppPackage {
     }
 
     hasLicenses() {
-        if (this.declaredLicenses.size !== 0
-            || this.detectedLicenses.size !== 0) {
-            return true;
-        }
-
-        return false;
+        return this.declaredLicenses.size !== 0
+            || this.detectedLicenses.size !== 0;
     }
 
     hasPathExcludes() {
-        if (this.pathExcludeIndexes.size !== 0) {
-            return true;
-        }
-
-        return false;
+        return this.pathExcludeIndexes.size !== 0;
     }
 
     hasPaths() {
-        if (this.paths && this.paths.length > 0) {
-            return true;
-        }
-
-        return false;
+        return this.paths && this.paths.length > 0;
     }
 
     hasScopeIndex(val) {
@@ -621,19 +643,11 @@ class WebAppPackage {
     }
 
     hasScopeExcludes() {
-        if (this.scopeExcludeIndexes.size !== 0) {
-            return true;
-        }
-
-        return false;
+        return this.scopeExcludeIndexes.size !== 0;
     }
 
     hasScopes() {
-        if (this.scopes && this.scopes.length > 0) {
-            return true;
-        }
-
-        return false;
+        return this.scopes && this.scopes.length > 0;
     }
 
     hasRuleViolations() {

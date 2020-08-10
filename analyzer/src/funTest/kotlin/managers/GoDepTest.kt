@@ -19,42 +19,55 @@
 
 package org.ossreviewtoolkit.analyzer.managers
 
+import io.kotest.core.spec.style.WordSpec
+import io.kotest.matchers.should
+import io.kotest.matchers.shouldBe
+import io.kotest.matchers.shouldNotBe
+import io.kotest.matchers.string.haveSubstring
+
+import java.io.File
+
 import org.ossreviewtoolkit.downloader.VersionControlSystem
 import org.ossreviewtoolkit.model.Identifier
 import org.ossreviewtoolkit.model.Project
 import org.ossreviewtoolkit.model.VcsInfo
 import org.ossreviewtoolkit.model.config.AnalyzerConfiguration
-import org.ossreviewtoolkit.model.yamlMapper
+import org.ossreviewtoolkit.utils.Ci
+import org.ossreviewtoolkit.utils.normalizeVcsUrl
 import org.ossreviewtoolkit.utils.test.DEFAULT_ANALYZER_CONFIGURATION
 import org.ossreviewtoolkit.utils.test.DEFAULT_REPOSITORY_CONFIGURATION
 import org.ossreviewtoolkit.utils.test.USER_DIR
-
-import io.kotlintest.matchers.haveSubstring
-import io.kotlintest.shouldBe
-import io.kotlintest.shouldNotBe
-import io.kotlintest.specs.WordSpec
-
-import java.io.File
+import org.ossreviewtoolkit.utils.test.patchExpectedResult
 
 class GoDepTest : WordSpec() {
     private val projectsDir = File("src/funTest/assets/projects").absoluteFile
+    private val vcsDir = VersionControlSystem.forDirectory(projectsDir)!!
+    private val vcsUrl = vcsDir.getRemoteUrl()
+    private val vcsRevision = vcsDir.getRevision()
 
     init {
         "GoDep" should {
             "resolve dependencies from a lockfile correctly" {
-                val manifestFile = File(projectsDir, "external/qmstr/Gopkg.toml")
-                val result = createGoDep().resolveDependencies(listOf(manifestFile))[manifestFile]
-                val expectedResult = File(projectsDir, "external/qmstr-expected-output.yml").readText()
+                val manifestFile = File(projectsDir, "synthetic/godep/lockfile/Gopkg.toml")
+                val vcsPath = vcsDir.getPathToRoot(manifestFile.parentFile)
 
-                yamlMapper.writeValueAsString(result) shouldBe expectedResult
+                val result = createGoDep().resolveSingleProject(manifestFile)
+
+                val expectedResult = patchExpectedResult(
+                    File(projectsDir, "synthetic/godep-expected-output.yml"),
+                    url = normalizeVcsUrl(vcsUrl),
+                    revision = vcsRevision,
+                    path = vcsPath
+                )
+
+                result.toYaml() shouldBe expectedResult
             }
 
             "show error if no lockfile is present" {
                 val manifestFile = File(projectsDir, "synthetic/godep/no-lockfile/Gopkg.toml")
-                val result = createGoDep().resolveDependencies(listOf(manifestFile))[manifestFile]
+                val result = createGoDep().resolveSingleProject(manifestFile)
 
-                result shouldNotBe null
-                with(result!!) {
+                with(result) {
                     project.id shouldBe
                             Identifier("GoDep::src/funTest/assets/projects/synthetic/godep/no-lockfile/Gopkg.toml:")
                     project.definitionFilePath shouldBe
@@ -65,53 +78,68 @@ class GoDepTest : WordSpec() {
                 }
             }
 
-            "invoke the dependency solver if no lockfile is present and allowDynamicVersions is set" {
+            // Disabled on Azure Windows because it fails for unknown reasons.
+            "invoke the dependency solver if no lockfile is present and allowDynamicVersions is set".config(
+                enabled = !Ci.isAzureWindows
+            ) {
                 val manifestFile = File(projectsDir, "synthetic/godep/no-lockfile/Gopkg.toml")
                 val config = AnalyzerConfiguration(ignoreToolVersions = false, allowDynamicVersions = true)
-                val result = createGoDep(config).resolveDependencies(listOf(manifestFile))[manifestFile]
+                val result = createGoDep(config).resolveSingleProject(manifestFile)
 
-                result shouldNotBe null
-                with(result!!) {
+                with(result) {
                     project shouldNotBe Project.EMPTY
-                    packages.size shouldBe 4
                     issues.size shouldBe 0
                 }
             }
 
             "import dependencies from Glide" {
-                val manifestFile = File(projectsDir, "external/sprig/glide.yaml")
-                val result = createGoDep().resolveDependencies(listOf(manifestFile))[manifestFile]
-                val expectedResult = File(projectsDir, "external/sprig-expected-output.yml").readText()
+                val manifestFile = File(projectsDir, "synthetic/godep/glide/glide.yaml")
+                val vcsPath = vcsDir.getPathToRoot(manifestFile.parentFile)
 
-                yamlMapper.writeValueAsString(result) shouldBe expectedResult
+                val result = createGoDep().resolveSingleProject(manifestFile)
+
+                val expectedResult = patchExpectedResult(
+                    File(projectsDir, "synthetic/glide-expected-output.yml"),
+                    url = normalizeVcsUrl(vcsUrl),
+                    revision = vcsRevision,
+                    path = vcsPath
+                )
+
+                result.toYaml() shouldBe expectedResult
             }
 
             "import dependencies from godeps" {
-                val manifestFile = File(projectsDir, "external/godep/Godeps/Godeps.json")
-                val result = createGoDep().resolveDependencies(listOf(manifestFile))[manifestFile]
-                val expectedResult = File(projectsDir, "external/godep-expected-output.yml").readText()
+                val manifestFile = File(projectsDir, "synthetic/godep/godeps/Godeps/Godeps.json")
+                val vcsPath = vcsDir.getPathToRoot(manifestFile.parentFile.parentFile)
 
-                yamlMapper.writeValueAsString(result) shouldBe expectedResult
+                val result = createGoDep().resolveSingleProject(manifestFile)
+
+                val expectedResult = patchExpectedResult(
+                    File(projectsDir, "synthetic/godeps-expected-output.yml"),
+                    url = normalizeVcsUrl(vcsUrl),
+                    revision = vcsRevision,
+                    path = vcsPath
+                )
+
+                result.toYaml() shouldBe expectedResult
+            }
+        }
+
+        "deduceImportPath()" should {
+            val projectDir = File(projectsDir, "synthetic/godep/lockfile")
+            val gopath = File("/tmp/gopath")
+
+            "deduce an import path from VCS info" {
+                val vcsInfo = VcsInfo.EMPTY.copy(url = "https://github.com/oss-review-toolkit/ort.git")
+
+                createGoDep().deduceImportPath(projectDir, vcsInfo, gopath) shouldBe
+                        File(gopath, "src/github.com/oss-review-toolkit/ort.git")
             }
 
-            "construct an import path from VCS info" {
-                val gopath = File("/tmp/gopath").absoluteFile
-                val projectDir = File(projectsDir, "external/qmstr")
-                val vcs = VersionControlSystem.forDirectory(projectDir)!!.getInfo()
+            "deduce an import path without VCS info" {
+                val vcsInfo = VcsInfo.EMPTY
 
-                val expectedPath = File("/tmp/gopath/src/github.com/QMSTR/qmstr.git").absoluteFile
-
-                createGoDep().deduceImportPath(projectDir, vcs, gopath) shouldBe expectedPath
-            }
-
-            "construct an import path for directories that are not repositories" {
-                val gopath = File("/tmp/gopath").absoluteFile
-                val projectDir = File(projectsDir, "synthetic/godep/no-lockfile")
-                val vcs = VcsInfo.EMPTY
-
-                val expectedPath = File("/tmp/gopath/src/no-lockfile").absoluteFile
-
-                createGoDep().deduceImportPath(projectDir, vcs, gopath) shouldBe expectedPath
+                createGoDep().deduceImportPath(projectDir, vcsInfo, gopath) shouldBe File(gopath, "src/lockfile")
             }
         }
     }

@@ -19,17 +19,8 @@
 
 package org.ossreviewtoolkit.reporter.reporters
 
-import org.ossreviewtoolkit.model.AnalyzerResult
-import org.ossreviewtoolkit.model.OrtResult
-import org.ossreviewtoolkit.model.VcsInfo
-import org.ossreviewtoolkit.reporter.Reporter
-import org.ossreviewtoolkit.reporter.ReporterInput
-import org.ossreviewtoolkit.reporter.reporters.ReportTableModel.ProjectTable
-import org.ossreviewtoolkit.reporter.reporters.ReportTableModel.SummaryTable
-import org.ossreviewtoolkit.utils.isValidUri
-
 import java.awt.Color
-import java.io.OutputStream
+import java.io.File
 
 import org.apache.poi.common.usermodel.HyperlinkType
 import org.apache.poi.ss.usermodel.BorderStyle
@@ -50,12 +41,35 @@ import org.apache.poi.xssf.usermodel.XSSFRichTextString
 import org.apache.poi.xssf.usermodel.XSSFSheet
 import org.apache.poi.xssf.usermodel.XSSFWorkbook
 
+import org.ossreviewtoolkit.model.AnalyzerResult
+import org.ossreviewtoolkit.model.OrtResult
+import org.ossreviewtoolkit.model.VcsInfo
+import org.ossreviewtoolkit.reporter.Reporter
+import org.ossreviewtoolkit.reporter.ReporterInput
+import org.ossreviewtoolkit.reporter.description
+import org.ossreviewtoolkit.reporter.utils.ReportTableModel.ProjectTable
+import org.ossreviewtoolkit.reporter.utils.ReportTableModel.SummaryTable
+import org.ossreviewtoolkit.reporter.utils.ReportTableModelMapper
+import org.ossreviewtoolkit.reporter.utils.SCOPE_EXCLUDE_LIST_COMPARATOR
+import org.ossreviewtoolkit.reporter.utils.SCOPE_EXCLUDE_MAP_COMPARATOR
+import org.ossreviewtoolkit.reporter.utils.containsUnresolved
+import org.ossreviewtoolkit.utils.isValidUri
+
+private const val OPTION_EXTRA_COLUMNS = "extraColumns"
+
 /**
  * A [Reporter] that creates an Excel sheet report from an [OrtResult] in the Open XML XLSX format. It creates one sheet
  * for each project in the [AnalyzerResult] from [OrtResult.analyzer] and an additional sheet that summarizes all
  * dependencies.
+ *
+ * This reporter supports the following options:
+ * - *extraColumns*: A comma separated list of columns that are added to each sheet.
  */
 class ExcelReporter : Reporter {
+    override val reporterName = "Excel"
+
+    private val reportFilename = "scan-report.xlsx"
+
     private val defaultColumns = 5
 
     private val borderColor = XSSFColor(Color(211, 211, 211))
@@ -78,13 +92,20 @@ class ExcelReporter : Reporter {
 
     private lateinit var creationHelper: CreationHelper
 
-    override val reporterName = "Excel"
-    override val defaultFilename = "scan-report.xlsx"
+    override fun generateReport(
+        input: ReporterInput,
+        outputDir: File,
+        options: Map<String, String>
+    ): List<File> {
+        val extraColumns = options[OPTION_EXTRA_COLUMNS].orEmpty()
+            .split(",")
+            .map { it.trim() }
+            .filter { it.isNotEmpty() }
 
-    override fun generateReport(outputStream: OutputStream, input: ReporterInput) {
-        val tabularScanRecord =
-            ReportTableModelMapper(input.resolutionProvider, input.packageConfigurationProvider).mapToReportTableModel(
-                input.ortResult
+        val tabularScanRecord = ReportTableModelMapper(input.resolutionProvider)
+            .mapToReportTableModel(
+                input.ortResult,
+                input.licenseInfoResolver
             )
 
         val workbook = XSSFWorkbook()
@@ -147,17 +168,31 @@ class ExcelReporter : Reporter {
         }
 
         createSummarySheet(
-            workbook, "Summary", "all", tabularScanRecord.summary, tabularScanRecord.vcsInfo,
-            tabularScanRecord.extraColumns
+            workbook = workbook,
+            name = "Summary",
+            file = "all",
+            table = tabularScanRecord.summary,
+            vcsInfo = tabularScanRecord.vcsInfo,
+            extraColumns = extraColumns
         )
         tabularScanRecord.projectDependencies.forEach { (project, table) ->
             createProjectSheet(
-                workbook, project.id.toCoordinates(), project.definitionFilePath, table,
-                project.vcsProcessed, tabularScanRecord.extraColumns
+                workbook = workbook,
+                name = project.id.toCoordinates(),
+                file = project.definitionFilePath,
+                table = table,
+                vcsInfo = project.vcsProcessed,
+                extraColumns = extraColumns
             )
         }
 
-        workbook.write(outputStream)
+        val outputFile = outputDir.resolve(reportFilename)
+
+        outputFile.outputStream().use {
+            workbook.write(it)
+        }
+
+        return listOf(outputFile)
     }
 
     private fun createMetadataSheet(workbook: XSSFWorkbook, metadata: Map<String, String>) {
@@ -188,8 +223,12 @@ class ExcelReporter : Reporter {
     }
 
     private fun createSummarySheet(
-        workbook: XSSFWorkbook, name: String, file: String, table: SummaryTable,
-        vcsInfo: VcsInfo, extraColumns: List<String>
+        workbook: XSSFWorkbook,
+        name: String,
+        file: String,
+        table: SummaryTable,
+        vcsInfo: VcsInfo,
+        extraColumns: List<String>
     ) {
         val sheetName = createUniqueSheetName(workbook, name)
 
@@ -214,12 +253,10 @@ class ExcelReporter : Reporter {
 
             val scopesText = XSSFRichTextString()
 
-            row.scopes.entries.sortedWith(compareBy({
-                it.value.values.isNotEmpty()
-            }, { it.key })).forEach { (id, scopes) ->
+            row.scopes.entries.sortedWith(SCOPE_EXCLUDE_MAP_COMPARATOR).forEach { (id, scopes) ->
                 scopesText.append("${id.toCoordinates()}\n", font)
 
-                scopes.entries.sortedWith(compareBy({ it.value.isNotEmpty() }, { it.key }))
+                scopes.entries.sortedWith(SCOPE_EXCLUDE_LIST_COMPARATOR)
                     .forEach { (scope, excludes) ->
                         scopesText.append(
                             "  $scope\n",
@@ -228,7 +265,7 @@ class ExcelReporter : Reporter {
 
                         excludes.forEach { exclude ->
                             scopesText.append(
-                                "    Excluded: ${exclude.reason} - ${exclude.comment}\n",
+                                "    Excluded: ${exclude.description}\n",
                                 excludedFont
                             )
                         }
@@ -262,7 +299,7 @@ class ExcelReporter : Reporter {
 
             val scanIssuesLines = row.scanIssues.size + row.scanIssues.flatMap { it.value }.size
 
-            sheet.createRow(currentRow).apply {
+            sheet.createRow(currentRow++).apply {
                 createCell(this, 0, row.id.toCoordinates(), font, cellStyle)
                 createCell(this, 1, scopesText, cellStyle)
                 createCell(this, 2, row.declaredLicenses.joinToString(" \n"), font, cellStyle)
@@ -270,21 +307,25 @@ class ExcelReporter : Reporter {
                 createCell(this, 4, analyzerIssuesText, font, cellStyle)
                 createCell(this, 5, scanIssuesText, font, cellStyle)
 
-                val maxLines = listOf(
-                    scopesLines, row.declaredLicenses.size, row.detectedLicenses.size,
-                    analyzerIssuesLines, scanIssuesLines
-                ).max() ?: 1
+                val maxLines = maxOf(
+                    maxOf(scopesLines, row.declaredLicenses.size, row.detectedLicenses.size),
+                    maxOf(analyzerIssuesLines, scanIssuesLines)
+                )
+
                 heightInPoints = maxLines * getSheet().defaultRowHeightInPoints
             }
-            ++currentRow
         }
 
         sheet.finalize(headerRows, currentRow, defaultColumns + extraColumns.size)
     }
 
     private fun createProjectSheet(
-        workbook: XSSFWorkbook, name: String, file: String, table: ProjectTable,
-        vcsInfo: VcsInfo, extraColumns: List<String>
+        workbook: XSSFWorkbook,
+        name: String,
+        file: String,
+        table: ProjectTable,
+        vcsInfo: VcsInfo,
+        extraColumns: List<String>
     ) {
         val sheetName = createUniqueSheetName(workbook, name)
 
@@ -294,8 +335,9 @@ class ExcelReporter : Reporter {
         var currentRow = headerRows
 
         table.rows.forEach { row ->
-            val isExcluded = table.isExcluded()
-                    || (row.scopes.values.let { it.isNotEmpty() && it.all { it.isNotEmpty() } })
+            val isExcluded = table.isExcluded() || row.scopes.values.let { scopeExcludes ->
+                scopeExcludes.isNotEmpty() && scopeExcludes.all { it.isNotEmpty() }
+            }
 
             val font = if (isExcluded) excludedFont else defaultFont
 
@@ -308,39 +350,42 @@ class ExcelReporter : Reporter {
 
             val scopesText = XSSFRichTextString()
 
-            row.scopes.entries.sortedWith(compareBy({ it.value.isNotEmpty() }, { it.key }))
+            row.scopes.entries.sortedWith(SCOPE_EXCLUDE_LIST_COMPARATOR)
                 .forEach { (scope, excludes) ->
                     scopesText.append("$scope\n", if (excludes.isNotEmpty()) excludedFont else font)
 
                     excludes.forEach { exclude ->
-                        scopesText.append("  Excluded: ${exclude.reason} - ${exclude.comment}\n", excludedFont)
+                        scopesText.append("  Excluded: ${exclude.description}\n", excludedFont)
                     }
                 }
 
             val scopesLines = row.scopes.size + row.scopes.flatMap { it.value }.size
 
-            sheet.createRow(currentRow).apply {
+            sheet.createRow(currentRow++).apply {
                 createCell(this, 0, row.id.toCoordinates(), font, cellStyle)
                 createCell(this, 1, scopesText, cellStyle)
                 createCell(this, 2, row.declaredLicenses.joinToString(" \n"), font, cellStyle)
-                createCell(this, 3, row.detectedLicenses.map { it.key.license }.joinToString(" \n"), font, cellStyle)
+                createCell(this, 3, row.detectedLicenses.map { it.license }.joinToString(" \n"), font, cellStyle)
                 createCell(this, 4, row.analyzerIssues.joinToString(" \n") { it.description }, font, cellStyle)
                 createCell(this, 5, row.scanIssues.joinToString(" \n") { it.description }, font, cellStyle)
 
-                val maxLines = listOf(
-                    scopesLines, row.declaredLicenses.size, row.detectedLicenses.size,
-                    row.analyzerIssues.size, row.scanIssues.size
-                ).max() ?: 1
+                val maxLines = maxOf(
+                    maxOf(scopesLines, row.declaredLicenses.size, row.detectedLicenses.size),
+                    maxOf(row.analyzerIssues.size, row.scanIssues.size)
+                )
+
                 heightInPoints = maxLines * getSheet().defaultRowHeightInPoints
             }
-            ++currentRow
         }
 
         sheet.finalize(headerRows, currentRow, defaultColumns + extraColumns.size)
     }
 
     private fun createHeader(
-        sheet: XSSFSheet, name: String, file: String, vcsInfo: VcsInfo,
+        sheet: XSSFSheet,
+        name: String,
+        file: String,
+        vcsInfo: VcsInfo,
         extraColumns: List<String>
     ): Int {
         val columns = defaultColumns + extraColumns.size

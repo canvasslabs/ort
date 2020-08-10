@@ -19,13 +19,13 @@
 
 package org.ossreviewtoolkit.utils.storage
 
-import org.ossreviewtoolkit.utils.showStackTrace
+import java.io.File
+import java.io.FileNotFoundException
 
 import org.apache.commons.compress.compressors.xz.XZCompressorInputStream
 import org.apache.commons.compress.compressors.xz.XZCompressorOutputStream
 
-import java.io.File
-import java.io.FileNotFoundException
+import org.ossreviewtoolkit.utils.showStackTrace
 
 /**
  * A [FileStorage] that stores compressed files in a [directory] of the local file system.
@@ -36,9 +36,11 @@ class XZCompressedLocalFileStorage(
      */
     directory: File
 ) : LocalFileStorage(directory) {
+    override fun transformPath(path: String) = "$path.xz"
+
     override fun read(path: String) =
         try {
-            XZCompressorInputStream(super.read("$path.xz"))
+            XZCompressorInputStream(super.read(transformPath(path)))
         } catch (compressedFileNotFoundException: FileNotFoundException) {
             compressedFileNotFoundException.showStackTrace()
 
@@ -52,5 +54,5 @@ class XZCompressedLocalFileStorage(
             }
         }
 
-    override fun getOutputStream(path: String) = XZCompressorOutputStream(super.getOutputStream("$path.xz"))
+    override fun getOutputStream(path: String) = XZCompressorOutputStream(super.getOutputStream(transformPath(path)))
 }

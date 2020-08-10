@@ -19,14 +19,17 @@
 
 package org.ossreviewtoolkit.utils
 
-import io.kotlintest.assertSoftly
-import io.kotlintest.shouldBe
-import io.kotlintest.shouldNotBe
-import io.kotlintest.shouldThrow
-import io.kotlintest.specs.WordSpec
+import io.kotest.assertions.assertSoftly
+import io.kotest.assertions.throwables.shouldThrow
+import io.kotest.core.spec.style.WordSpec
+import io.kotest.matchers.nulls.shouldNotBeNull
+import io.kotest.matchers.should
+import io.kotest.matchers.shouldBe
 
 import java.io.File
 import java.io.IOException
+
+import org.ossreviewtoolkit.utils.test.containExactly
 
 class ExtensionsTest : WordSpec({
     "ByteArray.toHexString" should {
@@ -36,12 +39,23 @@ class ExtensionsTest : WordSpec({
     }
 
     "File.expandTilde" should {
-        "only make the path absolute on Windows".config(enabled = Os.isWindows) {
-            File("~/Desktop").expandTilde() shouldBe File("~/Desktop").absoluteFile
+        "expand the path if the SHELL environment variable is set".config(enabled = Os.env["SHELL"] != null) {
+            File("~/Desktop").expandTilde() shouldBe Os.userHomeDirectory.resolve("Desktop")
         }
 
-        "expand the path on Unix".config(enabled = !Os.isWindows) {
-            File("~/Desktop").expandTilde() shouldBe getUserHomeDirectory().resolve("Desktop")
+        "make the path absolute if the SHELL environment variable is unset".config(enabled = Os.env["SHELL"] == null) {
+            File("~/Desktop").expandTilde() shouldBe File("~/Desktop").absoluteFile
+        }
+    }
+
+    "File.hash" should {
+        "calculate the correct SHA1" {
+            val file = createTempFile(ORT_NAME, javaClass.simpleName).apply {
+                writeText("test")
+                deleteOnExit()
+            }
+
+            file.hash() shouldBe "a94a8fe5ccb19ba61c4c0873d391e987982fbbd3"
         }
     }
 
@@ -110,7 +124,7 @@ class ExtensionsTest : WordSpec({
         "find the root Git directory" {
             val gitRoot = File(".").searchUpwardsForSubdirectory(".git")
 
-            gitRoot shouldNotBe null
+            gitRoot.shouldNotBeNull()
             gitRoot shouldBe File("..").absoluteFile.normalize()
         }
     }
@@ -149,7 +163,7 @@ class ExtensionsTest : WordSpec({
         }
 
         "throw exception if file is not a directory" {
-            val file = createTempFile().apply { deleteOnExit() }
+            val file = createTempFile(ORT_NAME, javaClass.simpleName).apply { deleteOnExit() }
 
             file.isFile shouldBe true
             shouldThrow<IOException> { file.safeMkdirs() }
@@ -268,13 +282,13 @@ class ExtensionsTest : WordSpec({
         "not fail if this map is empty" {
             val other = mapOf("1" to 1)
 
-            emptyMap<String, Int>().zip(other, operation) shouldBe mapOf("1" to 1)
+            emptyMap<String, Int>().zip(other, operation) should containExactly("1" to 1)
         }
 
         "not fail if other map is empty" {
             val map = mapOf("1" to 1)
 
-            map.zip(emptyMap(), operation) shouldBe mapOf("1" to 1)
+            map.zip(emptyMap(), operation) should containExactly("1" to 1)
         }
     }
 
@@ -305,13 +319,13 @@ class ExtensionsTest : WordSpec({
         "not fail if this map is empty" {
             val other = mapOf("1" to 1)
 
-            emptyMap<String, Int>().zipWithDefault(other, 1, operation) shouldBe mapOf("1" to 2)
+            emptyMap<String, Int>().zipWithDefault(other, 1, operation) should containExactly("1" to 2)
         }
 
         "not fail if other map is empty" {
             val map = mapOf("1" to 1)
 
-            map.zipWithDefault(emptyMap(), 1, operation) shouldBe mapOf("1" to 2)
+            map.zipWithDefault(emptyMap(), 1, operation) should containExactly("1" to 2)
         }
     }
 

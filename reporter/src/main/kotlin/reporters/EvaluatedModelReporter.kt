@@ -19,20 +19,24 @@
 
 package org.ossreviewtoolkit.reporter.reporters
 
+import java.io.File
+import java.io.Writer
+
+import kotlin.time.measureTimedValue
+
 import org.ossreviewtoolkit.reporter.Reporter
 import org.ossreviewtoolkit.reporter.ReporterInput
 import org.ossreviewtoolkit.reporter.model.EvaluatedModel
 import org.ossreviewtoolkit.utils.log
 
-import java.io.OutputStream
-import java.io.Writer
+private fun EvaluatedModel.toJson(writer: Writer) = toJson(writer, prettyPrint = true)
 
 /**
  * Creates a JSON file containing the evaluated model.
  */
 class EvaluatedModelJsonReporter : EvaluatedModelReporter(
     reporterName = "EvaluatedModelJson",
-    defaultFilename = "evaluated-model.json",
+    reportFilename = "evaluated-model.json",
     serialize = EvaluatedModel::toJson
 )
 
@@ -41,7 +45,7 @@ class EvaluatedModelJsonReporter : EvaluatedModelReporter(
  */
 class EvaluatedModelYamlReporter : EvaluatedModelReporter(
     reporterName = "EvaluatedModelYaml",
-    defaultFilename = "evaluated-model.yml",
+    reportFilename = "evaluated-model.yml",
     serialize = EvaluatedModel::toYaml
 )
 
@@ -51,16 +55,24 @@ class EvaluatedModelYamlReporter : EvaluatedModelReporter(
  */
 abstract class EvaluatedModelReporter(
     override val reporterName: String,
-    override val defaultFilename: String,
+    private val reportFilename: String,
     private val serialize: EvaluatedModel.(Writer) -> Unit
 ) : Reporter {
-    override fun generateReport(outputStream: OutputStream, input: ReporterInput) {
-        val start = System.currentTimeMillis()
-        val evaluatedModel = EvaluatedModel.create(input)
-        log.debug { "Generating evaluated model took ${System.currentTimeMillis() - start}ms" }
+    override fun generateReport(
+        input: ReporterInput,
+        outputDir: File,
+        options: Map<String, String>
+    ): List<File> {
+        val evaluatedModel = measureTimedValue { EvaluatedModel.create(input) }
 
-        outputStream.bufferedWriter().use {
-            evaluatedModel.serialize(it)
+        log.debug { "Generating evaluated model took ${evaluatedModel.duration.inMilliseconds}ms." }
+
+        val outputFile = outputDir.resolve(reportFilename)
+
+        outputFile.bufferedWriter().use {
+            evaluatedModel.value.serialize(it)
         }
+
+        return listOf(outputFile)
     }
 }

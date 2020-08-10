@@ -19,22 +19,23 @@
 
 package org.ossreviewtoolkit.scanner.scanners
 
-import org.ossreviewtoolkit.model.config.ScannerConfiguration
-import org.ossreviewtoolkit.scanner.LocalScanner
-import org.ossreviewtoolkit.utils.ORT_NAME
-import org.ossreviewtoolkit.utils.safeDeleteRecursively
-
-import io.kotlintest.Spec
-import io.kotlintest.Tag
-import io.kotlintest.TestCase
-import io.kotlintest.TestResult
-import io.kotlintest.matchers.file.shouldNotStartWithPath
-import io.kotlintest.shouldBe
-import io.kotlintest.shouldNotBe
-import io.kotlintest.specs.StringSpec
+import io.kotest.core.Tag
+import io.kotest.core.spec.Spec
+import io.kotest.core.spec.style.StringSpec
+import io.kotest.core.test.TestCase
+import io.kotest.core.test.TestResult
+import io.kotest.inspectors.forAll
+import io.kotest.matchers.file.shouldNotStartWithPath
+import io.kotest.matchers.nulls.shouldNotBeNull
+import io.kotest.matchers.shouldBe
 
 import java.io.File
-import java.util.TreeSet
+
+import org.ossreviewtoolkit.model.config.ScannerConfiguration
+import org.ossreviewtoolkit.scanner.LocalScanner
+import org.ossreviewtoolkit.spdx.SpdxExpression
+import org.ossreviewtoolkit.utils.ORT_NAME
+import org.ossreviewtoolkit.utils.safeDeleteRecursively
 
 abstract class AbstractScannerTest(testTags: Set<Tag> = emptySet()) : StringSpec() {
     protected val config = ScannerConfiguration()
@@ -47,8 +48,8 @@ abstract class AbstractScannerTest(testTags: Set<Tag> = emptySet()) : StringSpec
     private lateinit var outputDir: File
 
     abstract val scanner: LocalScanner
-    abstract val expectedFileLicenses: TreeSet<String>
-    abstract val expectedDirectoryLicenses: TreeSet<String>
+    abstract val expectedFileLicenses: Set<SpdxExpression>
+    abstract val expectedDirectoryLicenses: Set<SpdxExpression>
 
     override fun beforeSpec(spec: Spec) {
         super.beforeSpec(spec)
@@ -79,10 +80,10 @@ abstract class AbstractScannerTest(testTags: Set<Tag> = emptySet()) : StringSpec
             val result = scanner.scanPath(inputDir.resolve("LICENSE"), outputDir)
             val summary = result.scanner?.results?.scanResults?.singleOrNull()?.results?.singleOrNull()?.summary
 
-            summary shouldNotBe null
-            summary!!.fileCount shouldBe 1
+            summary.shouldNotBeNull()
+            summary.fileCount shouldBe 1
             summary.licenses shouldBe expectedFileLicenses
-            summary.licenseFindings.forEach {
+            summary.licenseFindings.forAll {
                 File(it.location.path) shouldNotStartWithPath inputDir
             }
         }
@@ -91,10 +92,10 @@ abstract class AbstractScannerTest(testTags: Set<Tag> = emptySet()) : StringSpec
             val result = scanner.scanPath(inputDir, outputDir)
             val summary = result.scanner?.results?.scanResults?.singleOrNull()?.results?.singleOrNull()?.summary
 
-            summary shouldNotBe null
-            summary!!.fileCount shouldBe commonlyDetectedFiles.size
+            summary.shouldNotBeNull()
+            summary.fileCount shouldBe commonlyDetectedFiles.size
             summary.licenses shouldBe expectedDirectoryLicenses
-            summary.licenseFindings.forEach {
+            summary.licenseFindings.forAll {
                 File(it.location.path) shouldNotStartWithPath inputDir
             }
         }

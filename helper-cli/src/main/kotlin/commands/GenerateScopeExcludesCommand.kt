@@ -19,11 +19,12 @@
 
 package org.ossreviewtoolkit.helper.commands
 
-import com.beust.jcommander.JCommander
-import com.beust.jcommander.Parameter
-import com.beust.jcommander.Parameters
+import com.github.ajalt.clikt.core.CliktCommand
+import com.github.ajalt.clikt.parameters.options.convert
+import com.github.ajalt.clikt.parameters.options.option
+import com.github.ajalt.clikt.parameters.options.required
+import com.github.ajalt.clikt.parameters.types.file
 
-import org.ossreviewtoolkit.helper.CommandWithHelp
 import org.ossreviewtoolkit.helper.common.minimize
 import org.ossreviewtoolkit.helper.common.replaceScopeExcludes
 import org.ossreviewtoolkit.helper.common.sortScopeExcludes
@@ -33,34 +34,27 @@ import org.ossreviewtoolkit.model.config.RepositoryConfiguration
 import org.ossreviewtoolkit.model.config.ScopeExclude
 import org.ossreviewtoolkit.model.config.ScopeExcludeReason
 import org.ossreviewtoolkit.model.readValue
-import org.ossreviewtoolkit.utils.PARAMETER_ORDER_MANDATORY
-import org.ossreviewtoolkit.utils.PARAMETER_ORDER_OPTIONAL
+import org.ossreviewtoolkit.utils.expandTilde
 
-import java.io.File
+internal class GenerateScopeExcludesCommand : CliktCommand(
+    help = "Generate scope excludes based on common default for the package managers. The output is written to the " +
+            "given repository configuration file."
+) {
+    private val ortResultFile by option(
+        "--ort-result-file",
+        help = "The input ORT file from which the rule violations are read."
+    ).convert { it.expandTilde() }
+        .file(mustExist = true, canBeFile = true, canBeDir = false, mustBeWritable = false, mustBeReadable = false)
+        .required()
 
-@Parameters(
-    commandNames = ["generate-scope-excludes"],
-    commandDescription = "Generate scope excludes based on common default for the package managers. " +
-            "The output is written to the given repository configuration file."
-)
-internal class GenerateScopeExcludesCommand : CommandWithHelp() {
-    @Parameter(
-        names = ["--ort-result-file"],
-        required = true,
-        order = PARAMETER_ORDER_MANDATORY,
-        description = "The input ORT file from which the rule violations are read."
-    )
-    private lateinit var ortResultFile: File
+    private val repositoryConfigurationFile by option(
+        "--repository-configuration-file",
+        help = "Override the repository configuration contained in the given input ORT file."
+    ).convert { it.expandTilde() }
+        .file(mustExist = true, canBeFile = true, canBeDir = false, mustBeWritable = false, mustBeReadable = false)
+        .required()
 
-    @Parameter(
-        names = ["--repository-configuration-file"],
-        required = true,
-        order = PARAMETER_ORDER_OPTIONAL,
-        description = "Override the repository configuration contained in the given input ORT file."
-    )
-    private lateinit var repositoryConfigurationFile: File
-
-    override fun runCommand(jc: JCommander): Int {
+    override fun run() {
         val ortResult = ortResultFile.readValue<OrtResult>()
         val scopeExcludes = ortResult.generateScopeExcludes()
 
@@ -69,8 +63,6 @@ internal class GenerateScopeExcludesCommand : CommandWithHelp() {
             .replaceScopeExcludes(scopeExcludes)
             .sortScopeExcludes()
             .writeAsYaml(repositoryConfigurationFile)
-
-        return 0
     }
 }
 
@@ -84,6 +76,7 @@ private fun OrtResult.generateScopeExcludes(): List<ScopeExclude> {
     }.minimize(projectScopes)
 }
 
+@Suppress("LongMethod")
 private fun getScopeExcludesForPackageManager(packageManagerName: String): List<ScopeExclude> =
     when (packageManagerName) {
         "Bower" -> listOf(
@@ -121,6 +114,11 @@ private fun getScopeExcludesForPackageManager(packageManagerName: String): List<
         )
         "Gradle" -> listOf(
             ScopeExclude(
+                pattern = ".*AnnotationProcessor.*",
+                reason = ScopeExcludeReason.BUILD_DEPENDENCY_OF,
+                comment = "Packages to process code annotations only."
+            ),
+            ScopeExclude(
                 pattern = "checkstyle",
                 reason = ScopeExcludeReason.BUILD_DEPENDENCY_OF,
                 comment = "Packages for code styling checks (testing) only."
@@ -147,7 +145,7 @@ private fun getScopeExcludesForPackageManager(packageManagerName: String): List<
             ),
             ScopeExclude(
                 pattern = "kapt.*",
-                reason = ScopeExcludeReason.PROVIDED_DEPENDENCY_OF,
+                reason = ScopeExcludeReason.BUILD_DEPENDENCY_OF,
                 comment = "Packages to process code annotations only."
             ),
             ScopeExclude(
@@ -156,7 +154,17 @@ private fun getScopeExcludesForPackageManager(packageManagerName: String): List<
                 comment = "Packages for Kotlin compiler only."
             ),
             ScopeExclude(
-                pattern = "lintClassPath",
+                pattern = "kotlinNativeCompilerPluginClasspath",
+                reason = ScopeExcludeReason.BUILD_DEPENDENCY_OF,
+                comment = "Packages for Kotlin compiler only."
+            ),
+            ScopeExclude(
+                pattern = "ktlint",
+                reason = ScopeExcludeReason.TEST_DEPENDENCY_OF,
+                comment = "Packages for code linting (testing) only."
+            ),
+            ScopeExclude(
+                pattern = "lint.*",
                 reason = ScopeExcludeReason.TEST_DEPENDENCY_OF,
                 comment = "Packages for code linting (testing) only."
             ),

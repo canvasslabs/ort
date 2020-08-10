@@ -24,7 +24,12 @@ import com.fasterxml.jackson.databind.JsonNode
 import com.fasterxml.jackson.dataformat.xml.XmlMapper
 import com.fasterxml.jackson.module.kotlin.registerKotlinModule
 
-import org.ossreviewtoolkit.analyzer.HTTP_CACHE_PATH
+import java.io.File
+import java.io.IOException
+import java.net.HttpURLConnection
+
+import okhttp3.Request
+
 import org.ossreviewtoolkit.analyzer.PackageManager
 import org.ossreviewtoolkit.downloader.VersionControlSystem
 import org.ossreviewtoolkit.model.EMPTY_JSON_NODE
@@ -44,12 +49,6 @@ import org.ossreviewtoolkit.model.jsonMapper
 import org.ossreviewtoolkit.model.xmlMapper
 import org.ossreviewtoolkit.utils.OkHttpClientHelper
 import org.ossreviewtoolkit.utils.textValueOrEmpty
-
-import okhttp3.Request
-
-import java.io.File
-import java.io.IOException
-import java.net.HttpURLConnection
 
 abstract class XmlPackageReferenceMapper {
     protected val mapper = XmlMapper().registerKotlinModule()
@@ -212,8 +211,7 @@ class DotNetSupport(packageReferencesMap: Map<String, String>) {
             homepageUrl = jsonCatalogNode["projectUrl"].textValueOrEmpty(),
             binaryArtifact = extractRemoteArtifact(jsonCatalogNode, packageContent.first),
             sourceArtifact = RemoteArtifact.EMPTY,
-            vcs = vcsInfo,
-            vcsProcessed = vcsInfo.normalize()
+            vcs = vcsInfo
         )
     }
 
@@ -350,7 +348,7 @@ class DotNetSupport(packageReferencesMap: Map<String, String>) {
             .url(this)
             .build()
 
-        OkHttpClientHelper.execute(HTTP_CACHE_PATH, pkgRequest).use { response ->
+        OkHttpClientHelper.execute(pkgRequest).use { response ->
             val body = response.body?.string()?.trim()
 
             if (response.code != HttpURLConnection.HTTP_OK || body.isNullOrEmpty()) {

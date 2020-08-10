@@ -19,8 +19,10 @@
 
 package org.ossreviewtoolkit.commands
 
+import com.fasterxml.jackson.module.kotlin.readValue
+
 import com.github.ajalt.clikt.core.CliktCommand
-import com.github.ajalt.clikt.core.UsageError
+import com.github.ajalt.clikt.core.ProgramResult
 import com.github.ajalt.clikt.parameters.options.convert
 import com.github.ajalt.clikt.parameters.options.default
 import com.github.ajalt.clikt.parameters.options.option
@@ -28,29 +30,33 @@ import com.github.ajalt.clikt.parameters.options.required
 import com.github.ajalt.clikt.parameters.types.enum
 import com.github.ajalt.clikt.parameters.types.file
 
-import org.ossreviewtoolkit.analyzer.HTTP_CACHE_PATH
+import java.io.IOException
+import java.net.URL
+
 import org.ossreviewtoolkit.analyzer.curation.toClearlyDefinedCoordinates
 import org.ossreviewtoolkit.analyzer.curation.toClearlyDefinedSourceLocation
 import org.ossreviewtoolkit.clearlydefined.ClearlyDefinedService
 import org.ossreviewtoolkit.clearlydefined.ClearlyDefinedService.ContributionInfo
 import org.ossreviewtoolkit.clearlydefined.ClearlyDefinedService.ContributionPatch
-import org.ossreviewtoolkit.clearlydefined.ClearlyDefinedService.ContributionType
 import org.ossreviewtoolkit.clearlydefined.ClearlyDefinedService.Curation
 import org.ossreviewtoolkit.clearlydefined.ClearlyDefinedService.Described
-import org.ossreviewtoolkit.clearlydefined.ClearlyDefinedService.ErrorResponse
 import org.ossreviewtoolkit.clearlydefined.ClearlyDefinedService.Licensed
 import org.ossreviewtoolkit.clearlydefined.ClearlyDefinedService.Patch
 import org.ossreviewtoolkit.clearlydefined.ClearlyDefinedService.Server
+import org.ossreviewtoolkit.clearlydefined.ContributionType
+import org.ossreviewtoolkit.clearlydefined.ErrorResponse
+import org.ossreviewtoolkit.clearlydefined.HarvestStatus
+import org.ossreviewtoolkit.clearlydefined.string
 import org.ossreviewtoolkit.model.PackageCuration
 import org.ossreviewtoolkit.model.jsonMapper
 import org.ossreviewtoolkit.model.readValue
 import org.ossreviewtoolkit.utils.OkHttpClientHelper
+import org.ossreviewtoolkit.utils.collectMessagesAsString
 import org.ossreviewtoolkit.utils.expandTilde
 import org.ossreviewtoolkit.utils.hasNonNullProperty
 import org.ossreviewtoolkit.utils.log
 
-import java.net.HttpURLConnection
-import java.net.URL
+import retrofit2.Call
 
 class ClearlyDefinedUploadCommand : CliktCommand(
     name = "cd-upload",
@@ -59,8 +65,8 @@ class ClearlyDefinedUploadCommand : CliktCommand(
     private val inputFile by option(
         "--input-file", "-i",
         help = "The file with package curations to upload."
-    ).file(mustExist = true, canBeFile = true, canBeDir = false, mustBeWritable = false, mustBeReadable = true)
-        .convert { it.expandTilde() }
+    ).convert { it.expandTilde() }
+        .file(mustExist = true, canBeFile = true, canBeDir = false, mustBeWritable = false, mustBeReadable = true)
         .required()
 
     private val server by option(
@@ -68,70 +74,130 @@ class ClearlyDefinedUploadCommand : CliktCommand(
         help = "The ClearlyDefined server to upload to."
     ).enum<Server>().default(Server.DEVELOPMENT)
 
-    private fun PackageCuration.toContributionPatch(): ContributionPatch {
-        val info = ContributionInfo(
-            // The exact values to use here are unclear; use what is mostly used at
-            // https://github.com/clearlydefined/curated-data/pulls.
-            type = ContributionType.OTHER,
-            summary = "Curation for component ${id.toClearlyDefinedCoordinates()}.",
-            details = "Imported from curation data of the " +
-                    "[OSS Review Toolkit](https://github.com/oss-review-toolkit/ort) via the " +
-                    "[clearly-defined](https://github.com/oss-review-toolkit/ort/tree/master/clearly-defined) " +
-                    "module.",
-            resolution = data.comment ?: "Unknown, original data contains no comment.",
-            removedDefinitions = false
-        )
+    private val service by lazy { ClearlyDefinedService.create(server, OkHttpClientHelper.buildClient()) }
 
-        val licenseExpression = data.concludedLicense?.toString() ?: data.declaredLicenses?.joinToString(" AND ")
+    private fun <T> executeApiCall(call: Call<T>): Result<T> {
+        log.debug {
+            val request = call.request()
+            "Going to execute API call at ${request.url} with body:\n${request.body?.string()}"
+        }
 
-        val described = Described(
-            projectWebsite = data.homepageUrl?.let { URL(it) },
-            sourceLocation = toClearlyDefinedSourceLocation(id, data.vcs, data.sourceArtifact)
-        )
+        val response = call.execute()
 
-        val curation = Curation(
-            described = described.takeIf { it.hasNonNullProperty() },
-            licensed = licenseExpression?.let { Licensed(it) }
-        )
+        return when {
+            response.isSuccessful -> when (val body = response.body()) {
+                null -> Result.failure(IOException("The REST API call succeeded but no response body was returned."))
+                else -> Result.success(body)
+            }
 
-        val patch = Patch(
-            coordinates = id.toClearlyDefinedCoordinates(),
-            revisions = mapOf(id.version to curation)
-        )
+            else -> when (val errorBody = response.errorBody()) {
+                null -> Result.failure(IOException("The REST API call failed with code ${response.code()}."))
 
-        return ContributionPatch(info, listOf(patch))
+                else -> {
+                    val errorResponse = jsonMapper.readValue<ErrorResponse>(errorBody.string())
+                    val innerError = errorResponse.error.innererror
+
+                    log.debug { innerError.stack }
+
+                    Result.failure(IOException("The REST API call failed with: ${innerError.message}"))
+                }
+            }
+        }
     }
+
+    private fun getDefinitions(coordinates: Collection<String>): Map<String, ClearlyDefinedService.Defined> =
+        executeApiCall(service.getDefinitions(coordinates)).getOrElse {
+            log.error { it.collectMessagesAsString() }
+            emptyMap()
+        }
+
+    private fun putCuration(curation: PackageCuration): ClearlyDefinedService.ContributionSummary? =
+        executeApiCall(service.putCuration(curation.toContributionPatch())).getOrElse {
+            log.error { it.collectMessagesAsString() }
+            null
+        }
 
     override fun run() {
         val absoluteInputFile = inputFile.normalize()
         val curations = absoluteInputFile.readValue<List<PackageCuration>>()
-        val service = ClearlyDefinedService.create(server, OkHttpClientHelper.buildClient(HTTP_CACHE_PATH))
+        val curationsToCoordinates = curations.associateWith { it.id.toClearlyDefinedCoordinates().toString() }
+        val definitions = getDefinitions(curationsToCoordinates.values)
 
-        var error = false
-
-        curations.forEachIndexed { index, curation ->
-            val patchCall = service.putCuration(curation.toContributionPatch())
-            val response = patchCall.execute()
-            val responseCode = response.code()
-
-            print("Curation ${index + 1} of ${curations.size} for package '${curation.id.toCoordinates()}' ")
-            if (responseCode == HttpURLConnection.HTTP_OK) {
-                response.body()?.let { summary ->
-                    println("was successfully uploaded:\n${summary.url}")
-                } ?: log.warn { "The REST API call succeeded but no response body was returned." }
-            } else {
-                println("failed to be uploaded (response code $responseCode).")
-
-                response.errorBody()?.let { errorBody ->
-                    val errorResponse = jsonMapper.readValue(errorBody.string(), ErrorResponse::class.java)
-                    log.error { "The REST API call failed with: ${errorResponse.error.innererror.message}" }
-                    log.debug { errorResponse.error.innererror.stack }
-                }
-
-                error = true
+        val curationsByHarvestStatus = curations.groupBy { curation ->
+            definitions[curationsToCoordinates[curation]]?.getHarvestStatus() ?: log.warn {
+                "No definition data available for package '${curation.id.toCoordinates()}', cannot request a harvest " +
+                        "or upload curations for it."
             }
         }
 
-        if (error) throw UsageError("An error occurred.", statusCode = 2)
+        val unharvestedCurations = curationsByHarvestStatus[HarvestStatus.NOT_HARVESTED].orEmpty()
+
+        unharvestedCurations.forEach { curation ->
+            val webServerUrl = server.url.replaceFirst("dev-api.", "dev.").replaceFirst("api.", "")
+            val definitionUrl = "$webServerUrl/definitions/${curationsToCoordinates[curation]}"
+
+            println(
+                "Package '${curation.id.toCoordinates()}' was not harvested until now, but harvesting was requested. " +
+                        "Check $definitionUrl for the harvesting status."
+            )
+        }
+
+        var uploadedCurationsCount = 0
+        val uploadableCurations = curationsByHarvestStatus[HarvestStatus.HARVESTED].orEmpty() +
+                curationsByHarvestStatus[HarvestStatus.PARTIALLY_HARVESTED].orEmpty()
+
+        uploadableCurations.forEachIndexed { index, curation ->
+            print("Curation ${index + 1} of ${uploadableCurations.size} for package '${curation.id.toCoordinates()}' ")
+
+            when (val summary = putCuration(curation)) {
+                null -> println("failed to be uploaded.")
+                else -> {
+                    println("was uploaded successfully:\n${summary.url}")
+
+                    ++uploadedCurationsCount
+                }
+            }
+        }
+
+        println("Successfully uploaded $uploadedCurationsCount of ${uploadableCurations.size} curations.")
+
+        if (uploadedCurationsCount != uploadableCurations.size) {
+            println("At least one curation failed to be uploaded.")
+            throw ProgramResult(2)
+        }
     }
+}
+
+private fun PackageCuration.toContributionPatch(): ContributionPatch {
+    val info = ContributionInfo(
+        // The exact values to use here are unclear; use what is mostly used at
+        // https://github.com/clearlydefined/curated-data/pulls.
+        type = ContributionType.OTHER,
+        summary = "Curation for component ${id.toClearlyDefinedCoordinates()}.",
+        details = "Imported from curation data of the " +
+                "[OSS Review Toolkit](https://github.com/oss-review-toolkit/ort) via the " +
+                "[clearly-defined](https://github.com/oss-review-toolkit/ort/tree/master/clearly-defined) " +
+                "module.",
+        resolution = data.comment ?: "Unknown, original data contains no comment.",
+        removedDefinitions = false
+    )
+
+    val licenseExpression = data.concludedLicense?.toString() ?: data.declaredLicenses?.joinToString(" AND ")
+
+    val described = Described(
+        projectWebsite = data.homepageUrl?.let { URL(it) },
+        sourceLocation = toClearlyDefinedSourceLocation(id, data.vcs, data.sourceArtifact)
+    )
+
+    val curation = Curation(
+        described = described.takeIf { it.hasNonNullProperty() },
+        licensed = licenseExpression?.let { Licensed(declared = it) }
+    )
+
+    val patch = Patch(
+        coordinates = id.toClearlyDefinedCoordinates(),
+        revisions = mapOf(id.version to curation)
+    )
+
+    return ContributionPatch(info, listOf(patch))
 }

@@ -22,6 +22,22 @@ package org.ossreviewtoolkit.analyzer.managers
 import Dependency
 import DependencyTreeModel
 
+import java.io.ByteArrayOutputStream
+import java.io.File
+import java.util.Properties
+import java.util.concurrent.TimeUnit
+
+import org.apache.maven.project.ProjectBuildingException
+
+import org.eclipse.aether.artifact.Artifact
+import org.eclipse.aether.artifact.DefaultArtifact
+import org.eclipse.aether.repository.RemoteRepository
+import org.eclipse.aether.repository.WorkspaceReader
+import org.eclipse.aether.repository.WorkspaceRepository
+
+import org.gradle.tooling.GradleConnector
+import org.gradle.tooling.internal.consumer.DefaultGradleConnector
+
 import org.ossreviewtoolkit.analyzer.AbstractPackageManagerFactory
 import org.ossreviewtoolkit.analyzer.PackageManager
 import org.ossreviewtoolkit.analyzer.managers.utils.MavenSupport
@@ -40,26 +56,11 @@ import org.ossreviewtoolkit.model.VcsInfo
 import org.ossreviewtoolkit.model.config.AnalyzerConfiguration
 import org.ossreviewtoolkit.model.config.RepositoryConfiguration
 import org.ossreviewtoolkit.model.createAndLogIssue
+import org.ossreviewtoolkit.utils.Os
 import org.ossreviewtoolkit.utils.collectMessagesAsString
-import org.ossreviewtoolkit.utils.getUserHomeDirectory
 import org.ossreviewtoolkit.utils.log
 import org.ossreviewtoolkit.utils.showStackTrace
 import org.ossreviewtoolkit.utils.temporaryProperties
-
-import java.io.File
-import java.util.Properties
-import java.util.concurrent.TimeUnit
-
-import org.apache.maven.project.ProjectBuildingException
-
-import org.eclipse.aether.artifact.Artifact
-import org.eclipse.aether.artifact.DefaultArtifact
-import org.eclipse.aether.repository.RemoteRepository
-import org.eclipse.aether.repository.WorkspaceReader
-import org.eclipse.aether.repository.WorkspaceRepository
-
-import org.gradle.tooling.GradleConnector
-import org.gradle.tooling.internal.consumer.DefaultGradleConnector
 
 /**
  * The [Gradle](https://gradle.org/) package manager for Java.
@@ -92,7 +93,7 @@ class Gradle(
      */
     private class GradleCacheReader : WorkspaceReader {
         private val workspaceRepository = WorkspaceRepository("gradleCache")
-        private val gradleCacheRoot = getUserHomeDirectory().resolve(".gradle/caches/modules-2/files-2.1")
+        private val gradleCacheRoot = Os.userHomeDirectory.resolve(".gradle/caches/modules-2/files-2.1")
 
         override fun findArtifact(artifact: Artifact): File? {
             val artifactRootDir = File(
@@ -100,7 +101,7 @@ class Gradle(
                 "${artifact.groupId}/${artifact.artifactId}/${artifact.version}"
             )
 
-            val artifactFile = artifactRootDir.walkTopDown().find {
+            val artifactFile = artifactRootDir.walk().find {
                 val classifier = if (artifact.classifier.isNullOrBlank()) "" else "${artifact.classifier}-"
                 it.isFile && it.name == "${artifact.artifactId}-$classifier${artifact.version}.${artifact.extension}"
             }
@@ -123,13 +124,16 @@ class Gradle(
 
     private val maven = MavenSupport(GradleCacheReader())
 
-    override fun resolveDependencies(definitionFile: File): ProjectAnalyzerResult? {
+    override fun resolveDependencies(definitionFile: File): List<ProjectAnalyzerResult> {
         val gradleSystemProperties = mutableListOf<Pair<String, String>>()
 
-        // Usually, the Gradle wrapper handles applying system properties from Gradle properties. But as we directly use
-        // the tooling API, we need to manually load Gradle properties and apply any system properties. Limit the lookup
-        // to the current user's Gradle properties file for now.
-        val gradlePropertiesFile = getUserHomeDirectory().resolve(".gradle/gradle.properties")
+        // Usually, the Gradle wrapper's Java code handles applying system properties defined in a Gradle properties
+        // file. But as we use the Gradle Tooling API instead of the wrapper to start the build, we need to manually
+        // load any system properties from a Gradle properties file and set them in the process that uses the Tooling
+        // API. A typical use case for this is to apply proxy settings so that the Gradle distribution used by the build
+        // can be downloaded behind a proxy, see https://github.com/gradle/gradle/issues/6825#issuecomment-502720562.
+        // For simplicity, limit the search for system properties to the current user's Gradle properties file for now.
+        val gradlePropertiesFile = Os.userHomeDirectory.resolve(".gradle/gradle.properties")
         if (gradlePropertiesFile.isFile) {
             gradlePropertiesFile.inputStream().use {
                 Properties().apply { load(it) }.mapNotNullTo(gradleSystemProperties) { (key, value) ->
@@ -138,14 +142,14 @@ class Gradle(
                 }
             }
 
-            log.info {
+            log.debug {
                 "Will apply the following system properties defined in file '$gradlePropertiesFile':" +
                         gradleSystemProperties.joinToString(separator = "\n\t", prefix = "\n\t") {
                             "${it.first} = ${it.second}"
                         }
             }
         } else {
-            log.info {
+            log.debug {
                 "Not applying any system properties as no '$gradlePropertiesFile' file was found."
             }
         }
@@ -160,17 +164,37 @@ class Gradle(
             gradleConnector.daemonMaxIdleTime(10, TimeUnit.SECONDS)
         }
 
-        val gradleConnection = gradleConnector.forProjectDirectory(definitionFile.parentFile).connect()
+        val projectDir = definitionFile.parentFile
+        val gradleConnection = gradleConnector.forProjectDirectory(projectDir).connect()
 
         return temporaryProperties(*gradleSystemProperties.toTypedArray()) {
             gradleConnection.use { connection ->
                 val initScriptFile = File.createTempFile("init", ".gradle")
                 initScriptFile.writeBytes(javaClass.getResource("/scripts/init.gradle").readBytes())
 
+                val stdout = ByteArrayOutputStream()
+                val stderr = ByteArrayOutputStream()
+
                 val dependencyTreeModel = connection
                     .model(DependencyTreeModel::class.java)
-                    .withArguments("--init-script", initScriptFile.path)
+                    .setStandardOutput(stdout)
+                    .setStandardError(stderr)
+                    .withArguments("-Duser.home=${Os.userHomeDirectory}", "--init-script", initScriptFile.path)
                     .get()
+
+                if (stdout.size() > 0) {
+                    log.debug {
+                        "Analyzing the project in '$projectDir' produced standard output:\n" +
+                                stdout.toString().prependIndent("\t")
+                    }
+                }
+
+                if (stderr.size() > 0) {
+                    log.warn {
+                        "Analyzing the project in '$projectDir' produced error output:\n" +
+                                stderr.toString().prependIndent("\t")
+                    }
+                }
 
                 if (!initScriptFile.delete()) {
                     log.warn { "Init script file '$initScriptFile' could not be deleted." }
@@ -220,10 +244,12 @@ class Gradle(
                     createAndLogIssue(source = managerName, message = it, severity = Severity.WARNING)
                 }
 
-                ProjectAnalyzerResult(
-                    project,
-                    packages.values.mapTo(sortedSetOf()) { it.toCuratedPackage() },
-                    issues
+                listOf(
+                    ProjectAnalyzerResult(
+                        project,
+                        packages.values.mapTo(sortedSetOf()) { it.toCuratedPackage() },
+                        issues
+                    )
                 )
             }
         }

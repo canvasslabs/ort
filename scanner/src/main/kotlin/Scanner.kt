@@ -19,7 +19,14 @@
 
 package org.ossreviewtoolkit.scanner
 
-import org.ossreviewtoolkit.downloader.Downloader
+import java.io.File
+import java.lang.IllegalArgumentException
+import java.time.Instant
+import java.util.ServiceLoader
+
+import kotlinx.coroutines.runBlocking
+
+import org.ossreviewtoolkit.downloader.consolidateProjectPackagesByVcs
 import org.ossreviewtoolkit.model.Environment
 import org.ossreviewtoolkit.model.OrtResult
 import org.ossreviewtoolkit.model.Package
@@ -32,15 +39,7 @@ import org.ossreviewtoolkit.model.config.ScannerConfiguration
 import org.ossreviewtoolkit.model.readValue
 import org.ossreviewtoolkit.spdx.SpdxLicense
 
-import java.io.File
-import java.lang.IllegalArgumentException
-import java.time.Instant
-import java.util.ServiceLoader
-
-import kotlinx.coroutines.runBlocking
-
 const val TOOL_NAME = "scanner"
-const val HTTP_CACHE_PATH = "$TOOL_NAME/cache/http"
 
 /**
  * The class to run license / copyright scanners. The signatures of public functions in this class define the library
@@ -99,7 +98,7 @@ abstract class Scanner(val scannerName: String, protected val config: ScannerCon
         }
 
         // Add the projects as packages to scan.
-        val consolidatedProjects = Downloader.consolidateProjectPackagesByVcs(ortResult.getProjects(skipExcluded))
+        val consolidatedProjects = consolidateProjectPackagesByVcs(ortResult.getProjects(skipExcluded))
         val consolidatedReferencePackages = consolidatedProjects.keys.map { it.toCuratedPackage() }
 
         val packagesToScan = (consolidatedReferencePackages + ortResult.getPackages(skipExcluded)).map { it.pkg }

@@ -19,20 +19,24 @@
 
 package org.ossreviewtoolkit.analyzer.managers.utils
 
-import org.ossreviewtoolkit.utils.ORT_NAME
-import org.ossreviewtoolkit.utils.safeDeleteRecursively
-import org.ossreviewtoolkit.utils.safeMkdirs
-
-import io.kotlintest.TestCase
-import io.kotlintest.TestResult
-import io.kotlintest.matchers.beEmpty
-import io.kotlintest.matchers.collections.shouldContainExactly
-import io.kotlintest.matchers.collections.shouldContainExactlyInAnyOrder
-import io.kotlintest.should
-import io.kotlintest.shouldBe
-import io.kotlintest.specs.WordSpec
+import io.kotest.core.spec.style.WordSpec
+import io.kotest.core.test.TestCase
+import io.kotest.core.test.TestResult
+import io.kotest.inspectors.forAll
+import io.kotest.matchers.collections.beEmpty
+import io.kotest.matchers.collections.containExactly
+import io.kotest.matchers.collections.containExactlyInAnyOrder
+import io.kotest.matchers.maps.beEmpty as beEmptyMap
+import io.kotest.matchers.should
+import io.kotest.matchers.shouldBe
 
 import java.io.File
+
+import org.ossreviewtoolkit.utils.ORT_NAME
+import org.ossreviewtoolkit.utils.ProtocolProxyMap
+import org.ossreviewtoolkit.utils.safeDeleteRecursively
+import org.ossreviewtoolkit.utils.safeMkdirs
+import org.ossreviewtoolkit.utils.test.containExactly as containExactlyEntries
 
 class NodeSupportTest : WordSpec() {
     companion object {
@@ -86,13 +90,13 @@ class NodeSupportTest : WordSpec() {
                 setupProject(path = "a", hasNpmLockFile = true, hasYarnLockFile = true)
 
                 mapDefinitionFilesForNpm(definitionFiles) should beEmpty()
-                mapDefinitionFilesForYarn(definitionFiles) shouldContainExactly absolutePaths("a/package.json")
+                mapDefinitionFilesForYarn(definitionFiles) should containExactly(absolutePaths("a/package.json"))
             }
 
             "happen for NPM only if no lockfile is present" {
                 setupProject(path = "a")
 
-                mapDefinitionFilesForNpm(definitionFiles) shouldContainExactly absolutePaths("a/package.json")
+                mapDefinitionFilesForNpm(definitionFiles) should containExactly(absolutePaths("a/package.json"))
                 mapDefinitionFilesForYarn(definitionFiles) should beEmpty()
             }
         }
@@ -103,8 +107,9 @@ class NodeSupportTest : WordSpec() {
                 setupProject(path = "a/b")
                 setupProject(path = "a/c")
 
-                mapDefinitionFiles(definitionFiles) shouldContainExactlyInAnyOrder
-                        absolutePaths("a/package.json", "a/c/package.json")
+                mapDefinitionFiles(definitionFiles) should containExactlyInAnyOrder(
+                    absolutePaths("a/package.json", "a/c/package.json")
+                )
             }
 
             "not be mapped if * matches the project path" {
@@ -114,8 +119,9 @@ class NodeSupportTest : WordSpec() {
                 setupProject(path = "a/d/e")
                 setupProject(path = "a/d/f")
 
-                mapDefinitionFiles(definitionFiles) shouldContainExactlyInAnyOrder
-                        absolutePaths("a/package.json", "a/d/e/package.json")
+                mapDefinitionFiles(definitionFiles) should containExactlyInAnyOrder(
+                    absolutePaths("a/package.json", "a/d/e/package.json")
+                )
             }
 
             "not be mapped if * matches the project path (non-flattened workspace definition)" {
@@ -125,8 +131,9 @@ class NodeSupportTest : WordSpec() {
                 setupProject(path = "a/d/e")
                 setupProject(path = "a/d/f")
 
-                mapDefinitionFiles(definitionFiles) shouldContainExactlyInAnyOrder
-                        absolutePaths("a/package.json", "a/d/e/package.json")
+                mapDefinitionFiles(definitionFiles) should containExactlyInAnyOrder(
+                    absolutePaths("a/package.json", "a/d/e/package.json")
+                )
             }
 
             "not be mapped if ** matches the project name" {
@@ -134,8 +141,9 @@ class NodeSupportTest : WordSpec() {
                 setupProject(path = "a/b/c/d")
                 setupProject(path = "a/b/c/e")
 
-                mapDefinitionFiles(definitionFiles) shouldContainExactlyInAnyOrder
-                        absolutePaths("a/package.json", "a/b/c/e/package.json")
+                mapDefinitionFiles(definitionFiles) should containExactlyInAnyOrder(
+                    absolutePaths("a/package.json", "a/b/c/e/package.json")
+                )
             }
 
             "not be mapped if ** matches the project name (non-flattened workspace definition)" {
@@ -143,8 +151,9 @@ class NodeSupportTest : WordSpec() {
                 setupProject(path = "a/b/c/d")
                 setupProject(path = "a/b/c/e")
 
-                mapDefinitionFiles(definitionFiles) shouldContainExactlyInAnyOrder
-                        absolutePaths("a/package.json", "a/b/c/e/package.json")
+                mapDefinitionFiles(definitionFiles) should containExactlyInAnyOrder(
+                    absolutePaths("a/package.json", "a/b/c/e/package.json")
+                )
             }
         }
 
@@ -169,7 +178,7 @@ class NodeSupportTest : WordSpec() {
                             to "https://gitlab.com/another/repo.git"
                 )
 
-                packages.forEach { (actualUrl, expectedUrl) ->
+                packages.entries.forAll { (actualUrl, expectedUrl) ->
                     expandNpmShortcutURL(actualUrl) shouldBe expectedUrl
                 }
             }
@@ -184,7 +193,7 @@ class NodeSupportTest : WordSpec() {
                             to "github.com/improbable-eng/grpc-web"
                 )
 
-                packages.forEach { (actualUrl, expectedUrl) ->
+                packages.entries.forAll { (actualUrl, expectedUrl) ->
                     expandNpmShortcutURL(actualUrl) shouldBe expectedUrl
                 }
             }
@@ -192,25 +201,58 @@ class NodeSupportTest : WordSpec() {
 
         "readProxySettingFromNpmRc" should {
             "properly read proxy configuration" {
-                readProxySettingFromNpmRc("proxy=http://user:passsword@host.domain.com:8080/") shouldBe
-                        "http://user:passsword@host.domain.com:8080/"
-                readProxySettingFromNpmRc("https-proxy=http://user:passsword@host.domain.com:8080/") shouldBe
-                        "http://user:passsword@host.domain.com:8080/"
+                fun ProtocolProxyMap.mapSingleValuesToString() =
+                    mapValues { (_, proxies) ->
+                        val (proxy, authentication) = proxies.single()
+                        listOfNotNull(
+                            proxy.toString(),
+                            authentication?.userName,
+                            authentication?.password?.let { String(it) }
+                        )
+                    }
 
-                readProxySettingFromNpmRc("proxy=http://user:passsword@host.domain.com") shouldBe
-                        "http://user:passsword@host.domain.com"
-                readProxySettingFromNpmRc("https-proxy=http://user:passsword@host.domain.com") shouldBe
-                        "http://user:passsword@host.domain.com"
+                readProxySettingsFromNpmRc("""
+                    proxy=http://user:password@host.tld:3129/
+                    https-proxy=http://user:password@host.tld:3129/
+                    """.trimIndent()
+                ).mapSingleValuesToString() should containExactlyEntries(
+                    "http" to listOf("HTTP @ host.tld:3129", "user", "password"),
+                    "https" to listOf("HTTP @ host.tld:3129", "user", "password")
+                )
 
-                readProxySettingFromNpmRc("proxy=user:passsword@host.domain.com") shouldBe
-                        "http://user:passsword@host.domain.com"
-                readProxySettingFromNpmRc("https-proxy=user:passsword@host.domain.com") shouldBe
-                        "http://user:passsword@host.domain.com"
+                readProxySettingsFromNpmRc("""
+                    proxy=http://user:password@host.tld
+                    https-proxy=http://user:password@host.tld
+                    """.trimIndent()
+                ).mapSingleValuesToString() should containExactlyEntries(
+                    "http" to listOf("HTTP @ host.tld:8080", "user", "password"),
+                    "https" to listOf("HTTP @ host.tld:8080", "user", "password")
+                )
+
+                readProxySettingsFromNpmRc("""
+                    proxy=user:password@host.tld
+                    https-proxy=user:password@host.tld
+                    """.trimIndent()
+                ).mapSingleValuesToString() should containExactlyEntries(
+                    "http" to listOf("HTTP @ host.tld:8080", "user", "password"),
+                    "https" to listOf("HTTP @ host.tld:8080", "user", "password")
+                )
+
+                readProxySettingsFromNpmRc("""
+                    proxy=host.tld
+                    https-proxy=host.tld
+                    """.trimIndent()
+                ).mapSingleValuesToString() should containExactlyEntries(
+                    "http" to listOf("HTTP @ host.tld:8080"),
+                    "https" to listOf("HTTP @ host.tld:8080")
+                )
             }
 
             "ignore non-proxy URLs" {
-                readProxySettingFromNpmRc("registry=http://my.artifactory.com/artifactory/api/npm/npm-virtual") shouldBe
-                        null
+                readProxySettingsFromNpmRc("""
+                    registry=http://my.artifactory.com/artifactory/api/npm/npm-virtual
+                    """.trimIndent()
+                ) should beEmptyMap()
             }
         }
     }
@@ -247,10 +289,7 @@ class NodeSupportTest : WordSpec() {
         if (hasYarnLockFile) projectDir.resolve("yarn.lock").createNewFile()
     }
 
-    private fun absolutePaths(vararg files: String) =
-        files.asList().map { file ->
-            tempDir.resolve(file)
-        }
+    private fun absolutePaths(vararg files: String): Collection<File> = files.map { tempDir.resolve(it) }
 
     private fun hasNpmLockFile(path: String) = hasNpmLockFile(tempDir.resolve(path))
 

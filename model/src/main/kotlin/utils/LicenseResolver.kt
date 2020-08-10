@@ -19,14 +19,15 @@
 
 package org.ossreviewtoolkit.model.utils
 
+import java.util.SortedSet
+
 import org.ossreviewtoolkit.model.Identifier
 import org.ossreviewtoolkit.model.LicenseFindings
 import org.ossreviewtoolkit.model.OrtResult
 import org.ossreviewtoolkit.model.Provenance
 import org.ossreviewtoolkit.model.TextLocation
+import org.ossreviewtoolkit.model.config.LicenseFindingCuration
 import org.ossreviewtoolkit.model.config.PathExclude
-
-import java.util.SortedSet
 
 internal class LicenseResolver(
     private val ortResult: OrtResult,
@@ -43,13 +44,20 @@ internal class LicenseResolver(
             .associateWith { id -> collectLicenseFindings(id).toMutableMap() }
 
     fun getDetectedLicensesForId(id: Identifier): SortedSet<String> =
-        collectLicenseFindings(id).keys.mapTo(sortedSetOf()) { it.license }
+        collectLicenseFindings(id).keys.mapTo(sortedSetOf()) { it.license.toString() }
 
     private fun getPathExcludes(id: Identifier, provenance: Provenance): List<PathExclude> =
         if (ortResult.isProject(id)) {
             ortResult.getExcludes().paths
         } else {
             packageConfigurationProvider.getPackageConfiguration(id, provenance)?.pathExcludes.orEmpty()
+        }
+
+    private fun getLicenseFindingCurations(id: Identifier, provenance: Provenance): List<LicenseFindingCuration> =
+        if (ortResult.isProject(id)) {
+            ortResult.getLicenseFindingsCurations(id)
+        } else {
+            packageConfigurationProvider.getPackageConfiguration(id, provenance)?.licenseFindingCurations.orEmpty()
         }
 
     private fun TextLocation.getRelativePathToRoot(id: Identifier): String =
@@ -61,7 +69,7 @@ internal class LicenseResolver(
         val result = mutableMapOf<LicenseFindings, List<PathExclude>>()
 
         ortResult.getScanResultsForId(id).forEach { scanResult ->
-            val curations = ortResult.getLicenseFindingsCurations(id)
+            val curations = getLicenseFindingCurations(id, scanResult.provenance)
             val pathExcludes = getPathExcludes(id, scanResult.provenance)
 
             val rawLicenseFindings = scanResult.summary.licenseFindings
@@ -69,13 +77,19 @@ internal class LicenseResolver(
                 pathExcludes.none { it.matches(copyright.location.getRelativePathToRoot(id)) }
             }
 
-            val curatedLicenseFindings = curationMatcher.applyAll(rawLicenseFindings, curations)
-            val matchedFindings = findingsMatcher.match(curatedLicenseFindings, copyrightFindings).toSortedSet()
+            val relativeFindingsPath = ortResult.getProject(id)?.let { project ->
+                ortResult.repository.getRelativePath(project.vcsProcessed)
+            }.orEmpty()
+            val curatedLicenseFindings = curationMatcher.applyAll(rawLicenseFindings, curations, relativeFindingsPath)
+                .mapNotNullTo(mutableSetOf()) { it.curatedFinding }
+            val decomposedFindings = curatedLicenseFindings.flatMap { finding ->
+                finding.license.decompose().map { finding.copy(license = it) }
+            }
+            val matchedFindings = findingsMatcher.match(decomposedFindings, copyrightFindings).toSortedSet()
 
             matchedFindings.forEach { findings ->
                 val matchingExcludes = mutableSetOf<PathExclude>()
 
-                // Only license findings of projects can be excluded by path excludes.
                 val isExcluded = findings.locations.all { location ->
                     val path = location.getRelativePathToRoot(id)
                     pathExcludes.any { exclude ->
@@ -98,7 +112,7 @@ internal class LicenseResolver(
             .filter { (_, excludes) -> !omitExcluded || excludes.isEmpty() }
             .map { (findings, _) -> findings }
             .associateBy(
-                { it.license },
-                { it.copyrights.mapTo(mutableSetOf()) { it.statement } }
+                { findings -> findings.license.toString() },
+                { findings -> findings.copyrights.mapTo(mutableSetOf()) { it.statement } }
             )
 }

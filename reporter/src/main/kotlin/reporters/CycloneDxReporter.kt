@@ -1,5 +1,6 @@
 /*
  * Copyright (C) 2019 Bosch Software Innovations GmbH
+ * Copyright (C) 2020 Bosch.IO GmbH
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -19,27 +20,41 @@
 
 package org.ossreviewtoolkit.reporter.reporters
 
-import org.ossreviewtoolkit.model.utils.getDetectedLicensesForId
-import org.ossreviewtoolkit.reporter.Reporter
-import org.ossreviewtoolkit.reporter.ReporterInput
-import org.ossreviewtoolkit.spdx.SpdxLicense
-
-import java.io.OutputStream
+import java.io.File
+import java.util.SortedSet
 import java.util.UUID
 
 import org.cyclonedx.BomGeneratorFactory
 import org.cyclonedx.CycloneDxSchema
+import org.cyclonedx.model.AttachmentText
 import org.cyclonedx.model.Bom
 import org.cyclonedx.model.Component
+import org.cyclonedx.model.ExtensibleType
 import org.cyclonedx.model.ExternalReference
 import org.cyclonedx.model.Hash
 import org.cyclonedx.model.License
 import org.cyclonedx.model.LicenseChoice
-import org.cyclonedx.model.LicenseText
 
+import org.ossreviewtoolkit.model.LicenseSource
+import org.ossreviewtoolkit.model.Package
+import org.ossreviewtoolkit.model.Project
+import org.ossreviewtoolkit.model.licenses.ResolvedLicenseInfo
+import org.ossreviewtoolkit.reporter.Reporter
+import org.ossreviewtoolkit.reporter.ReporterInput
+import org.ossreviewtoolkit.spdx.SpdxLicense
+import org.ossreviewtoolkit.utils.isTrue
+
+private const val REPORT_BASE_FILENAME = "bom"
+private const val REPORT_EXTENSION = "xml"
+
+/**
+ * A [Reporter] that creates software bills of materials (SBOM) in the [CycloneDX][1] format. For each [Project]
+ * contained in the ORT result a separate SBOM is created.
+ *
+ * [1]: https://cyclonedx.org
+ */
 class CycloneDxReporter : Reporter {
     override val reporterName = "CycloneDx"
-    override val defaultFilename = "bom.xml"
 
     private fun Bom.addExternalReference(type: ExternalReference.Type, url: String, comment: String? = null) {
         if (url.isBlank()) return
@@ -54,44 +69,41 @@ class CycloneDxReporter : Reporter {
     private fun mapHash(hash: org.ossreviewtoolkit.model.Hash): Hash? =
         enumValues<Hash.Algorithm>().find { it.spec == hash.algorithm.toString() }?.let { Hash(it, hash.value) }
 
-    override fun generateReport(outputStream: OutputStream, input: ReporterInput) {
-        val ortResult = input.ortResult
-        val bom = Bom().apply { serialNumber = "urn:uuid:${UUID.randomUUID()}" }
+    private fun mapLicenseNamesToObjects(licenseNames: Collection<String>, origin: String, input: ReporterInput) =
+        licenseNames.map { licenseName ->
+            val spdxId = SpdxLicense.forId(licenseName)?.id
 
-        // Add information about projects as external references at the BOM level.
-        val rootProject = ortResult.getProjects().singleOrNull()
-        if (rootProject != null) {
-            // If there is only one project, it is clear that a single BOM should be created for that single project.
-            bom.addExternalReference(
-                ExternalReference.Type.VCS,
-                rootProject.vcsProcessed.url,
-                "URL to the project's ${rootProject.vcsProcessed.type} repository"
-            )
+            // Prefer to set the id in case of an SPDX "core" license and only use the name as a fallback, also
+            // see https://github.com/CycloneDX/cyclonedx-core-java/issues/8.
+            License().apply {
+                id = spdxId
+                name = licenseName.takeIf { spdxId == null }
+                setLicenseText(
+                    AttachmentText().apply {
+                        contentType = "plain/text"
+                        text = input.licenseTextProvider.getLicenseText(licenseName)
+                    }
+                )
+                extensibleTypes = listOf(ExtensibleType("ort", "origin", origin))
+            }
+        }
 
-            bom.addExternalReference(
-                ExternalReference.Type.WEBSITE,
-                rootProject.homepageUrl
-            )
+    override fun generateReport(
+        input: ReporterInput,
+        outputDir: File,
+        options: Map<String, String>
+    ): List<File> {
+        val outputFiles = mutableListOf<File>()
+        val projects = input.ortResult.getProjects(omitExcluded = true)
+        val createSingleBom = options["single.bom"].isTrue()
 
-            val licenseNames = ortResult.getDetectedLicensesForId(rootProject.id) +
-                    rootProject.declaredLicensesProcessed.allLicenses
-            bom.addExternalReference(
-                ExternalReference.Type.LICENSE,
-                licenseNames.joinToString(", ")
-            )
+        if (createSingleBom && projects.size > 1) {
+            val reportFilename = "bom.xml"
+            val outputFile = outputDir.resolve(reportFilename)
 
-            bom.addExternalReference(
-                ExternalReference.Type.BUILD_SYSTEM,
-                rootProject.id.type
-            )
+            val bom = Bom().apply { serialNumber = "urn:uuid:${UUID.randomUUID()}" }
 
-            bom.addExternalReference(
-                ExternalReference.Type.OTHER,
-                rootProject.id.toPurl(),
-                "Package-URL of the project"
-            )
-        } else {
-            // In case of multiple projects it is not always clear how many BOMs to create, and for which project(s):
+            // In case of multiple projects it is not always clear for which project to create the BOM:
             //
             // - If a multi-module project only produces a single application that gets distributed, then usually only a
             //   single BOM for that application is generated.
@@ -103,70 +115,122 @@ class CycloneDxReporter : Reporter {
             // distributable), just create a single BOM for all projects in that case for now. As there also is no
             // single correct project to pick for adding external references in that case, simply only use the global
             // repository VCS information here.
+            val vcs = input.ortResult.repository.vcsProcessed
             bom.addExternalReference(
                 ExternalReference.Type.VCS,
-                ortResult.repository.vcsProcessed.url,
-                "URL to the ${ortResult.repository.vcsProcessed.type} repository of the projects"
+                vcs.url,
+                "URL to the ${vcs.type} repository of the projects"
             )
-        }
 
-        ortResult.getPackages().forEach { (pkg, _) ->
-            // TODO: We should actually use the concluded license expression here, but we first need a workflow to
-            //       ensure it is being set.
-            val licenseNames = ortResult.getDetectedLicensesForId(pkg.id) + pkg.declaredLicensesProcessed.allLicenses
+            input.ortResult.getPackages().forEach { (pkg, _) ->
+                addPackageToBom(input, pkg, bom)
+            }
 
-            val licenseObjects = licenseNames.map { licenseName ->
-                val spdxId = SpdxLicense.forId(licenseName)?.id
+            writeBomToFile(bom, outputFile)
+            outputFiles += outputFile
+        } else {
+            projects.forEach { project ->
+                val reportFilename = "$REPORT_BASE_FILENAME-${project.id.toPath("-")}.$REPORT_EXTENSION"
+                val outputFile = outputDir.resolve(reportFilename)
 
-                // Prefer to set the id in case of an SPDX "core" license and only use the name as a fallback, also
-                // see https://github.com/CycloneDX/cyclonedx-core-java/issues/8.
-                License().apply {
-                    id = spdxId
-                    name = licenseName.takeIf { spdxId == null }
-                    licenseText = LicenseText().apply {
-                        contentType = "plain/text"
-                        text = input.licenseTextProvider.getLicenseText(licenseName)
-                    }
+                val bom = Bom().apply { serialNumber = "urn:uuid:${UUID.randomUUID()}" }
+
+                // Add information about projects as external references at the BOM level.
+                bom.addExternalReference(
+                    ExternalReference.Type.VCS,
+                    project.vcsProcessed.url,
+                    "URL to the project's ${project.vcsProcessed.type} repository"
+                )
+
+                bom.addExternalReference(ExternalReference.Type.WEBSITE, project.homepageUrl)
+
+                val licenseNames = input.licenseInfoResolver.resolveLicenseInfo(project.id)
+                    .getLicenseNames(LicenseSource.DECLARED, LicenseSource.DETECTED)
+
+                bom.addExternalReference(ExternalReference.Type.LICENSE, licenseNames.joinToString(", "))
+
+                bom.addExternalReference(ExternalReference.Type.BUILD_SYSTEM, project.id.type)
+
+                bom.addExternalReference(
+                    ExternalReference.Type.OTHER,
+                    project.id.toPurl(),
+                    "Package-URL of the project"
+                )
+
+                val dependencies = project.collectDependencies()
+                val packages = input.ortResult.getPackages().mapNotNull { (pkg, _) ->
+                    pkg.takeIf { it.id in dependencies }
                 }
+
+                packages.forEach { pkg ->
+                    addPackageToBom(input, pkg, bom)
+                }
+
+                writeBomToFile(bom, outputFile)
+                outputFiles += outputFile
             }
-
-            val binaryHash = mapHash(pkg.binaryArtifact.hash)
-            val sourceHash = mapHash(pkg.sourceArtifact.hash)
-
-            val (hash, purlQualifier) = if (binaryHash == null && sourceHash != null) {
-                Pair(sourceHash, "?classifier=sources")
-            } else {
-                Pair(binaryHash, "")
-            }
-
-            val component = Component().apply {
-                group = pkg.id.namespace
-                name = pkg.id.name
-                version = pkg.id.version
-                description = pkg.description
-
-                // TODO: Map package-manager-specific OPTIONAL scopes.
-                scope = if (ortResult.isPackageExcluded(pkg.id)) Component.Scope.EXCLUDED else Component.Scope.REQUIRED
-
-                hashes = listOfNotNull(hash)
-
-                // TODO: Support license expressions once we have fully converted to them.
-                licenseChoice = LicenseChoice().apply { licenses = licenseObjects }
-
-                purl = pkg.purl + purlQualifier
-
-                // See https://github.com/CycloneDX/specification/issues/17 for how this differs from FRAMEWORK.
-                type = Component.Type.LIBRARY
-            }
-
-            bom.addComponent(component)
         }
 
-        val bomGenerator = BomGeneratorFactory.create(CycloneDxSchema.Version.VERSION_11, bom)
-        bomGenerator.generate()
+        return outputFiles
+    }
 
-        outputStream.bufferedWriter().use {
+    private fun addPackageToBom(input: ReporterInput, pkg: Package, bom: Bom) {
+        val resolvedLicenseInfo = input.licenseInfoResolver.resolveLicenseInfo(pkg.id)
+
+        val concludedLicenseNames = resolvedLicenseInfo.getLicenseNames(LicenseSource.CONCLUDED)
+        val declaredLicenseNames = resolvedLicenseInfo.getLicenseNames(LicenseSource.DECLARED)
+        val detectedLicenseNames = resolvedLicenseInfo.getLicenseNames(LicenseSource.DETECTED)
+
+        val licenseObjects = mapLicenseNamesToObjects(concludedLicenseNames, "concluded license", input) +
+                mapLicenseNamesToObjects(declaredLicenseNames, "declared license", input) +
+                mapLicenseNamesToObjects(detectedLicenseNames, "detected license", input)
+
+        val binaryHash = mapHash(pkg.binaryArtifact.hash)
+        val sourceHash = mapHash(pkg.sourceArtifact.hash)
+
+        val (hash, purlQualifier) = if (binaryHash == null && sourceHash != null) {
+            Pair(sourceHash, "?classifier=sources")
+        } else {
+            Pair(binaryHash, "")
+        }
+
+        val component = Component().apply {
+            group = pkg.id.namespace
+            name = pkg.id.name
+            version = pkg.id.version
+            description = pkg.description
+
+            // TODO: Map package-manager-specific OPTIONAL scopes.
+            scope = if (input.ortResult.isPackageExcluded(pkg.id)) {
+                Component.Scope.EXCLUDED
+            } else {
+                Component.Scope.REQUIRED
+            }
+
+            hashes = listOfNotNull(hash)
+
+            // TODO: Support license expressions once we have fully converted to them.
+            licenseChoice = LicenseChoice().apply { licenses = licenseObjects }
+
+            purl = pkg.purl + purlQualifier
+
+            // See https://github.com/CycloneDX/specification/issues/17 for how this differs from FRAMEWORK.
+            type = Component.Type.LIBRARY
+        }
+
+        bom.addComponent(component)
+    }
+
+    private fun writeBomToFile(bom: Bom, outputFile: File) {
+        val bomGenerator = BomGeneratorFactory.createXml(CycloneDxSchema.Version.VERSION_11, bom).apply { generate() }
+        outputFile.bufferedWriter().use {
             it.write(bomGenerator.toXmlString())
         }
     }
 }
+
+/**
+ * Return the license names of all licenses that have any of the given [sources] disregarding the excluded state.
+ */
+private fun ResolvedLicenseInfo.getLicenseNames(vararg sources: LicenseSource): SortedSet<String> =
+    licenses.filter { license -> sources.any { it in license.sources } }.mapTo(sortedSetOf()) { it.license.toString() }

@@ -21,15 +21,18 @@ package org.ossreviewtoolkit.scanner.storages
 
 import com.opentable.db.postgres.embedded.EmbeddedPostgres
 
-import io.kotlintest.IsolationMode
-import io.kotlintest.Spec
-import io.kotlintest.shouldBe
+import io.kotest.core.spec.IsolationMode
+import io.kotest.core.spec.Spec
+
+import java.time.Duration
+
+private val PG_STARTUP_WAIT = Duration.ofSeconds(20)
 
 class PostgresStorageTest : AbstractStorageTest() {
     private lateinit var postgres: EmbeddedPostgres
 
     override fun beforeSpec(spec: Spec) {
-        postgres = EmbeddedPostgres.start()
+        postgres = EmbeddedPostgres.builder().setPGStartupWait(PG_STARTUP_WAIT).start()
     }
 
     override fun afterSpec(spec: Spec) {
@@ -38,21 +41,6 @@ class PostgresStorageTest : AbstractStorageTest() {
 
     override fun isolationMode() = IsolationMode.InstancePerTest
 
-    override fun createStorage() = PostgresStorage(postgres.postgresDatabase.connection, "public")
-        .also { it.setupDatabase() }
-
-    init {
-        "Embedded postgres works" {
-            EmbeddedPostgres.start().use { postgres ->
-                val connection = postgres.postgresDatabase.connection
-
-                val statement = connection.createStatement()
-                val resultSet = statement.executeQuery("SELECT 1")
-
-                resultSet.next() shouldBe true
-                resultSet.getInt(1) shouldBe 1
-                resultSet.next() shouldBe false
-            }
-        }
-    }
+    override fun createStorage() =
+        PostgresStorage(postgres.postgresDatabase.connection, "public").also { it.setupDatabase() }
 }

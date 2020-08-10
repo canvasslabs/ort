@@ -19,23 +19,27 @@
 
 package org.ossreviewtoolkit.reporter.reporters
 
+import java.io.File
+import java.nio.file.Path
+
+import org.apache.logging.log4j.Level
+
 import org.ossreviewtoolkit.model.Identifier
 import org.ossreviewtoolkit.model.LicenseFindingsMap
 import org.ossreviewtoolkit.model.ScanResult
 import org.ossreviewtoolkit.model.clean
 import org.ossreviewtoolkit.model.merge
 import org.ossreviewtoolkit.reporter.ReporterInput
+import org.ossreviewtoolkit.reporter.reporters.AbstractNoticeReporter.NoticeReportModel
 import org.ossreviewtoolkit.utils.CopyrightStatementsProcessor
 import org.ossreviewtoolkit.utils.FileMatcher
 import org.ossreviewtoolkit.utils.LICENSE_FILENAMES
 import org.ossreviewtoolkit.utils.ORT_NAME
-import org.ossreviewtoolkit.utils.getUserOrtDirectory
 import org.ossreviewtoolkit.utils.log
+import org.ossreviewtoolkit.utils.logOnce
+import org.ossreviewtoolkit.utils.ortDataDirectory
 import org.ossreviewtoolkit.utils.storage.FileArchiver
 import org.ossreviewtoolkit.utils.storage.LocalFileStorage
-
-import java.io.File
-import java.nio.file.Path
 
 /**
  * Creates a notice file containing the licenses for all non-excluded projects and packages, listed by their identifier.
@@ -44,21 +48,25 @@ import java.nio.file.Path
  * If a [FileArchiver] is configured for the scanner the reporter will try to download any archived license files and
  * include them in the notice file. Licenses detected in those license files will not be listed again, instead all
  * copyrights associated to those licenses will be listed below the license file's content.
+ *
+ * This reporter supports the following options:
+ * - *preProcessingScript*: The path to a Kotlin script to pre-process the [NoticeReportModel] before generating the
+ *   notice file.
  */
 class NoticeByPackageReporter : AbstractNoticeReporter() {
     override val reporterName = "NoticeByPackage"
-    override val defaultFilename = "NOTICE_BY_PACKAGE"
+    override val noticeFilename = "NOTICE_BY_PACKAGE"
 
     override fun createProcessor(input: ReporterInput): NoticeProcessor = NoticeByPackageProcessor(input)
 }
 
 class NoticeByPackageProcessor(input: ReporterInput) : AbstractNoticeReporter.NoticeProcessor(input) {
     companion object {
-        private val DEFAULT_ARCHIVE_DIR by lazy { getUserOrtDirectory().resolve("scanner/archive") }
+        private val DEFAULT_ARCHIVE_DIR by lazy { ortDataDirectory.resolve("scanner/archive") }
         private const val LICENSE_SEPARATOR = "\n  --\n\n"
     }
 
-    override fun process(model: AbstractNoticeReporter.NoticeReportModel): List<() -> String> =
+    override fun process(model: NoticeReportModel): List<() -> String> =
         mutableListOf<() -> String>().apply {
             add { model.headers.joinToString(AbstractNoticeReporter.NOTICE_SEPARATOR) }
 
@@ -101,7 +109,7 @@ class NoticeByPackageProcessor(input: ReporterInput) : AbstractNoticeReporter.No
             .filter { (license, _) ->
                 input.licenseTextProvider.hasLicenseText(license).also {
                     if (!it) {
-                        NoticeByPackageProcessor.log.warn {
+                        NoticeByPackageProcessor.logOnce(Level.WARN) {
                             "No license text found for license '$license', it will be omitted from the report."
                         }
                     }
@@ -136,16 +144,12 @@ class NoticeByPackageProcessor(input: ReporterInput) : AbstractNoticeReporter.No
             val scanResult = input.ortResult.getScanResultsForId(id).firstOrNull()
             val archiveDir = createTempDir(ORT_NAME, "notice").also { it.deleteOnExit() }
 
-            val licenseFileFindings = if (scanResult != null) {
+            val licenseFileFindings = scanResult?.let {
                 val path = "${id.toPath()}/${scanResult.provenance.hash()}"
-                if (archiver.unarchive(archiveDir, path)) {
-                    getFindingsForLicenseFiles(scanResult, archiveDir, licenseFindingsMap)
-                } else {
-                    emptyMap()
+                archiver.unarchive(archiveDir, path).takeIf { it }?.let {
+                    getFindingsForLicenseFiles(scanResult, archiveDir, archiver.patterns, licenseFindingsMap)
                 }
-            } else {
-                emptyMap<String, LicenseFindingsMap>()
-            }
+            }.orEmpty()
 
             addLicenseFileFindings(licenseFileFindings, archiveDir)
 
@@ -156,7 +160,7 @@ class NoticeByPackageProcessor(input: ReporterInput) : AbstractNoticeReporter.No
                 .filter { (license, _) ->
                     input.licenseTextProvider.hasLicenseText(license).also {
                         if (!it) {
-                            NoticeByPackageProcessor.log.warn {
+                            NoticeByPackageProcessor.logOnce(Level.WARN) {
                                 "No license text found for license '$license', it will be omitted from the report."
                             }
                         }
@@ -224,15 +228,17 @@ class NoticeByPackageProcessor(input: ReporterInput) : AbstractNoticeReporter.No
     private fun getFindingsForLicenseFiles(
         scanResult: ScanResult,
         archiveDir: File,
+        licenseFilePatterns: List<String>,
         licenseFindingsMap: LicenseFindingsMap
     ): MutableMap<String, LicenseFindingsMap> {
-        val matcher = FileMatcher(LICENSE_FILENAMES)
+        val matcher = FileMatcher(licenseFilePatterns)
         val licenseFiles = mutableMapOf<String, LicenseFindingsMap>()
 
-        archiveDir.walkTopDown().forEach { file ->
+        archiveDir.walk().forEach { file ->
             val relativePath = archiveDir.toPath().relativize(file.toPath())
-            if (matcher.matches(relativePath.toString())) {
-                licenseFiles[relativePath.toString()] =
+            val relativePathString = relativePath.toString()
+            if (matcher.matches(relativePathString)) {
+                licenseFiles[relativePathString] =
                     getFindingsForLicenseFile(scanResult, relativePath, licenseFindingsMap)
             }
         }
@@ -240,7 +246,7 @@ class NoticeByPackageProcessor(input: ReporterInput) : AbstractNoticeReporter.No
         return licenseFiles
     }
 
-    fun getFindingsForLicenseFile(
+    private fun getFindingsForLicenseFile(
         scanResult: ScanResult,
         path: Path,
         licenseFindingsMap: LicenseFindingsMap
@@ -275,7 +281,7 @@ class NoticeByPackageProcessor(input: ReporterInput) : AbstractNoticeReporter.No
         return scanResult.summary.licenseFindings.filter {
             it.location.path == relativePath.toString()
         }.mapTo(mutableSetOf()) {
-            it.license
+            it.license.toString()
         }
     }
 }

@@ -19,20 +19,22 @@
 
 package org.ossreviewtoolkit.analyzer.managers
 
+import io.kotest.core.spec.style.StringSpec
+import io.kotest.matchers.collections.haveSize
+import io.kotest.matchers.nulls.shouldNotBeNull
+import io.kotest.matchers.should
+import io.kotest.matchers.shouldBe
+
+import java.io.File
+
 import org.ossreviewtoolkit.downloader.VersionControlSystem
-import org.ossreviewtoolkit.model.yamlMapper
-import org.ossreviewtoolkit.utils.getUserHomeDirectory
+import org.ossreviewtoolkit.utils.Os
 import org.ossreviewtoolkit.utils.normalizeVcsUrl
 import org.ossreviewtoolkit.utils.safeDeleteRecursively
 import org.ossreviewtoolkit.utils.test.DEFAULT_ANALYZER_CONFIGURATION
 import org.ossreviewtoolkit.utils.test.DEFAULT_REPOSITORY_CONFIGURATION
 import org.ossreviewtoolkit.utils.test.USER_DIR
 import org.ossreviewtoolkit.utils.test.patchExpectedResult
-
-import io.kotlintest.shouldBe
-import io.kotlintest.specs.StringSpec
-
-import java.io.File
 
 class MavenTest : StringSpec() {
     private val projectDir = File("src/funTest/assets/projects/synthetic/maven").absoluteFile
@@ -46,9 +48,9 @@ class MavenTest : StringSpec() {
             val pomFile = File(projectDir, "pom.xml")
             val expectedResult = File(projectDir.parentFile, "jgnash-expected-output.yml").readText()
 
-            val result = createMaven().resolveDependencies(listOf(pomFile))[pomFile]
+            val result = createMaven().resolveSingleProject(pomFile)
 
-            yamlMapper.writeValueAsString(result) shouldBe expectedResult
+            result.toYaml() shouldBe expectedResult
         }
 
         "jgnash-core dependencies are detected correctly" {
@@ -64,7 +66,9 @@ class MavenTest : StringSpec() {
             // of transitive dependencies would not work.
             val result = createMaven().resolveDependencies(listOf(pomFileCore, pomFileResources))[pomFileCore]
 
-            yamlMapper.writeValueAsString(result) shouldBe expectedResult
+            result.shouldNotBeNull()
+            result should haveSize(1)
+            result.single().toYaml() shouldBe expectedResult
         }
 
         "Root project dependencies are detected correctly" {
@@ -75,9 +79,9 @@ class MavenTest : StringSpec() {
                 revision = vcsRevision
             )
 
-            val result = createMaven().resolveDependencies(listOf(pomFile))[pomFile]
+            val result = createMaven().resolveSingleProject(pomFile)
 
-            yamlMapper.writeValueAsString(result) shouldBe expectedResult
+            result.toYaml() shouldBe expectedResult
         }
 
         "Project dependencies are detected correctly" {
@@ -94,7 +98,9 @@ class MavenTest : StringSpec() {
             // not work.
             val result = createMaven().resolveDependencies(listOf(pomFileApp, pomFileLib))[pomFileApp]
 
-            yamlMapper.writeValueAsString(result) shouldBe expectedResult
+            result.shouldNotBeNull()
+            result should haveSize(1)
+            result.single().toYaml() shouldBe expectedResult
         }
 
         "External dependencies are detected correctly" {
@@ -105,14 +111,14 @@ class MavenTest : StringSpec() {
                 revision = vcsRevision
             )
 
-            val result = createMaven().resolveDependencies(listOf(pomFile))[pomFile]
+            val result = createMaven().resolveSingleProject(pomFile)
 
-            yamlMapper.writeValueAsString(result) shouldBe expectedResult
+            result.toYaml() shouldBe expectedResult
         }
 
         "Parent POM from Maven central can be resolved" {
             // Delete the parent POM from the local repository to make sure it has to be resolved from Maven central.
-            getUserHomeDirectory()
+            Os.userHomeDirectory
                 .resolve(".m2/repository/org/springframework/boot/spring-boot-starter-parent/1.5.3.RELEASE")
                 .safeDeleteRecursively(force = true)
 
@@ -124,9 +130,9 @@ class MavenTest : StringSpec() {
                 revision = vcsRevision
             )
 
-            val result = createMaven().resolveDependencies(listOf(pomFile))[pomFile]
+            val result = createMaven().resolveSingleProject(pomFile)
 
-            yamlMapper.writeValueAsString(result) shouldBe expectedResult
+            result.toYaml() shouldBe expectedResult
         }
     }
 

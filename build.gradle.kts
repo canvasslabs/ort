@@ -20,26 +20,26 @@
 
 import com.github.benmanes.gradle.versions.updates.DependencyUpdatesTask
 
-import org.ossreviewtoolkit.gradle.*
-
 import io.gitlab.arturbosch.detekt.Detekt
+
+import java.net.URL
 
 import org.gradle.api.tasks.testing.logging.TestExceptionFormat
 import org.gradle.api.tasks.testing.logging.TestLogEvent
 
 import org.jetbrains.dokka.gradle.DokkaTask
 import org.jetbrains.gradle.ext.JUnit
-import org.jetbrains.kotlin.gradle.tasks.KotlinCompile
 import org.jetbrains.kotlin.gradle.plugin.KotlinCompilation
 import org.jetbrains.kotlin.gradle.plugin.KotlinSourceSet
+import org.jetbrains.kotlin.gradle.tasks.KotlinCompile
 
-import java.net.URL
+import org.ossreviewtoolkit.gradle.*
 
 val detektPluginVersion: String by project
 val kotlinPluginVersion: String by project
 
 val jacksonVersion: String by project
-val kotlintestVersion: String by project
+val kotestVersion: String by project
 val log4jCoreVersion: String by project
 val okhttpVersion: String by project
 
@@ -66,7 +66,7 @@ idea {
                 defaults<JUnit> {
                     // Disable "condensed" multi-line diffs when running tests from the IDE to more easily accept actual
                     // results as expected results.
-                    vmParameters = "-Dkotlintest.assertions.multi-line-diff=simple"
+                    vmParameters = "-Dkotest.assertions.multi-line-diff=simple"
                 }
             }
         }
@@ -79,20 +79,16 @@ extensions.findByName("buildScan")?.withGroovyBuilder {
 }
 
 tasks.named<DependencyUpdatesTask>("dependencyUpdates") {
+    val nonFinalQualifiers = listOf(
+        "alpha", "b", "beta", "cr", "ea", "eap", "m", "milestone", "pr", "preview", "rc"
+    ).joinToString("|", "(", ")")
+
+    val nonFinalQualifiersRegex = Regex(".*[.-]$nonFinalQualifiers[.\\d-+]*", RegexOption.IGNORE_CASE)
+
     gradleReleaseChannel = "current"
 
-    fun isNonFinalVersion(version: String): Boolean {
-        val nonFinalQualifiers = listOf(
-            "alpha", "b", "beta", "cr", "ea", "eap", "m", "milestone", "pr", "preview", "rc"
-        )
-
-        return nonFinalQualifiers.any { qualifier ->
-            version.matches(Regex("(?i).*[.-]$qualifier[.\\d-+]*"))
-        }
-    }
-
     rejectVersionIf {
-        isNonFinalVersion(candidate.version)
+        candidate.version.matches(nonFinalQualifiersRegex)
     }
 }
 
@@ -145,10 +141,6 @@ subprojects {
     apply(plugin = "org.jetbrains.kotlin.jvm")
     apply(plugin = "org.jetbrains.dokka")
 
-    // Note: Kotlin DSL cannot directly access sourceSets that are created by applying a plugin in the very same
-    // project, thus get the source set programmatically.
-    val sourceSets = the<SourceSetContainer>()
-
     sourceSets.create("funTest") {
         withConvention(KotlinSourceSet::class) {
             kotlin.srcDirs("src/funTest/kotlin")
@@ -169,10 +161,10 @@ subprojects {
         dependencies {
             "api"("org.jetbrains.kotlin:kotlin-stdlib-jdk8")
 
-            "testImplementation"("io.kotlintest:kotlintest-core:$kotlintestVersion")
-            "testImplementation"("io.kotlintest:kotlintest-assertions:$kotlintestVersion")
-            "testImplementation"("io.kotlintest:kotlintest-runner-junit5:$kotlintestVersion")
             "testImplementation"(project(":test-utils"))
+
+            "testImplementation"("io.kotest:kotest-runner-junit5-jvm:$kotestVersion")
+            "testImplementation"("io.kotest:kotest-assertions-core-jvm:$kotestVersion")
 
             "funTestImplementation"(sourceSets["main"].output)
         }
@@ -187,17 +179,17 @@ subprojects {
 
             // Ensure all API library versions match our core library version.
             force("org.apache.logging.log4j:log4j-api:$log4jCoreVersion")
-
-            // Ensure that all transitive versions of "kotlin-reflect" match our version of "kotlin-stdlib".
-            force("org.jetbrains.kotlin:kotlin-reflect:$kotlinPluginVersion")
         }
     }
 
     tasks.withType<KotlinCompile>().configureEach {
+        val customCompilerArgs = listOf("-Xallow-result-return-type", "-Xopt-in=kotlin.time.ExperimentalTime")
+
         kotlinOptions {
             allWarningsAsErrors = true
             jvmTarget = "1.8"
             apiVersion = "1.3"
+            freeCompilerArgs = freeCompilerArgs + customCompilerArgs
         }
     }
 
@@ -225,7 +217,7 @@ subprojects {
             }
 
             externalDocumentationLink {
-                val majorVersion = log4jCoreVersion.split('.').first()
+                val majorVersion = log4jCoreVersion.substringBefore('.')
                 val baseUrl = "https://logging.apache.org/log4j/$majorVersion.x/log4j-api/apidocs"
                 url = URL(baseUrl)
                 packageListUrl = URL("$baseUrl/package-list")
@@ -251,9 +243,11 @@ subprojects {
                 isEnabled = enabled
             }
 
-            systemProperties = listOf("kotlintest.tags.include", "kotlintest.tags.exclude").associateWith {
-                System.getProperty(it)
-            }
+            systemProperties = listOf(
+                "kotest.assertions.multi-line-diff",
+                "kotest.tags.include",
+                "kotest.tags.exclude"
+            ).associateWith { System.getProperty(it) }
 
             testLogging {
                 events = setOf(TestLogEvent.STARTED, TestLogEvent.PASSED, TestLogEvent.SKIPPED, TestLogEvent.FAILED)

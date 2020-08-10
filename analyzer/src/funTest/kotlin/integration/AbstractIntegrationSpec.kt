@@ -19,6 +19,19 @@
 
 package org.ossreviewtoolkit.analyzer.integration
 
+import io.kotest.core.spec.Spec
+import io.kotest.core.spec.style.StringSpec
+import io.kotest.inspectors.forAll
+import io.kotest.matchers.collections.beEmpty
+import io.kotest.matchers.collections.containExactly
+import io.kotest.matchers.nulls.shouldBeNull
+import io.kotest.matchers.nulls.shouldNotBeNull
+import io.kotest.matchers.should
+import io.kotest.matchers.shouldBe
+import io.kotest.matchers.shouldNot
+
+import java.io.File
+
 import org.ossreviewtoolkit.analyzer.ManagedProjectFiles
 import org.ossreviewtoolkit.analyzer.PackageManager
 import org.ossreviewtoolkit.downloader.Downloader
@@ -31,17 +44,7 @@ import org.ossreviewtoolkit.utils.test.DEFAULT_ANALYZER_CONFIGURATION
 import org.ossreviewtoolkit.utils.test.DEFAULT_REPOSITORY_CONFIGURATION
 import org.ossreviewtoolkit.utils.test.ExpensiveTag
 import org.ossreviewtoolkit.utils.test.USER_DIR
-
-import io.kotlintest.Spec
-import io.kotlintest.matchers.beEmpty
-import io.kotlintest.matchers.collections.containExactly
-import io.kotlintest.should
-import io.kotlintest.shouldBe
-import io.kotlintest.shouldNot
-import io.kotlintest.shouldNotBe
-import io.kotlintest.specs.StringSpec
-
-import java.io.File
+import org.ossreviewtoolkit.utils.test.shouldNotBeNull
 
 abstract class AbstractIntegrationSpec : StringSpec() {
     /**
@@ -76,8 +79,10 @@ abstract class AbstractIntegrationSpec : StringSpec() {
     protected lateinit var downloadResult: Downloader.DownloadResult
 
     override fun beforeSpec(spec: Spec) {
-        outputDir = createTempDir(ORT_NAME, javaClass.simpleName)
-        downloadResult = Downloader().download(pkg, outputDir)
+        // Do not use the usual simple class name as the suffix here to shorten the path which otherwise gets too long
+        // on Windows for SimpleFormIntegrationTest.
+        outputDir = createTempDir(ORT_NAME)
+        downloadResult = Downloader.download(pkg, outputDir)
     }
 
     override fun afterSpec(spec: Spec) {
@@ -87,19 +92,20 @@ abstract class AbstractIntegrationSpec : StringSpec() {
     init {
         "Source code was downloaded successfully".config(tags = setOf(ExpensiveTag)) {
             val workingTree = VersionControlSystem.forDirectory(downloadResult.downloadDirectory)
-            workingTree shouldNotBe null
-            workingTree!!.isValid() shouldBe true
+            workingTree.shouldNotBeNull()
+            workingTree.isValid() shouldBe true
             workingTree.vcsType shouldBe pkg.vcs.type
-            downloadResult.sourceArtifact shouldBe null
-            downloadResult.vcsInfo shouldNotBe null
-            downloadResult.vcsInfo!!.type shouldBe workingTree.vcsType
+            downloadResult.sourceArtifact.shouldBeNull()
+            downloadResult.vcsInfo shouldNotBeNull {
+                type shouldBe workingTree.vcsType
+            }
         }
 
         "All package manager definition files are found".config(tags = setOf(ExpensiveTag)) {
             val managedFiles = PackageManager.findManagedFiles(downloadResult.downloadDirectory)
 
             managedFiles.size shouldBe expectedManagedFiles.size
-            managedFiles.forEach { (manager, files) ->
+            managedFiles.entries.forAll { (manager, files) ->
                 println("Verifying definition files for $manager.")
 
                 // The keys in expected and actual maps of definition files are different instances of package manager
@@ -109,19 +115,19 @@ abstract class AbstractIntegrationSpec : StringSpec() {
                 }
                 val expectedFiles = expectedManagedFilesByName[manager.managerName]
 
-                expectedFiles shouldNotBe null
-                files.sorted().joinToString("\n") shouldBe expectedFiles!!.sorted().joinToString("\n")
+                expectedFiles.shouldNotBeNull()
+                files.sorted().joinToString("\n") shouldBe expectedFiles.sorted().joinToString("\n")
             }
         }
 
         "Analyzer creates one non-empty result per definition file".config(tags = setOf(ExpensiveTag)) {
-            managedFilesForTest.forEach { (manager, files) ->
+            managedFilesForTest.entries.forAll { (manager, files) ->
                 println("Resolving $manager dependencies in $files.")
                 val results = manager.create(USER_DIR, DEFAULT_ANALYZER_CONFIGURATION, DEFAULT_REPOSITORY_CONFIGURATION)
                     .resolveDependencies(files)
 
                 results.size shouldBe files.size
-                results.values.forEach { result ->
+                results.values.flatten().forAll { result ->
                     VersionControlSystem.forType(result.project.vcsProcessed.type) shouldBe
                             VersionControlSystem.forType(pkg.vcs.type)
                     result.project.vcsProcessed.url shouldBe pkg.vcs.url

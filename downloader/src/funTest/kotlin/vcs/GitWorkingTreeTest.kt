@@ -19,20 +19,23 @@
 
 package org.ossreviewtoolkit.downloader.vcs
 
-import org.ossreviewtoolkit.downloader.VersionControlSystem
-import org.ossreviewtoolkit.model.VcsType
-import org.ossreviewtoolkit.utils.ORT_NAME
-import org.ossreviewtoolkit.utils.getUserOrtDirectory
-import org.ossreviewtoolkit.utils.safeDeleteRecursively
-import org.ossreviewtoolkit.utils.unpack
-
-import io.kotlintest.Spec
-import io.kotlintest.matchers.collections.shouldContainExactlyInAnyOrder
-import io.kotlintest.shouldBe
-import io.kotlintest.shouldNotBe
-import io.kotlintest.specs.StringSpec
+import io.kotest.core.spec.Spec
+import io.kotest.core.spec.style.StringSpec
+import io.kotest.matchers.collections.containExactlyInAnyOrder
+import io.kotest.matchers.maps.beEmpty
+import io.kotest.matchers.should
+import io.kotest.matchers.shouldBe
+import io.kotest.matchers.shouldNotBe
 
 import java.io.File
+
+import org.ossreviewtoolkit.downloader.VersionControlSystem
+import org.ossreviewtoolkit.model.VcsInfo
+import org.ossreviewtoolkit.model.VcsType
+import org.ossreviewtoolkit.utils.ORT_NAME
+import org.ossreviewtoolkit.utils.ortDataDirectory
+import org.ossreviewtoolkit.utils.safeDeleteRecursively
+import org.ossreviewtoolkit.utils.unpack
 
 class GitWorkingTreeTest : StringSpec() {
     private val git = Git()
@@ -59,7 +62,7 @@ class GitWorkingTreeTest : StringSpec() {
         }
 
         "Git detects non-working-trees" {
-            git.getWorkingTree(getUserOrtDirectory()).isValid() shouldBe false
+            git.getWorkingTree(ortDataDirectory).isValid() shouldBe false
         }
 
         "Git correctly detects URLs to remote repositories" {
@@ -76,17 +79,23 @@ class GitWorkingTreeTest : StringSpec() {
         "Detected Git working tree information is correct" {
             val workingTree = git.getWorkingTree(zipContentDir)
 
-            workingTree.vcsType shouldBe VcsType.GIT
             workingTree.isValid() shouldBe true
-            workingTree.getNested() shouldBe emptyMap()
-            workingTree.getRemoteUrl() shouldBe "https://github.com/naiquevin/pipdeptree.git"
-            workingTree.getRevision() shouldBe "6f70dd5508331b6cfcfe3c1b626d57d9836cfd7c"
+            workingTree.getInfo() shouldBe VcsInfo(
+                type = VcsType.GIT,
+                url = "https://github.com/naiquevin/pipdeptree.git",
+                revision = "6f70dd5508331b6cfcfe3c1b626d57d9836cfd7c",
+                resolvedRevision = null,
+                path = ""
+            )
+            workingTree.getNested() should beEmpty()
             workingTree.getRootPath() shouldBe zipContentDir
             workingTree.getPathToRoot(File(zipContentDir, "tests")) shouldBe "tests"
         }
 
         "Git correctly lists remote branches" {
-            val expectedBranches = listOf(
+            val workingTree = git.getWorkingTree(zipContentDir)
+
+            workingTree.listRemoteBranches() should containExactlyInAnyOrder(
                 "debug-test-failures",
                 "drop-py2.6",
                 "fixing-test-setups",
@@ -95,13 +104,12 @@ class GitWorkingTreeTest : StringSpec() {
                 "reverse-mode",
                 "v2beta"
             )
-
-            val workingTree = git.getWorkingTree(zipContentDir)
-            workingTree.listRemoteBranches() shouldContainExactlyInAnyOrder expectedBranches
         }
 
         "Git correctly lists remote tags" {
-            val expectedTags = listOf(
+            val workingTree = git.getWorkingTree(zipContentDir)
+
+            workingTree.listRemoteTags() should containExactlyInAnyOrder(
                 "0.10.0",
                 "0.10.1",
                 "0.11.0",
@@ -114,11 +122,9 @@ class GitWorkingTreeTest : StringSpec() {
                 "0.6.0",
                 "0.7.0",
                 "0.8.0",
-                "0.9.0"
+                "0.9.0",
+                "1.0.0"
             )
-
-            val workingTree = git.getWorkingTree(zipContentDir)
-            workingTree.listRemoteTags() shouldContainExactlyInAnyOrder expectedTags
         }
 
         "Git correctly lists submodules" {
@@ -126,13 +132,10 @@ class GitWorkingTreeTest : StringSpec() {
                 "analyzer/src/funTest/assets/projects/external/dart-http",
                 "analyzer/src/funTest/assets/projects/external/directories",
                 "analyzer/src/funTest/assets/projects/external/example-python-flask",
-                "analyzer/src/funTest/assets/projects/external/godep",
                 "analyzer/src/funTest/assets/projects/external/jgnash",
-                "analyzer/src/funTest/assets/projects/external/qmstr",
                 "analyzer/src/funTest/assets/projects/external/quickcheck-state-machine",
                 "analyzer/src/funTest/assets/projects/external/sbt-multi-project-example",
-                "analyzer/src/funTest/assets/projects/external/spdx-tools-python",
-                "analyzer/src/funTest/assets/projects/external/sprig"
+                "analyzer/src/funTest/assets/projects/external/spdx-tools-python"
             ).associateWith { VersionControlSystem.getPathInfo(File("../$it")) }
 
             val workingTree = git.getWorkingTree(File(".."))

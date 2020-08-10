@@ -19,14 +19,15 @@
 
 package org.ossreviewtoolkit.model
 
-import io.kotlintest.matchers.beEmpty
-import io.kotlintest.matchers.collections.shouldContainExactlyInAnyOrder
-import io.kotlintest.should
-import io.kotlintest.shouldBe
-import io.kotlintest.specs.WordSpec
+import io.kotest.core.spec.style.WordSpec
+import io.kotest.matchers.collections.beEmpty
+import io.kotest.matchers.collections.containExactlyInAnyOrder
+import io.kotest.matchers.should
 
 import java.io.File
 import java.time.Instant
+
+import org.ossreviewtoolkit.utils.test.containExactly
 
 private fun readAnalyzerResult(analyzerResultFilename: String): Project =
     File("../analyzer/src/funTest/assets/projects/synthetic")
@@ -40,7 +41,7 @@ class ProjectTest : WordSpec({
 
             val dependencies = project.collectDependencies().map { it.toCoordinates() }
 
-            dependencies shouldContainExactlyInAnyOrder listOf(
+            dependencies should containExactlyInAnyOrder(
                 "Maven:junit:junit:4.12",
                 "Maven:org.apache.commons:commons-lang3:3.5",
                 "Maven:org.apache.commons:commons-text:1.1",
@@ -62,7 +63,7 @@ class ProjectTest : WordSpec({
 
             val dependencies = project.collectDependencies(maxDepth = 1).map { it.toCoordinates() }
 
-            dependencies shouldContainExactlyInAnyOrder listOf(
+            dependencies should containExactlyInAnyOrder(
                 "Maven:junit:junit:4.12",
                 "Maven:org.apache.commons:commons-text:1.1",
                 "Maven:org.apache.struts:struts2-assembly:2.5.14.1"
@@ -76,7 +77,7 @@ class ProjectTest : WordSpec({
 
             val issues = project.collectIssues()
 
-            issues shouldBe mapOf(
+            issues should containExactly(
                 Identifier("Unknown:org.apache.commons:commons-text:1.1") to setOf(
                     OrtIssue(
                         Instant.EPOCH,

@@ -32,12 +32,12 @@ import LicenseStatsTable from './LicenseStatsTable';
 import RuleViolationsTable from './RuleViolationsTable';
 import {
     getOrtResult,
-    getSummaryDeclaredLicenses,
-    getSummaryDeclaredLicensesChart,
-    getSummaryDeclaredLicensesFilter,
-    getSummaryDetectedLicenses,
-    getSummaryDetectedLicensesChart,
-    getSummaryDetectedLicensesFilter,
+    getSummaryDeclaredLicensesProcessed,
+    getSummaryDeclaredLicensesProcessedChart,
+    getSummaryDeclaredLicensesProcessedFilter,
+    getSummaryDetectedLicensesProcessed,
+    getSummaryDetectedLicensesProcessedChart,
+    getSummaryDetectedLicensesProcessedFilter,
     getSummaryIssuesFilter,
     getSummaryRuleViolationsFilter,
     getSummaryViewShouldComponentUpdate
@@ -65,8 +65,8 @@ class SummaryView extends React.Component {
         store.dispatch({
             type: 'SUMMARY::CHANGE_DETECTED_LICENSES_TABLE',
             payload: {
-                detectedLicensesChart: extra.currentDataSource,
-                detectedLicensesFilter: {
+                detectedLicensesProcessedChart: extra.currentDataSource,
+                detectedLicensesProcessedFilter: {
                     filteredInfo: filters,
                     sortedInfo: sorter
                 }
@@ -103,27 +103,28 @@ class SummaryView extends React.Component {
 
     render() {
         const {
-            declaredLicensesChart,
-            declaredLicensesFilter,
-            declaredLicenseStats,
-            detectedLicensesChart,
-            detectedLicensesFilter,
-            detectedLicensesStats,
+            declaredLicensesProcessedChart,
+            declaredLicensesProcessedFilter,
+            declaredLicenseProcessedStats,
+            detectedLicensesProcessedChart,
+            detectedLicensesProcessedFilter,
+            detectedLicensesProcessedStats,
             issuesFilter,
             ruleViolationsFilter,
             webAppOrtResult
         } = this.props;
 
         const {
-            declaredLicenses,
-            detectedLicenses,
+            declaredLicensesProcessed,
+            detectedLicensesProcessed,
             issues,
             levels,
             packages,
             projects,
+            repository: { vcsProcessed },
+            ruleViolations,
             scopes,
-            statistics,
-            ruleViolations
+            statistics
         } = webAppOrtResult;
 
         const {
@@ -134,6 +135,7 @@ class SummaryView extends React.Component {
                 errors: unresolvedRuleViolations
             }
         } = statistics;
+        const { revision, type, url } = vcsProcessed;
 
         const hasUnresolvedIssues = unresolvedIssues > 0;
         const hasUnresolvedRuleViolations = unresolvedRuleViolations > 0;
@@ -143,6 +145,23 @@ class SummaryView extends React.Component {
                 <Row>
                     <Col span={22} offset={1}>
                         <Timeline className="ort-summary-timeline">
+                            <Item>
+                                Scanned revision
+                                {' '}
+                                <b>
+                                    {revision}
+                                </b>
+                                {' '}
+                                of
+                                {' '}
+                                {type}
+                                {' '}
+                                repository
+                                {' '}
+                                <b>
+                                    {url}
+                                </b>
+                            </Item>
                             <Item>
                                 Found
                                 {' '}
@@ -181,14 +200,14 @@ class SummaryView extends React.Component {
                             </Item>
                             <Item>
                                 {
-                                    detectedLicenses.length === 0
+                                    detectedLicensesProcessed.length === 0
                                     && (
                                         <span>
                                             {' '}
                                             Detected
                                             {' '}
                                             <b>
-                                                {declaredLicenses.length}
+                                                {declaredLicensesProcessed.length}
                                             </b>
                                             {' '}
                                             declared licenses
@@ -196,19 +215,19 @@ class SummaryView extends React.Component {
                                     )
                                 }
                                 {
-                                    detectedLicenses.length !== 0
+                                    detectedLicensesProcessed.length !== 0
                                     && (
                                         <span>
                                             Detected
                                             {' '}
                                             <b>
-                                                {detectedLicenses.length}
+                                                {detectedLicensesProcessed.length}
                                             </b>
                                             {' '}
                                             licenses and
                                             {' '}
                                             <b>
-                                                {declaredLicenses.length}
+                                                {declaredLicensesProcessed.length}
                                             </b>
                                             {' '}
                                             declared licenses
@@ -218,7 +237,7 @@ class SummaryView extends React.Component {
                             </Item>
                             <Item
                                 dot={
-                                    (hasUnresolvedIssues || hasUnresolvedRuleViolations > 0)
+                                    (hasUnresolvedIssues || hasUnresolvedRuleViolations)
                                         ? (<ExclamationCircleOutlined style={{ fontSize: 16 }} />)
                                         : (<CheckCircleOutlined style={{ fontSize: 16 }} />)
                                 }
@@ -375,13 +394,13 @@ class SummaryView extends React.Component {
                                         )
                                     }
                                     {
-                                        webAppOrtResult.hasDeclaredLicenses()
+                                        webAppOrtResult.hasDeclaredLicensesProcessed()
                                         && (
                                             <TabPane
                                                 tab={(
                                                     <span>
                                                         Declared Licenses (
-                                                        {declaredLicenses.length}
+                                                        {declaredLicensesProcessed.length}
                                                         )
                                                     </span>
                                                 )}
@@ -391,29 +410,29 @@ class SummaryView extends React.Component {
                                                     <Col xs={24} sm={24} md={24} lg={24} xl={9}>
                                                         <LicenseStatsTable
                                                             emptyText="No declared licenses"
-                                                            filter={declaredLicensesFilter}
-                                                            licenses={declaredLicenses}
-                                                            licenseStats={declaredLicenseStats}
+                                                            filter={declaredLicensesProcessedFilter}
+                                                            licenses={declaredLicensesProcessed}
+                                                            licenseStats={declaredLicenseProcessedStats}
                                                             onChange={
                                                                 SummaryView.onChangeDeclaredLicensesTable
                                                             }
                                                         />
                                                     </Col>
                                                     <Col xs={24} sm={24} md={24} lg={24} xl={15}>
-                                                        <LicenseChart licenses={declaredLicensesChart} />
+                                                        <LicenseChart licenses={declaredLicensesProcessedChart} />
                                                     </Col>
                                                 </Row>
                                             </TabPane>
                                         )
                                     }
                                     {
-                                        webAppOrtResult.hasDetectedLicenses()
+                                        webAppOrtResult.hasDetectedLicensesProcessed()
                                         && (
                                             <TabPane
                                                 tab={(
                                                     <span>
                                                         Detected Licenses (
-                                                        {detectedLicenses.length}
+                                                        {detectedLicensesProcessed.length}
                                                         )
                                                     </span>
                                                 )}
@@ -423,14 +442,14 @@ class SummaryView extends React.Component {
                                                     <Col xs={24} sm={24} md={24} lg={24} xl={9}>
                                                         <LicenseStatsTable
                                                             emptyText="No detected licenses"
-                                                            filter={detectedLicensesFilter}
-                                                            licenses={detectedLicenses}
-                                                            licenseStats={detectedLicensesStats}
+                                                            filter={detectedLicensesProcessedFilter}
+                                                            licenses={detectedLicensesProcessed}
+                                                            licenseStats={detectedLicensesProcessedStats}
                                                             onChange={SummaryView.onChangeDetectedLicensesTable}
                                                         />
                                                     </Col>
                                                     <Col xs={24} sm={24} md={24} lg={24} xl={15}>
-                                                        <LicenseChart licenses={detectedLicensesChart} />
+                                                        <LicenseChart licenses={detectedLicensesProcessedChart} />
                                                     </Col>
                                                 </Row>
                                             </TabPane>
@@ -447,12 +466,12 @@ class SummaryView extends React.Component {
 }
 
 SummaryView.propTypes = {
-    declaredLicensesChart: PropTypes.array.isRequired,
-    declaredLicensesFilter: PropTypes.object.isRequired,
-    declaredLicenseStats: PropTypes.array.isRequired,
-    detectedLicensesChart: PropTypes.array.isRequired,
-    detectedLicensesFilter: PropTypes.object.isRequired,
-    detectedLicensesStats: PropTypes.array.isRequired,
+    declaredLicensesProcessedChart: PropTypes.array.isRequired,
+    declaredLicensesProcessedFilter: PropTypes.object.isRequired,
+    declaredLicenseProcessedStats: PropTypes.array.isRequired,
+    detectedLicensesProcessedChart: PropTypes.array.isRequired,
+    detectedLicensesProcessedFilter: PropTypes.object.isRequired,
+    detectedLicensesProcessedStats: PropTypes.array.isRequired,
     issuesFilter: PropTypes.object.isRequired,
     shouldComponentUpdate: PropTypes.bool.isRequired,
     ruleViolationsFilter: PropTypes.object.isRequired,
@@ -460,12 +479,12 @@ SummaryView.propTypes = {
 };
 
 const mapStateToProps = (state) => ({
-    declaredLicensesChart: getSummaryDeclaredLicensesChart(state),
-    declaredLicensesFilter: getSummaryDeclaredLicensesFilter(state),
-    declaredLicenseStats: getSummaryDeclaredLicenses(state),
-    detectedLicensesChart: getSummaryDetectedLicensesChart(state),
-    detectedLicensesFilter: getSummaryDetectedLicensesFilter(state),
-    detectedLicensesStats: getSummaryDetectedLicenses(state),
+    declaredLicensesProcessedChart: getSummaryDeclaredLicensesProcessedChart(state),
+    declaredLicensesProcessedFilter: getSummaryDeclaredLicensesProcessedFilter(state),
+    declaredLicenseProcessedStats: getSummaryDeclaredLicensesProcessed(state),
+    detectedLicensesProcessedChart: getSummaryDetectedLicensesProcessedChart(state),
+    detectedLicensesProcessedFilter: getSummaryDetectedLicensesProcessedFilter(state),
+    detectedLicensesProcessedStats: getSummaryDetectedLicensesProcessed(state),
     issuesFilter: getSummaryIssuesFilter(state),
     shouldComponentUpdate: getSummaryViewShouldComponentUpdate(state),
     ruleViolationsFilter: getSummaryRuleViolationsFilter(state),

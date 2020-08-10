@@ -22,12 +22,12 @@ package org.ossreviewtoolkit.model
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties
 import com.fasterxml.jackson.annotation.JsonInclude
 
+import java.util.SortedSet
+
 import org.ossreviewtoolkit.spdx.SpdxExpression
 import org.ossreviewtoolkit.spdx.SpdxOperator
 import org.ossreviewtoolkit.utils.DeclaredLicenseProcessor
 import org.ossreviewtoolkit.utils.ProcessedDeclaredLicense
-
-import java.util.SortedSet
 
 /**
  * A generic descriptor for a software package. It contains all relevant meta-data about a package like the name,
@@ -163,7 +163,7 @@ data class Package(
     /**
      * Create a [CuratedPackage] from this package with an empty list of applied curations.
      */
-    fun toCuratedPackage() = CuratedPackage(this, emptyList())
+    fun toCuratedPackage() = CuratedPackage(this)
 
     /**
      * Return a [PackageReference] to refer to this [Package] with optional [dependencies] and [issues].

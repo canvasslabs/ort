@@ -21,12 +21,12 @@ package org.ossreviewtoolkit.model
 
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties
 
+import java.util.SortedSet
+
 import org.ossreviewtoolkit.spdx.SpdxExpression
 import org.ossreviewtoolkit.spdx.SpdxOperator
 import org.ossreviewtoolkit.utils.DeclaredLicenseProcessor
 import org.ossreviewtoolkit.utils.ProcessedDeclaredLicense
-
-import java.util.SortedSet
 
 /**
  * A class describing a software project. A [Project] is very similar to a [Package] but contains some additional
@@ -128,15 +128,6 @@ data class Project(
             for (dependency in scope.dependencies) {
                 addIssues(dependency)
             }
-        }
-
-        declaredLicensesProcessed.unmapped.forEach { unmappedLicense ->
-            collectedIssues.getOrPut(id) { mutableSetOf() } += OrtIssue(
-                severity = Severity.WARNING,
-                source = id.toCoordinates(),
-                message = "The declared license '$unmappedLicense' could not be mapped to a valid license or " +
-                        "parsed as an SPDX expression."
-            )
         }
 
         return collectedIssues

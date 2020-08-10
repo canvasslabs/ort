@@ -19,10 +19,11 @@
 
 package org.ossreviewtoolkit.evaluator
 
+import io.kotest.core.spec.style.WordSpec
+import io.kotest.matchers.shouldBe
+
 import org.ossreviewtoolkit.model.Package
 import org.ossreviewtoolkit.model.PackageReference
-import io.kotlintest.shouldBe
-import io.kotlintest.specs.WordSpec
 
 class DependencyRuleTest : WordSpec() {
     private val ruleSet = RuleSet(ortResult)

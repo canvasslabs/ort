@@ -17,32 +17,88 @@
  * License-Filename: LICENSE
  */
 
+/**
+ * Required Jenkins plugins:
+ * - https://plugins.jenkins.io/pipeline-utility-steps/
+ */
+
+import com.cloudbees.groovy.cps.NonCPS
+
+import java.io.IOException
+
 final DOCKER_BUILD_ARGS = '--build-arg http_proxy=$http_proxy --build-arg https_proxy=$https_proxy'
 
 // Disable the entry point to work around https://issues.jenkins-ci.org/browse/JENKINS-51307.
 final DOCKER_RUN_ARGS = '-e http_proxy -e https_proxy --entrypoint=""'
 
+// The status code ORT commands return for failures (like rule violations), not errors (like existing output files).
+final ORT_FAILURE_STATUS_CODE = 2
+
+@NonCPS
+static sortProjectsByPathDepth(projects) {
+    return projects.toSorted { it.definition_file_path.count("/") }
+}
+
+def projectVcsCredentials = []
+def ortConfigVcsCredentials = []
+
 pipeline {
     agent none
 
     parameters {
+        /*
+         * Parameters about the project to run ORT on.
+         */
+
         string(
-            name: 'VCS_URL',
+            name: 'PROJECT_VCS_URL',
             description: 'VCS clone URL of the project',
             defaultValue: 'https://github.com/vdurmont/semver4j.git'
         )
 
         string(
-            name: 'VCS_REVISION',
-            description: 'VCS revision of the project (prefix tags with "refs/tags/")',
-            defaultValue: 'master'
+            name: 'PROJECT_VCS_REVISION',
+            description: 'VCS revision of the project (prefix Git tags with "refs/tags/")',
+            defaultValue: ''
         )
 
         credentials(
-            name: 'VCS_CREDENTIALS',
+            name: 'PROJECT_VCS_CREDENTIALS',
             description: 'Optional Jenkins credentials id to use for VCS checkout',
             defaultValue: ''
         )
+
+        /*
+         * General ORT parameters.
+         */
+
+        string(
+            name: 'ORT_CONFIG_VCS_URL',
+            description: 'Optional VCS clone URL of the ORT configuration',
+            defaultValue: ''
+        )
+
+        string(
+            name: 'ORT_CONFIG_VCS_REVISION',
+            description: 'Optional VCS revision of the ORT configuration (prefix Git tags with "refs/tags/")',
+            defaultValue: ''
+        )
+
+        credentials(
+            name: 'ORT_CONFIG_VCS_CREDENTIALS',
+            description: 'Optional Jenkins credentials id to use for VCS checkout',
+            defaultValue: ''
+        )
+
+        choice(
+            name: 'LOG_LEVEL',
+            description: 'Log message level',
+            choices: ['--info', '--debug', '']
+        )
+
+        /*
+         * ORT analyzer tool parameters.
+         */
 
         booleanParam(
             name: 'ALLOW_DYNAMIC_VERSIONS',
@@ -56,53 +112,70 @@ pipeline {
             description: 'Use package curation data from the ClearlyDefined service'
         )
 
+        /*
+         * ORT scanner tool parameters.
+         */
+
         booleanParam(
             name: 'RUN_SCANNER',
             defaultValue: true,
             description: 'Run the scanner tool'
         )
 
+        /*
+         * ORT evaluator tool parameters.
+         */
+
+        booleanParam(
+            name: 'RUN_EVALUATOR',
+            defaultValue: true,
+            description: 'Run the evaluator tool'
+        )
+
+        /*
+         * ORT reporter tool parameters.
+         */
+
         booleanParam(
             name: 'RUN_REPORTER',
             defaultValue: true,
             description: 'Run the reporter tool'
         )
-
-        choice(
-            name: 'LOG_LEVEL',
-            description: 'Log message level',
-            choices: ['--info', '--debug', '']
-        )
-
-        string(
-            name: 'DOWNSTREAM_JOB',
-            description: 'Optional name of a downstream job to trigger',
-            defaultValue: ''
-        )
     }
 
     stages {
-        stage('Clone project') {
+        stage('Configure pipeline') {
             agent any
 
-            environment {
-                HOME = "${env.WORKSPACE}@tmp"
-                PROJECT_DIR = "${env.HOME}/project"
-            }
-
             steps {
-                sh 'rm -fr $PROJECT_DIR'
+                script {
+                    if (!params.PROJECT_VCS_CREDENTIALS.allWhitespace) {
+                        projectVcsCredentials += usernamePassword(credentialsId: params.PROJECT_VCS_CREDENTIALS, usernameVariable: 'LOGIN', passwordVariable: 'PASSWORD')
+                    }
 
-                // See https://jenkins.io/doc/pipeline/steps/git/.
-                checkout([$class: 'GitSCM',
-                    userRemoteConfigs: [[url: params.VCS_URL, credentialsId: params.VCS_CREDENTIALS]],
-                    branches: [[name: "${params.VCS_REVISION}"]],
-                    extensions: [[$class: 'RelativeTargetDirectory', relativeTargetDir: "${env.PROJECT_DIR}/source"]]
-                ])
+                    if (!params.ORT_CONFIG_VCS_CREDENTIALS.allWhitespace) {
+                        ortConfigVcsCredentials += usernamePassword(credentialsId: params.ORT_CONFIG_VCS_CREDENTIALS, usernameVariable: 'LOGIN', passwordVariable: 'PASSWORD')
+                    }
+                }
             }
         }
 
-        stage('Run the ORT analyzer') {
+        stage('Build ORT Docker image') {
+            agent {
+                dockerfile {
+                    additionalBuildArgs DOCKER_BUILD_ARGS
+                    args DOCKER_RUN_ARGS
+                }
+            }
+
+            steps {
+                sh '''
+                    /opt/ort/bin/ort $LOG_LEVEL --stacktrace --version
+                '''
+            }
+        }
+
+        stage('Clone project') {
             agent {
                 dockerfile {
                     additionalBuildArgs DOCKER_BUILD_ARGS
@@ -116,33 +189,129 @@ pipeline {
             }
 
             steps {
-                sh '''
-                    /opt/ort/bin/set_gradle_proxy.sh
+                withCredentials(projectVcsCredentials) {
+                    sh '''
+                        echo "default login $LOGIN password $PASSWORD" > $HOME/.netrc
 
-                    if [ "$ALLOW_DYNAMIC_VERSIONS" = "true" ]; then
-                        ALLOW_DYNAMIC_VERSIONS_PARAM="--allow-dynamic-versions"
-                    fi
+                        if [ -n "$PROJECT_VCS_REVISION" ]; then
+                            VCS_REVISION_OPTION="--vcs-revision $PROJECT_VCS_REVISION"
+                        fi
 
-                    if [ "$USE_CLEARLY_DEFINED_CURATIONS" = "true" ]; then
-                        USE_CLEARLY_DEFINED_CURATIONS_PARAM="--clearly-defined-curations"
-                    fi
+                        rm -fr $PROJECT_DIR
+                        /opt/ort/bin/ort $LOG_LEVEL --stacktrace download --project-url $PROJECT_VCS_URL $VCS_REVISION_OPTION -o $PROJECT_DIR/source
 
-                    rm -fr analyzer/out/results
-                    /opt/ort/bin/ort $LOG_LEVEL analyze $ALLOW_DYNAMIC_VERSIONS_PARAM $USE_CLEARLY_DEFINED_CURATIONS_PARAM -f JSON,YAML -i $PROJECT_DIR/source -o analyzer/out/results
-                '''
+                        rm -f $HOME/.netrc
+                    '''
+                }
+            }
+        }
+
+        stage('Clone ORT configuration') {
+            agent {
+                dockerfile {
+                    additionalBuildArgs DOCKER_BUILD_ARGS
+                    args DOCKER_RUN_ARGS
+                }
+            }
+
+            when {
+                beforeAgent true
+
+                expression {
+                    !params.ORT_CONFIG_VCS_URL.allWhitespace
+                }
+            }
+
+            environment {
+                HOME = "${env.WORKSPACE}@tmp"
+                ORT_DATA_DIR = "${env.HOME}/.ort"
+            }
+
+            steps {
+                withCredentials(ortConfigVcsCredentials) {
+                    sh '''
+                        echo "default login $LOGIN password $PASSWORD" > $HOME/.netrc
+
+                        if [ -n "$ORT_CONFIG_VCS_REVISION" ]; then
+                            VCS_REVISION_OPTION="--vcs-revision $ORT_CONFIG_VCS_REVISION"
+                        fi
+
+                        rm -fr $ORT_DATA_DIR/config
+                        /opt/ort/bin/ort $LOG_LEVEL --stacktrace download --project-url $ORT_CONFIG_VCS_URL $VCS_REVISION_OPTION -o $ORT_DATA_DIR/config
+
+                        rm -f $HOME/.netrc
+                    '''
+                }
+            }
+        }
+
+        stage('Run ORT analyzer') {
+            agent {
+                dockerfile {
+                    additionalBuildArgs DOCKER_BUILD_ARGS
+                    args DOCKER_RUN_ARGS
+                }
+            }
+
+            environment {
+                HOME = "${env.WORKSPACE}@tmp"
+                PROJECT_DIR = "${env.HOME}/project"
+            }
+
+            steps {
+                script {
+                    def status = sh returnStatus: true, script: '''
+                        /opt/ort/bin/set_gradle_proxy.sh
+
+                        if [ "$ALLOW_DYNAMIC_VERSIONS" = "true" ]; then
+                            ALLOW_DYNAMIC_VERSIONS_OPTION="--allow-dynamic-versions"
+                        fi
+
+                        if [ "$USE_CLEARLY_DEFINED_CURATIONS" = "true" ]; then
+                            USE_CLEARLY_DEFINED_CURATIONS_OPTION="--clearly-defined-curations"
+                        fi
+
+                        rm -fr out/results
+                        /opt/ort/bin/ort $LOG_LEVEL --stacktrace analyze $ALLOW_DYNAMIC_VERSIONS_OPTION $USE_CLEARLY_DEFINED_CURATIONS_OPTION -i $PROJECT_DIR/source -o out/results/analyzer
+                    '''
+
+                    if (status >= ORT_FAILURE_STATUS_CODE) unstable('Analyzer issues found.')
+                    else if (status != 0) error('Error executing the analyzer.')
+                }
+
+                sh 'ln -frs out/results/analyzer/analyzer-result.yml out/results/current-result.yml'
+
+                script {
+                    try {
+                        def result = readYaml file: 'out/results/analyzer/analyzer-result.yml'
+                        def projects = result.analyzer?.result?.projects
+
+                        if (projects) {
+                            // Determine the / a root project simply by sorting by path depth.
+                            def sortedProjects = sortProjectsByPathDepth(projects)
+
+                            // There is always at least one (unmanaged) project.
+                            def rootProjectId = sortedProjects.first().id
+
+                            currentBuild.displayName += ": $rootProjectId"
+                        }
+                    } catch (IOException e) {
+                        // Ignore and just skip setting a custom display name.
+                    }
+                }
             }
 
             post {
                 always {
                     archiveArtifacts(
-                        artifacts: 'analyzer/out/results/*',
+                        artifacts: 'out/results/analyzer/*',
                         fingerprint: true
                     )
                 }
             }
         }
 
-        stage('Run the ORT scanner') {
+        stage('Run ORT scanner') {
             when {
                 beforeAgent true
 
@@ -163,23 +332,78 @@ pipeline {
             }
 
             steps {
-                sh '''
-                    rm -fr scanner/out/results
-                    /opt/ort/bin/ort $LOG_LEVEL scan -f JSON,YAML -i analyzer/out/results/analyzer-result.yml -o scanner/out/results
-                '''
+                withCredentials(projectVcsCredentials) {
+                    script {
+                        def status = sh returnStatus: true, script: '''
+                            echo "default login $LOGIN password $PASSWORD" > $HOME/.netrc    
+                            /opt/ort/bin/ort $LOG_LEVEL --stacktrace scan -i out/results/current-result.yml -o out/results/scanner
+                            rm -f $HOME/.netrc
+                        '''
+
+                        if (status >= ORT_FAILURE_STATUS_CODE) unstable('Scanner issues found.')
+                        else if (status != 0) error('Error executing the scanner.')
+                    }
+
+                    sh 'ln -frs out/results/scanner/scan-result.yml out/results/current-result.yml'
+                }
             }
 
             post {
                 always {
                     archiveArtifacts(
-                        artifacts: 'scanner/out/results/*',
+                        artifacts: 'out/results/scanner/*',
                         fingerprint: true
                     )
                 }
             }
         }
 
-        stage('Run the ORT reporter') {
+        stage('Run ORT evaluator') {
+            when {
+                beforeAgent true
+
+                expression {
+                    params.RUN_EVALUATOR
+                }
+            }
+
+            agent {
+                dockerfile {
+                    additionalBuildArgs DOCKER_BUILD_ARGS
+                    args DOCKER_RUN_ARGS
+                }
+            }
+
+            environment {
+                HOME = "${env.WORKSPACE}@tmp"
+            }
+
+            steps {
+                withCredentials(projectVcsCredentials) {
+                    script {
+                        def status = sh returnStatus: true, script: '''
+                            /opt/ort/bin/ort $LOG_LEVEL --stacktrace evaluate -i out/results/current-result.yml -o out/results/evaluator -r docs/examples/rules.kts --license-configuration-file docs/examples/licenses.yml
+                        '''
+
+                        if (status >= ORT_FAILURE_STATUS_CODE) unstable('Rule violations found.')
+                        else if (status != 0) error('Error executing the evaluator.')
+                    }
+
+                    sh 'ln -frs out/results/evaluator/evaluation-result.yml out/results/current-result.yml'
+                }
+            }
+
+            post {
+                always {
+                    archiveArtifacts(
+                        artifacts: 'out/results/evaluator/*',
+                        fingerprint: true
+                    )
+                }
+            }
+        }
+
+        stage('Run ORT reporter') {
             when {
                 beforeAgent true
 
@@ -201,34 +425,17 @@ pipeline {
 
             steps {
                 sh '''
-                    rm -fr reporter/out/results
-                    /opt/ort/bin/ort $LOG_LEVEL report -f CycloneDX,NoticeByPackage,NoticeSummary,StaticHTML,WebApp -i scanner/out/results/scan-result.yml -o reporter/out/results
+                    /opt/ort/bin/ort $LOG_LEVEL --stacktrace report -f CycloneDX,NoticeByPackage,NoticeSummary,SpdxDocument,StaticHTML,WebApp -i out/results/current-result.yml -o out/results/reporter
                 '''
             }
 
             post {
                 always {
                     archiveArtifacts(
-                        artifacts: 'reporter/out/results/*',
+                        artifacts: 'out/results/reporter/*',
                         fingerprint: true
                     )
                 }
-            }
-        }
-
-        stage('Trigger downstream job') {
-            agent any
-
-            when {
-                beforeAgent true
-
-                expression {
-                    !params.DOWNSTREAM_JOB.allWhitespace
-                }
-            }
-
-            steps {
-                build job: params.DOWNSTREAM_JOB, wait: false
             }
         }
     }

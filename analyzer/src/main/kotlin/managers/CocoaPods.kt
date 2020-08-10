@@ -19,13 +19,13 @@
 
 package org.ossreviewtoolkit.analyzer.managers
 
+import java.io.File
+
 import org.ossreviewtoolkit.analyzer.AbstractPackageManagerFactory
 import org.ossreviewtoolkit.analyzer.PackageManager
 import org.ossreviewtoolkit.model.ProjectAnalyzerResult
 import org.ossreviewtoolkit.model.config.AnalyzerConfiguration
 import org.ossreviewtoolkit.model.config.RepositoryConfiguration
-
-import java.io.File
 
 /**
  * The [CocoaPods](https://cocoapods.org/) package manager for Objective-C.
@@ -46,7 +46,7 @@ class CocoaPods(
         ) = CocoaPods(managerName, analysisRoot, analyzerConfig, repoConfig)
     }
 
-    override fun resolveDependencies(definitionFile: File): ProjectAnalyzerResult? {
+    override fun resolveDependencies(definitionFile: File): List<ProjectAnalyzerResult> {
         TODO("not implemented") // To change body of created functions use File | Settings | File Templates.
     }
 }

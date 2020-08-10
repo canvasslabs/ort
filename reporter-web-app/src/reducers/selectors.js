@@ -27,15 +27,7 @@ import memoizeOne from 'memoize-one';
 const hasOrtResultChanged = (newArgs, oldArgs) => newArgs.length !== oldArgs.length
     || newArgs[0].data.reportLastUpdate !== oldArgs[0].data.reportLastUpdate;
 
-const sortTableColumnFilterSelectors = (a, b) => {
-    if (a.text < b.text) {
-        return -1;
-    }
-    if (a.text > b.text) {
-        return 1;
-    }
-    return 0;
-};
+const sortTableColumnFilterSelectors = (a, b) => a.text.localeCompare(b.text);
 
 // ---- App selectors ----
 
@@ -77,7 +69,7 @@ export const getCustomDataAsFlatArray = memoizeOne(
 
 // ---- SummaryView selectors ----
 
-export const getSummaryDeclaredLicenses = memoizeOne(
+export const getSummaryDeclaredLicensesProcessed = memoizeOne(
     (state) => {
         const licenses = [];
         const webAppOrtResult = getOrtResult(state);
@@ -105,8 +97,8 @@ export const getSummaryDeclaredLicenses = memoizeOne(
     },
     hasOrtResultChanged
 );
-export const getSummaryDeclaredLicensesChart = (state) => {
-    const declaredLicenses = getSummaryDeclaredLicenses(state);
+export const getSummaryDeclaredLicensesProcessedChart = (state) => {
+    const declaredLicenses = getSummaryDeclaredLicensesProcessed(state);
 
     if (state.summary.declaredLicensesChart.length === 0 && declaredLicenses.length !== 0) {
         return declaredLicenses;
@@ -114,8 +106,8 @@ export const getSummaryDeclaredLicensesChart = (state) => {
 
     return state.summary.declaredLicensesChart;
 };
-export const getSummaryDeclaredLicensesFilter = (state) => state.summary.declaredLicensesFilter;
-export const getSummaryDetectedLicenses = memoizeOne(
+export const getSummaryDeclaredLicensesProcessedFilter = (state) => state.summary.declaredLicensesFilter;
+export const getSummaryDetectedLicensesProcessed = memoizeOne(
     (state) => {
         const licenses = [];
         const webAppOrtResult = getOrtResult(state);
@@ -143,16 +135,16 @@ export const getSummaryDetectedLicenses = memoizeOne(
     },
     hasOrtResultChanged
 );
-export const getSummaryDetectedLicensesChart = (state) => {
-    const detectedLicenses = getSummaryDetectedLicenses(state);
+export const getSummaryDetectedLicensesProcessedChart = (state) => {
+    const detectedLicenses = getSummaryDetectedLicensesProcessed(state);
 
-    if (state.summary.detectedLicensesChart.length === 0 && detectedLicenses.length !== 0) {
+    if (state.summary.detectedLicensesProcessedChart.length === 0 && detectedLicenses.length !== 0) {
         return detectedLicenses;
     }
 
-    return state.summary.detectedLicensesChart;
+    return state.summary.detectedLicensesProcessedChart;
 };
-export const getSummaryDetectedLicensesFilter = (state) => state.summary.detectedLicensesFilter;
+export const getSummaryDetectedLicensesProcessedFilter = (state) => state.summary.detectedLicensesProcessedFilter;
 export const getSummaryIssuesFilter = (state) => state.summary.issuesFilter;
 export const getSummaryRuleViolationsFilter = (state) => state.summary.ruleViolationsFilter;
 
@@ -168,6 +160,23 @@ export const getTableViewDeclaredLicensesSelections = memoizeOne(
         const webAppOrtResult = getOrtResult(state);
         const { declaredLicenses } = webAppOrtResult;
         return declaredLicenses
+            .map(
+                (license) => (
+                    {
+                        text: license,
+                        value: webAppOrtResult.getLicenseByName(license).id
+                    }
+                )
+            )
+            .sort(sortTableColumnFilterSelectors);
+    },
+    hasOrtResultChanged
+);
+export const getTableViewDeclaredLicensesProcessedSelections = memoizeOne(
+    (state) => {
+        const webAppOrtResult = getOrtResult(state);
+        const { declaredLicensesProcessed } = webAppOrtResult;
+        return declaredLicensesProcessed
             .map(
                 (license) => (
                     {
@@ -213,8 +222,12 @@ export const getTableViewProjectFilterSelections = memoizeOne(
         const webAppOrtResult = getOrtResult(state);
         const { projects } = webAppOrtResult;
         return projects
+            .sort((a, b) => a.id.localeCompare(b.id))
             .map(
                 (webAppPackage) => {
+                    const text = webAppPackage.definitionFilePath
+                        ? webAppPackage.definitionFilePath : webAppPackage.id;
+
                     if (webAppOrtResult.hasPathExcludes()) {
                         if (webAppPackage.isExcluded) {
                             return {
@@ -224,10 +237,7 @@ export const getTableViewProjectFilterSelections = memoizeOne(
                                             className="ort-excluded"
                                         />
                                         {' '}
-                                        {
-                                            webAppPackage.definitionFilePath
-                                                ? webAppPackage.definitionFilePath : webAppPackage.id
-                                        }
+                                        {text}
                                     </span>
                                 ),
                                 value: webAppPackage.packageIndex
@@ -239,10 +249,7 @@ export const getTableViewProjectFilterSelections = memoizeOne(
                                 <span>
                                     <FileAddOutlined />
                                     {' '}
-                                    {
-                                        webAppPackage.definitionFilePath
-                                            ? webAppPackage.definitionFilePath : webAppPackage.id
-                                    }
+                                    {text}
                                 </span>
                             ),
                             value: webAppPackage.packageIndex
@@ -250,13 +257,11 @@ export const getTableViewProjectFilterSelections = memoizeOne(
                     }
 
                     return {
-                        text: webAppPackage.definitionFilePath
-                            ? webAppPackage.definitionFilePath : webAppPackage.id,
+                        text,
                         value: webAppPackage.packageIndex
                     };
                 }
-            )
-            .sort(sortTableColumnFilterSelectors);
+            );
     },
     hasOrtResultChanged
 );
@@ -265,10 +270,47 @@ export const getTableViewScopeFilterSelections = memoizeOne(
         const webAppOrtResult = getOrtResult(state);
         const { scopes } = webAppOrtResult;
         return scopes
+            .sort((a, b) => a.name.localeCompare(b.name))
             .map(
-                (scope) => ({ text: scope.name, value: scope.id })
-            )
-            .sort(sortTableColumnFilterSelectors);
+                (webAppScope) => {
+                    if (webAppOrtResult.hasScopeExcludes()) {
+                        if (webAppScope.isExcluded) {
+                            return {
+                                text: (
+                                    <span>
+                                        <FileExcelOutlined
+                                            className="ort-excluded"
+                                        />
+                                        {' '}
+                                        {
+                                            webAppScope.name
+                                        }
+                                    </span>
+                                ),
+                                value: webAppScope.id
+                            };
+                        }
+
+                        return {
+                            text: (
+                                <span>
+                                    <FileAddOutlined />
+                                    {' '}
+                                    {
+                                        webAppScope.name
+                                    }
+                                </span>
+                            ),
+                            value: webAppScope.id
+                        };
+                    }
+
+                    return {
+                        text: webAppScope.name,
+                        value: webAppScope.id
+                    };
+                }
+            );
     },
     hasOrtResultChanged
 );

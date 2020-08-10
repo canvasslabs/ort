@@ -27,11 +27,11 @@ import com.fasterxml.jackson.databind.annotation.JsonDeserialize
 import com.fasterxml.jackson.databind.deser.std.StdDeserializer
 import com.fasterxml.jackson.databind.exc.UnrecognizedPropertyException
 
+import kotlin.reflect.full.memberProperties
+
 import org.ossreviewtoolkit.utils.fieldNamesOrEmpty
 import org.ossreviewtoolkit.utils.normalizeVcsUrl
 import org.ossreviewtoolkit.utils.textValueOrEmpty
-
-import kotlin.reflect.full.memberProperties
 
 /**
  * Bundles general Version Control System information.
@@ -90,32 +90,13 @@ data class VcsInfo(
             return other
         }
 
-        var type = this.type
-        if (type == VcsType.NONE && other.type != VcsType.NONE) {
-            type = other.type
-        }
-
-        var url = this.url
-        if (url.isBlank() && other.url.isNotBlank()) {
-            url = other.url
-        }
-
-        var revision = this.revision
-        if (revision.isBlank() && other.revision.isNotBlank()) {
-            revision = other.revision
-        }
-
-        var resolvedRevision = this.resolvedRevision
-        if (resolvedRevision == null && other.resolvedRevision != null) {
-            resolvedRevision = other.resolvedRevision
-        }
-
-        var path = this.path
-        if (path.isBlank() && other.path.isNotBlank()) {
-            path = other.path
-        }
-
-        return VcsInfo(type, url, revision, resolvedRevision, path)
+        return VcsInfo(
+            type.takeUnless { it == EMPTY.type } ?: other.type,
+            url.takeUnless { it == EMPTY.url } ?: other.url,
+            revision.takeUnless { it == EMPTY.revision } ?: other.revision,
+            resolvedRevision.takeUnless { it == EMPTY.resolvedRevision } ?: other.resolvedRevision,
+            path.takeUnless { it == EMPTY.path } ?: other.path
+        )
     }
 
     /**
@@ -129,7 +110,7 @@ data class VcsInfo(
     fun toCuration() = VcsInfoCurationData(type, url, revision, resolvedRevision, path)
 }
 
-class VcsInfoDeserializer : StdDeserializer<VcsInfo>(VcsInfo::class.java) {
+private class VcsInfoDeserializer : StdDeserializer<VcsInfo>(VcsInfo::class.java) {
     companion object {
         val KNOWN_FIELDS by lazy { VcsInfo::class.memberProperties.map { PROPERTY_NAMING_STRATEGY.translate(it.name) } }
     }

@@ -19,16 +19,15 @@
 
 package org.ossreviewtoolkit.analyzer.managers
 
-import org.ossreviewtoolkit.model.yamlMapper
+import io.kotest.core.spec.style.StringSpec
+import io.kotest.matchers.shouldBe
+
+import java.io.File
+
 import org.ossreviewtoolkit.utils.Os
 import org.ossreviewtoolkit.utils.test.DEFAULT_ANALYZER_CONFIGURATION
 import org.ossreviewtoolkit.utils.test.DEFAULT_REPOSITORY_CONFIGURATION
 import org.ossreviewtoolkit.utils.test.USER_DIR
-
-import io.kotlintest.shouldBe
-import io.kotlintest.specs.StringSpec
-
-import java.io.File
 
 class StackTest : StringSpec() {
     private val projectsDir = File("src/funTest/assets/projects").absoluteFile
@@ -37,14 +36,14 @@ class StackTest : StringSpec() {
         "Dependencies should be resolved correctly for quickcheck-state-machine" {
             val definitionFile = File(projectsDir, "external/quickcheck-state-machine/stack.yaml")
 
-            val result = createStack().resolveDependencies(listOf(definitionFile))[definitionFile]
+            val result = createStack().resolveSingleProject(definitionFile)
             val expectedOutput = if (Os.isWindows) {
                 "external/quickcheck-state-machine-expected-output-win32.yml"
             } else {
                 "external/quickcheck-state-machine-expected-output.yml"
             }
             val expectedResult = File(projectsDir, expectedOutput).readText()
-            val actualResult = yamlMapper.writeValueAsString(result)
+            val actualResult = result.toYaml()
 
             actualResult shouldBe expectedResult
         }

@@ -22,8 +22,18 @@ package org.ossreviewtoolkit.analyzer.managers
 import com.fasterxml.jackson.databind.JsonNode
 import com.fasterxml.jackson.databind.node.ArrayNode
 
+import com.vdurmont.semver4j.Requirement
+
+import java.io.File
+import java.io.IOException
+import java.lang.IllegalArgumentException
+import java.lang.NumberFormatException
+import java.net.HttpURLConnection
+import java.util.SortedSet
+
+import okhttp3.Request
+
 import org.ossreviewtoolkit.analyzer.AbstractPackageManagerFactory
-import org.ossreviewtoolkit.analyzer.HTTP_CACHE_PATH
 import org.ossreviewtoolkit.analyzer.PackageManager
 import org.ossreviewtoolkit.downloader.VersionControlSystem
 import org.ossreviewtoolkit.model.EMPTY_JSON_NODE
@@ -41,31 +51,22 @@ import org.ossreviewtoolkit.model.config.RepositoryConfiguration
 import org.ossreviewtoolkit.model.jsonMapper
 import org.ossreviewtoolkit.utils.CommandLineTool
 import org.ossreviewtoolkit.utils.ORT_NAME
-import org.ossreviewtoolkit.utils.Os
 import org.ossreviewtoolkit.utils.OkHttpClientHelper
+import org.ossreviewtoolkit.utils.Os
 import org.ossreviewtoolkit.utils.ProcessCapture
 import org.ossreviewtoolkit.utils.collectMessagesAsString
 import org.ossreviewtoolkit.utils.getPathFromEnvironment
 import org.ossreviewtoolkit.utils.log
+import org.ossreviewtoolkit.utils.normalizeLineBreaks
 import org.ossreviewtoolkit.utils.safeDeleteRecursively
 import org.ossreviewtoolkit.utils.showStackTrace
 import org.ossreviewtoolkit.utils.textValueOrEmpty
 
-import com.vdurmont.semver4j.Requirement
-
-import java.io.File
-import java.io.IOException
-import java.lang.IllegalArgumentException
-import java.lang.NumberFormatException
-import java.net.HttpURLConnection
-import java.util.SortedSet
-
-import okhttp3.Request
-
 // The lowest version that supports "--prefer-binary".
-const val PIP_VERSION = "18.0"
+private const val PIP_VERSION = "18.0"
 
-const val PIPDEPTREE_VERSION = "0.13.2"
+private const val PIPDEPTREE_VERSION = "0.13.2"
+
 private val PHONY_DEPENDENCIES = mapOf(
     "pipdeptree" to "", // A dependency of pipdeptree itself.
     "pkg-resources" to "0.0.0", // Added by a bug with some Ubuntu distributions.
@@ -78,7 +79,7 @@ private fun isPhonyDependency(name: String, version: String): Boolean =
         PHONY_DEPENDENCIES.containsKey(name) && (ignoredVersion.isEmpty() || version == ignoredVersion)
     }
 
-const val PYDEP_REVISION = "license-and-classifiers"
+private const val PYDEP_REVISION = "license-and-classifiers"
 
 object VirtualEnv : CommandLineTool {
     override fun command(workingDir: File?) = "virtualenv"
@@ -159,7 +160,7 @@ class Pip(
     repoConfig: RepositoryConfiguration
 ) : PackageManager(name, analysisRoot, analyzerConfig, repoConfig), CommandLineTool {
     class Factory : AbstractPackageManagerFactory<Pip>("PIP") {
-        override val globsForDefinitionFiles = listOf("requirements*.txt", "setup.py")
+        override val globsForDefinitionFiles = listOf("*requirements*.txt", "setup.py")
 
         override fun create(
             analysisRoot: File,
@@ -183,7 +184,7 @@ class Pip(
         /**
          * Return a version string with leading zeros of components stripped.
          */
-        fun stripLeadingZerosFromVersion(version: String) =
+        private fun stripLeadingZerosFromVersion(version: String) =
             version.split(".").joinToString(".") {
                 try {
                     it.toInt().toString()
@@ -225,7 +226,7 @@ class Pip(
         VirtualEnv.checkVersion(analyzerConfig.ignoreToolVersions)
 
     @Suppress("LongMethod")
-    override fun resolveDependencies(definitionFile: File): ProjectAnalyzerResult? {
+    override fun resolveDependencies(definitionFile: File): List<ProjectAnalyzerResult> {
         // For an overview, dependency resolution involves the following steps:
         // 1. Install dependencies via pip (inside a virtualenv, for isolation from globally installed packages).
         // 2. Get meta-data about the local project via pydep (only for setup.py-based projects).
@@ -237,6 +238,9 @@ class Pip(
 
         // List all packages installed locally in the virtualenv.
         val pipdeptree = runInVirtualEnv(virtualEnvDir, workingDir, "pipdeptree", "-l", "--json-tree")
+
+        // Get the locally available meta data for all installed packages as a fallback.
+        val installedPackages = getInstalledPackagesWithLocalMetaData(virtualEnvDir, workingDir).associateBy { it.id }
 
         // Install pydep after running any other command but before looking at the dependencies because it
         // downgrades pip to version 7.1.2. Use it to get meta-information from about the project from setup.py. As
@@ -272,7 +276,7 @@ class Pip(
             // What pydep actually returns as "repo_url" is either setup.py's
             // - "url", denoting the "home page for the package", or
             // - "download_url", denoting the "location where the package may be downloaded".
-            // So the best we can do is to map this the project's homepage URL.
+            // So the best we can do is to map it to the project's homepage URL.
             jsonMapper.readTree(pydep.stdout).let {
                 declaredLicenses = getDeclaredLicenses(it)
                 listOf(
@@ -344,79 +348,9 @@ class Pip(
 
             // Enrich the package templates with additional meta-data from PyPI.
             packageTemplates.mapTo(packages) { pkg ->
-                // See https://wiki.python.org/moin/PyPIJSON.
-                val pkgRequest = Request.Builder()
-                    .get()
-                    .url("https://pypi.org/pypi/${pkg.id.name}/${pkg.id.version}/json")
-                    .build()
-
-                OkHttpClientHelper.execute(HTTP_CACHE_PATH, pkgRequest).use { response ->
-                    val body = response.body?.string()?.trim()
-
-                    if (response.code != HttpURLConnection.HTTP_OK || body.isNullOrEmpty()) {
-                        log.warn { "Unable to retrieve PyPI meta-data for package '${pkg.id.toCoordinates()}'." }
-                        if (body != null) {
-                            log.warn { "The response was '$body' (code ${response.code})." }
-                        }
-
-                        // Fall back to returning the original package data.
-                        return@use pkg
-                    }
-
-                    val pkgData = try {
-                        jsonMapper.readTree(body)!!
-                    } catch (e: IOException) {
-                        e.showStackTrace()
-
-                        log.warn {
-                            "Unable to parse PyPI meta-data for package '${pkg.id.toCoordinates()}': " +
-                                    e.collectMessagesAsString()
-                        }
-
-                        // Fall back to returning the original package data.
-                        return@use pkg
-                    }
-
-                    pkgData["info"]?.let { pkgInfo ->
-                        val pkgDescription = pkgInfo["summary"]?.textValue() ?: pkg.description
-                        val pkgHomepage = pkgInfo["home_page"]?.textValue() ?: pkg.homepageUrl
-
-                        val pkgRelease = pkgData["releases"]?.let { pkgReleases ->
-                            val pkgVersion = pkgReleases.fieldNames().asSequence().find {
-                                stripLeadingZerosFromVersion(it) == pkg.id.version
-                            }
-
-                            pkgReleases[pkgVersion]
-                        } as? ArrayNode
-
-                        // Amend package information with more details.
-                        Package(
-                            id = pkg.id,
-                            declaredLicenses = getDeclaredLicenses(pkgInfo),
-                            description = pkgDescription,
-                            homepageUrl = pkgHomepage,
-                            binaryArtifact = if (pkgRelease != null) {
-                                getBinaryArtifact(pkg, pkgRelease)
-                            } else {
-                                pkg.binaryArtifact
-                            },
-                            sourceArtifact = if (pkgRelease != null) {
-                                getSourceArtifact(pkgRelease)
-                            } else {
-                                pkg.sourceArtifact
-                            },
-                            vcs = pkg.vcs,
-                            vcsProcessed = processPackageVcs(pkg.vcs, listOf(pkgHomepage))
-                        )
-                    } ?: run {
-                        log.warn {
-                            "PyPI meta-data for package '${pkg.id.toCoordinates()}' does not provide any information."
-                        }
-
-                        // Fall back to returning the original package data.
-                        pkg
-                    }
-                }
+                // TODO: Retrieve meta data of package not hosted on PyPI by querying the respective repository.
+                pkg.enrichWith(getPackageFromPyPi(pkg.id))
+                    .enrichWith(installedPackages[pkg.id])
             }
         } else {
             log.error {
@@ -439,7 +373,7 @@ class Pip(
             definitionFilePath = VersionControlSystem.getPathInfo(definitionFile).path,
             declaredLicenses = declaredLicenses,
             vcs = VcsInfo.EMPTY,
-            vcsProcessed = processProjectVcs(workingDir, fallbackUrls = listOf(setupHomepage)),
+            vcsProcessed = processProjectVcs(workingDir, VcsInfo.EMPTY, setupHomepage),
             homepageUrl = setupHomepage,
             scopes = scopes
         )
@@ -447,22 +381,31 @@ class Pip(
         // Remove the virtualenv by simply deleting the directory.
         virtualEnvDir.safeDeleteRecursively()
 
-        return ProjectAnalyzerResult(project, packages.mapTo(sortedSetOf()) { it.toCuratedPackage() })
+        return listOf(
+            ProjectAnalyzerResult(
+                project = project,
+                packages = packages.mapTo(sortedSetOf()) { it.toCuratedPackage() }
+            )
+        )
     }
 
-    private fun getBinaryArtifact(pkg: Package, releaseNode: ArrayNode): RemoteArtifact {
+    private fun getBinaryArtifact(releaseNode: ArrayNode?): RemoteArtifact {
+        releaseNode ?: return RemoteArtifact.EMPTY
+
         // Prefer python wheels and fall back to the first entry (probably a sdist).
         val binaryArtifact = releaseNode.asSequence().find {
             it["packagetype"].textValue() == "bdist_wheel"
         } ?: releaseNode[0]
 
-        val url = binaryArtifact["url"]?.textValue() ?: pkg.binaryArtifact.url
-        val hash = binaryArtifact["md5_digest"]?.textValue()?.let { Hash.create(it) } ?: pkg.binaryArtifact.hash
+        val url = binaryArtifact["url"]?.textValue() ?: return RemoteArtifact.EMPTY
+        val hash = binaryArtifact["md5_digest"]?.textValue()?.let { Hash.create(it) } ?: return RemoteArtifact.EMPTY
 
         return RemoteArtifact(url, hash)
     }
 
-    private fun getSourceArtifact(releaseNode: ArrayNode): RemoteArtifact {
+    private fun getSourceArtifact(releaseNode: ArrayNode?): RemoteArtifact {
+        releaseNode ?: return RemoteArtifact.EMPTY
+
         val sourceArtifacts = releaseNode.asSequence().filter {
             it["packagetype"].textValue() == "sdist"
         }
@@ -489,13 +432,13 @@ class Pip(
 
         // Example license classifier:
         // "License :: OSI Approved :: GNU Library or Lesser General Public License (LGPL)"
-        pkgInfo["classifiers"]?.mapNotNullTo(declaredLicenses) {
-            val classifier = it.textValue().split(" :: ")
-            classifier.takeIf { it.first() == "License" }?.last()
-        }
+        pkgInfo["classifiers"]?.mapNotNullTo(declaredLicenses) { getLicenseFromClassifier(it.textValue()) }
 
         return declaredLicenses
     }
+
+    private fun getLicenseFromClassifier(classifier: String): String? =
+        classifier.split(" :: ").takeIf { it.first() == "License" }?.last()?.takeUnless { it == "OSI Approved" }
 
     private fun setupVirtualEnv(workingDir: File, definitionFile: File): File {
         // Create an out-of-tree virtualenv.
@@ -602,15 +545,12 @@ class Pip(
         allPackages: SortedSet<Package>, installDependencies: SortedSet<PackageReference>
     ) {
         dependencies.forEach { dependency ->
-            val name = dependency["package_name"].textValue()
-            val version = dependency["installed_version"].textValue()
-
             val pkg = Package(
                 id = Identifier(
                     type = "PyPI",
                     namespace = "",
-                    name = name,
-                    version = version
+                    name = dependency["package_name"].textValue(),
+                    version = dependency["installed_version"].textValue()
                 ),
                 declaredLicenses = sortedSetOf(),
                 description = "",
@@ -619,12 +559,169 @@ class Pip(
                 sourceArtifact = RemoteArtifact.EMPTY,
                 vcs = VcsInfo.EMPTY
             )
-            allPackages += pkg
-
             val packageRef = pkg.toReference()
+
+            allPackages += pkg
             installDependencies += packageRef
 
             parseDependencies(dependency["dependencies"], allPackages, packageRef.dependencies)
         }
     }
+
+    private fun getPackageFromPyPi(id: Identifier): Package {
+        // See https://wiki.python.org/moin/PyPIJSON.
+        val pkgRequest = Request.Builder()
+            .get()
+            .url("https://pypi.org/pypi/${id.name}/${id.version}/json")
+            .build()
+
+        OkHttpClientHelper.execute(pkgRequest).use { response ->
+            val body = response.body?.string()?.trim()
+
+            if (response.code != HttpURLConnection.HTTP_OK || body.isNullOrEmpty()) {
+                log.warn { "Unable to retrieve PyPI meta-data for package '${id.toCoordinates()}'." }
+                if (body != null) {
+                    log.warn { "The response was '$body' (code ${response.code})." }
+                }
+
+                return@use
+            }
+
+            val pkgData = try {
+                jsonMapper.readTree(body)!!
+            } catch (e: IOException) {
+                e.showStackTrace()
+
+                log.warn {
+                    "Unable to parse PyPI meta-data for package '${id.toCoordinates()}': ${e.collectMessagesAsString()}"
+                }
+
+                return@use
+            }
+
+            pkgData["info"]?.let { pkgInfo ->
+                val pkgRelease = pkgData["releases"]?.let { pkgReleases ->
+                    val pkgVersion = pkgReleases.fieldNames().asSequence().find {
+                        stripLeadingZerosFromVersion(it) == id.version
+                    }
+
+                    pkgReleases[pkgVersion]
+                } as? ArrayNode
+
+                val homepageUrl = pkgInfo["home_page"]?.textValue().orEmpty()
+
+                return Package(
+                    id = id,
+                    homepageUrl = homepageUrl,
+                    description = pkgInfo["summary"]?.textValue().orEmpty(),
+                    declaredLicenses = getDeclaredLicenses(pkgInfo),
+                    binaryArtifact = getBinaryArtifact(pkgRelease),
+                    sourceArtifact = getSourceArtifact(pkgRelease),
+                    vcs = VcsInfo.EMPTY,
+                    vcsProcessed = processPackageVcs(VcsInfo.EMPTY, homepageUrl)
+                )
+            }
+
+            log.warn { "PyPI meta-data for package '${id.toCoordinates()}' does not provide any information." }
+        }
+
+        return Package.EMPTY.copy(id = id)
+    }
+
+    private fun getInstalledPackagesWithLocalMetaData(
+        virtualEnvDir: File,
+        workingDir: File
+    ): List<Package> {
+        val allPackages = listAllInstalledPackages(virtualEnvDir, workingDir)
+
+        // Invoking 'pip show' once for each package separately is too slow, thus obtain the output for all packages
+        // and split it at the separator lines: "---".
+        val output = runInVirtualEnv(
+            virtualEnvDir,
+            workingDir,
+            "pip",
+            "show",
+            "--verbose",
+            *allPackages.map { it.name }.toTypedArray()
+        ).requireSuccess().stdout
+
+        return output.normalizeLineBreaks().split("---\n").mapNotNull { parsePipShowOutput(it) }
+    }
+
+    /**
+     * Return the [Identifier]s of all installed packages, determined via the command 'pip list'.
+     */
+    private fun listAllInstalledPackages(virtualEnvDir: File, workingDir: File): Set<Identifier> {
+        val json = runInVirtualEnv(virtualEnvDir, workingDir, "pip", "list", "--format", "json")
+            .requireSuccess()
+            .stdout
+
+        val rootNode = jsonMapper.readTree(json) as ArrayNode
+
+        return rootNode.elements().asSequence().mapTo(mutableSetOf()) {
+            Identifier("PyPI", "", it["name"].textValue(), it["version"].textValue())
+        }
+    }
+
+    /**
+     * Parse the output of 'pip show <package-name> --verbose' to a package.
+     */
+    private fun parsePipShowOutput(output: String): Package? {
+        val map = mutableMapOf<String, MutableList<String>>()
+
+        var previousKey: String? = null
+        output.lines().forEach { line ->
+            if (!line.startsWith(" ")) {
+                val index = line.indexOf(":")
+                if (index < 0) return@forEach
+
+                val key = line.substring(0, index)
+                val value = line.substring(index + 1, line.length).trim()
+
+                if (value.isNotEmpty()) {
+                    map.getOrPut(key, { mutableListOf() }) += value
+                }
+
+                previousKey = key
+                return@forEach
+            }
+
+            previousKey?.let {
+                map.getOrPut(it, { mutableListOf() }) += line.trim()
+            }
+        }
+
+        val declaredLicenses = sortedSetOf<String>()
+        map["License"]?.let { declaredLicenses.add(it.single()) }
+        map["Classifiers"]?.mapNotNullTo(declaredLicenses) { getLicenseFromClassifier(it) }
+
+        return Package(
+            id = Identifier(
+                type = "PyPI",
+                namespace = "",
+                name = map.getValue("Name").single(),
+                version = map.getValue("Version").single()
+            ),
+            description = map["Summary"]?.single().orEmpty(),
+            homepageUrl = map["Home-page"]?.single().orEmpty(),
+            declaredLicenses = declaredLicenses,
+            binaryArtifact = RemoteArtifact.EMPTY,
+            sourceArtifact = RemoteArtifact.EMPTY,
+            vcs = VcsInfo.EMPTY
+        )
+    }
 }
+
+private fun Package.enrichWith(other: Package?): Package =
+    other?.let {
+        Package(
+            id = id,
+            homepageUrl = homepageUrl.takeUnless { it.isBlank() } ?: it.homepageUrl,
+            description = description.takeUnless { it.isBlank() } ?: it.description,
+            declaredLicenses = declaredLicenses.takeUnless { it.isEmpty() } ?: other.declaredLicenses,
+            binaryArtifact = binaryArtifact.takeUnless { it == RemoteArtifact.EMPTY } ?: it.binaryArtifact,
+            sourceArtifact = sourceArtifact.takeUnless { it == RemoteArtifact.EMPTY } ?: it.sourceArtifact,
+            vcs = vcs.takeUnless { it == VcsInfo.EMPTY } ?: it.vcs,
+            vcsProcessed = vcsProcessed.takeUnless { it == VcsInfo.EMPTY } ?: it.vcsProcessed
+        )
+    } ?: this

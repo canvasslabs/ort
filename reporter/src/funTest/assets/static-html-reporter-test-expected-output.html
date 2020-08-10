@@ -571,8 +571,11 @@ Resolved by: CANT_FIX_EXCEPTION - Apache-2 is not an issue.</p>
             <td><a href="#Gradle:org.ossreviewtoolkit.gradle.example:lib:1.0.0-pkg-1">1</a></td><td>Gradle:org.ossreviewtoolkit.gradle.example:lib:1.0.0</td><td></td><td><em>Detected Licenses:</em>
               <dl>
                 <dd>
-                  <div>Apache-2.0 (multi-line) (<a href="https://github.com/oss-review-toolkit/ort/tree/master/analyzer/src/funTest/assets/projects/synthetic/gradle/lib/build.gradle#L19-L20">link</a> to the location)</div>
-                  <div>Apache-2.0 (single-line) (exemplary <a href="https://github.com/oss-review-toolkit/ort/tree/master/analyzer/src/funTest/assets/projects/synthetic/gradle/lib/build.gradle#L19">link</a> to the first of 2 locations)</div>
+                  <div>BSD-3-Clause (<a href="https://github.com/oss-review-toolkit/ort/tree/master/analyzer/src/funTest/assets/projects/synthetic/gradle/lib/src/code.cpp#L1">link</a> to the location)</div>
+                  <div>GPL-2.0-only WITH Classpath-exception-2.0 (<a href="https://github.com/oss-review-toolkit/ort/tree/master/analyzer/src/funTest/assets/projects/synthetic/gradle/lib/src/code.cpp#L1">link</a> to the location)</div>
+                  <div>LicenseRef-test-Apache-2.0-multi-line (<a href="https://github.com/oss-review-toolkit/ort/tree/master/analyzer/src/funTest/assets/projects/synthetic/gradle/lib/build.gradle#L19-L20">link</a> to the location)</div>
+                  <div>LicenseRef-test-Apache-2.0-single-line (exemplary <a href="https://github.com/oss-review-toolkit/ort/tree/master/analyzer/src/funTest/assets/projects/synthetic/gradle/lib/build.gradle#L19">link</a> to the first of 2 locations)</div>
+                  <div>MIT (<a href="https://github.com/oss-review-toolkit/ort/tree/master/analyzer/src/funTest/assets/projects/synthetic/gradle/lib/src/code.cpp#L1">link</a> to the location)</div>
                 </dd>
               </dl>
             </td><td>
@@ -585,10 +588,11 @@ Resolved by: CANT_FIX_EXCEPTION - Apache-2 is not an issue.</p>
               </ul>
             </td>
           </tr>
-          <tr class="ort-success " id="Gradle:org.ossreviewtoolkit.gradle.example:lib:1.0.0-pkg-2">
+          <tr class="ort-success ort-excluded" id="Gradle:org.ossreviewtoolkit.gradle.example:lib:1.0.0-pkg-2">
             <td><a href="#Gradle:org.ossreviewtoolkit.gradle.example:lib:1.0.0-pkg-2">2</a></td><td>Ant:junit:junit:4.12</td><td>
               <ul>
-                <li class="">testCompile</li>
+                <li class="ort-excluded">testCompile <div class="ort-reason">Excluded: TEST_DEPENDENCY_OF - The scope only contains test dependencies.</div>
+                </li>
               </ul>
             </td><td><em>Declared Licenses:</em>
               <dl>
@@ -606,7 +610,8 @@ Resolved by: CANT_FIX_EXCEPTION - Apache-2 is not an issue.</p>
             <td><a href="#Gradle:org.ossreviewtoolkit.gradle.example:lib:1.0.0-pkg-3">3</a></td><td>Maven:org.apache.commons:commons-lang3:3.5</td><td>
               <ul>
                 <li class="">compile</li>
-                <li class="">testCompile</li>
+                <li class="ort-excluded">testCompile <div class="ort-reason">Excluded: TEST_DEPENDENCY_OF - The scope only contains test dependencies.</div>
+                </li>
               </ul>
             </td><td><em>Declared Licenses:</em>
               <dl>
@@ -624,7 +629,8 @@ Resolved by: CANT_FIX_EXCEPTION - Apache-2 is not an issue.</p>
             <td><a href="#Gradle:org.ossreviewtoolkit.gradle.example:lib:1.0.0-pkg-4">4</a></td><td>Maven:org.apache.commons:commons-text:1.1</td><td>
               <ul>
                 <li class="">compile</li>
-                <li class="">testCompile</li>
+                <li class="ort-excluded">testCompile <div class="ort-reason">Excluded: TEST_DEPENDENCY_OF - The scope only contains test dependencies.</div>
+                </li>
               </ul>
             </td><td><em>Declared Licenses:</em>
               <dl>
@@ -638,10 +644,11 @@ Resolved by: CANT_FIX_EXCEPTION - Apache-2 is not an issue.</p>
               <ul></ul>
             </td>
           </tr>
-          <tr class="ort-success " id="Gradle:org.ossreviewtoolkit.gradle.example:lib:1.0.0-pkg-5">
+          <tr class="ort-success ort-excluded" id="Gradle:org.ossreviewtoolkit.gradle.example:lib:1.0.0-pkg-5">
             <td><a href="#Gradle:org.ossreviewtoolkit.gradle.example:lib:1.0.0-pkg-5">5</a></td><td>Maven:org.hamcrest:hamcrest-core:1.3</td><td>
               <ul>
-                <li class="">testCompile</li>
+                <li class="ort-excluded">testCompile <div class="ort-reason">Excluded: TEST_DEPENDENCY_OF - The scope only contains test dependencies.</div>
+                </li>
               </ul>
             </td><td><em>Declared Licenses:</em>
               <dl>
@@ -676,7 +683,7 @@ Resolved by: CANT_FIX_EXCEPTION - Apache-2 is not an issue.</p>
             <td>Path</td><td>project</td>
           </tr>
           <tr>
-            <td>Revision</td><td></td>
+            <td>Revision</td><td>master</td>
           </tr>
         </tbody>
       </table>
@@ -689,7 +696,14 @@ Resolved by: CANT_FIX_EXCEPTION - Apache-2 is not an issue.</p>
         </thead>
         <tbody>
           <tr class="ort-success " id="Gradle:org.ossreviewtoolkit:nested-fake-project:1.0.0-pkg-1">
-            <td><a href="#Gradle:org.ossreviewtoolkit:nested-fake-project:1.0.0-pkg-1">1</a></td><td>Gradle:org.ossreviewtoolkit:nested-fake-project:1.0.0</td><td></td><td><em>Detected Licenses:</em>
+            <td><a href="#Gradle:org.ossreviewtoolkit:nested-fake-project:1.0.0-pkg-1">1</a></td><td>Gradle:org.ossreviewtoolkit:nested-fake-project:1.0.0</td><td></td><td><em>Declared Licenses:</em>
+              <dl>
+                <dd>
+                  <div>CC-BY-NC-3.0</div>
+                  <div>GPL-3.0-only WITH GCC-exception-3.1</div>
+                </dd>
+              </dl>
+              <em>Detected Licenses:</em>
               <dl>
                 <dd>
                   <div>Apache-2.0</div>
@@ -716,6 +730,10 @@ excludes:
   - pattern: "**.java"
     reason: "EXAMPLE_OF"
     comment: "These are example files."
+  scopes:
+  - pattern: "testCompile"
+    reason: "TEST_DEPENDENCY_OF"
+    comment: "The scope only contains test dependencies."
 resolutions:
   rule_violations:
   - message: "Apache-2.0 hint"

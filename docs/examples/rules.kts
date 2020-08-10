@@ -16,7 +16,7 @@
  * SPDX-License-Identifier: Apache-2.0
  * License-Filename: LICENSE
  */
- 
+
 /*******************************************************
  * Example OSS Review Toolkit (ORT) rules.kts file     *
  *                                                     *
@@ -28,7 +28,7 @@
 /**
  * Import license configuration from licenses.yml.
  */
- 
+
 fun getLicenseSet(setId: String) = licenseConfiguration.getLicensesForSet(setId).map { it.id }.toSet()
 
 val permissiveLicenses = getLicenseSet("permissive")
@@ -46,8 +46,8 @@ val handledLicenses = listOf(
     copyleftLicenses,
     copyleftLimitedLicenses
 ).flatten().let {
-    it.groupBy { it }.filter { it.value.size > 1}.let {
-        require (it.isEmpty()) {
+    it.groupBy { it }.filter { it.value.size > 1 }.let {
+        require(it.isEmpty()) {
             "The classifications for the following licenses overlap: ${it.keys.joinToString()}"
         }
     }
@@ -71,7 +71,10 @@ fun PackageRule.LicenseRule.isHandled() =
     object : RuleMatcher {
         override val description = "isHandled($license)"
 
-        override fun matches() = license in handledLicenses && !(license.contains("-exception") && !license.contains(" WITH "))
+        override fun matches() =
+            license in handledLicenses
+                    && !(license.toString().contains("-exception")
+                    && !license.toString().contains(" WITH "))
     }
 
 fun PackageRule.LicenseRule.isCopyleft() =
@@ -118,6 +121,20 @@ val ruleSet = ruleSet(ortResult, packageConfigurationProvider) {
         }
     }
 
+    packageRule("UNMAPPED_DECLARED_LICENSE") {
+        require {
+            -isExcluded()
+        }
+
+        pkg.declaredLicensesProcessed.unmapped.forEach { unmappedLicense ->
+            warning(
+                "The declared license '$unmappedLicense' could not be mapped to a valid license or parsed as an SPDX " +
+                        "expression. The license was found in package ${pkg.id.toCoordinates()}.",
+                howToFixDefault()
+            )
+        }
+    }
+
     packageRule("COPYLEFT_IN_SOURCE") {
         require {
             -isExcluded()
@@ -140,7 +157,7 @@ val ruleSet = ruleSet(ortResult, packageConfigurationProvider) {
             error(message, howToFixDefault())
         }
 
-        licenseRule("COPYLEFT_LIMITED_IN_HERE_SOURCE", LicenseView.CONCLUDED_OR_DECLARED_OR_DETECTED) {
+        licenseRule("COPYLEFT_LIMITED_IN_SOURCE", LicenseView.CONCLUDED_OR_DECLARED_OR_DETECTED) {
             require {
                 -isExcluded()
                 +isCopyleftLimited()
@@ -150,11 +167,9 @@ val ruleSet = ruleSet(ortResult, packageConfigurationProvider) {
                 if (pkg.id.type == "Unmanaged") {
                     "The ScanCode copyleft-limited categorized license $license was ${licenseSource.name.toLowerCase()} " +
                             "in package ${pkg.id.toCoordinates()}."
-
                 } else {
                     "The ScanCode copyleft-limited categorized license $license was ${licenseSource.name.toLowerCase()} " +
                             "in package ${pkg.id.toCoordinates()}."
-
                 }
             } else {
                 "The package ${pkg.id.toCoordinates()} has the ${licenseSource.name.toLowerCase()} " +
@@ -202,7 +217,6 @@ val ruleSet = ruleSet(ortResult, packageConfigurationProvider) {
         }
     }
 }
-
 
 // Populate the list of policy rule violations to return.
 ruleViolations += ruleSet.violations

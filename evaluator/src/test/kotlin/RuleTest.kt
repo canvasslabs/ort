@@ -19,19 +19,20 @@
 
 package org.ossreviewtoolkit.evaluator
 
+import io.kotest.core.spec.style.WordSpec
+import io.kotest.matchers.collections.haveSize
+import io.kotest.matchers.should
+import io.kotest.matchers.shouldBe
+
 import org.ossreviewtoolkit.model.Identifier
 import org.ossreviewtoolkit.model.LicenseSource
 import org.ossreviewtoolkit.model.Severity
-
-import io.kotlintest.matchers.haveSize
-import io.kotlintest.should
-import io.kotlintest.shouldBe
-import io.kotlintest.specs.WordSpec
+import org.ossreviewtoolkit.spdx.SpdxLicenseIdExpression
 
 class RuleTest : WordSpec() {
     private val ruleSet = RuleSet(ortResult)
     private val id = Identifier("type:namespace:name:version")
-    private val license = "license"
+    private val license = SpdxLicenseIdExpression("license")
     private val licenseSource = LicenseSource.DECLARED
     private val message = "violation message"
     private val howToFix = "how to fix"

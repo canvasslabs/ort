@@ -1,6 +1,7 @@
 /*
  * Copyright (C) 2017-2019 HERE Europe B.V.
  * Copyright (C) 2019 Bosch Software Innovations GmbH
+ * Copyright (C) 2020 Bosch.IO GmbH
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -18,13 +19,16 @@
  * License-Filename: LICENSE
  */
 
+val antennaVersion: String by project
 val apachePoiVersion: String by project
 val apachePoiSchemasVersion: String by project
+val commonsCompressVersion: String by project
 val cyclonedxCoreJavaVersion: String by project
 val flexmarkVersion: String by project
 val hamcrestCoreVersion: String by project
 val jacksonVersion: String by project
 val kotlinxHtmlVersion: String by project
+val retrofitVersion: String by project
 val simpleExcelVersion: String by project
 val xalanVersion: String by project
 
@@ -59,24 +63,56 @@ repositories {
             includeGroup("bad.robot")
         }
     }
+
+    exclusiveContent {
+        forRepository {
+            maven("https://download.eclipse.org/antenna/releases/")
+        }
+
+        filter {
+            includeGroup("org.eclipse.sw360.antenna")
+        }
+    }
+
+    exclusiveContent {
+        forRepository {
+            maven("https://jitpack.io")
+        }
+
+        filter {
+            includeGroup("com.github.ralfstuckert.pdfbox-layout")
+        }
+    }
+
+    exclusiveContent {
+        forRepository {
+            maven("https://repository.mulesoft.org/nexus/content/repositories/public/")
+        }
+
+        filter {
+            includeGroup("com.github.everit-org.json-schema")
+        }
+    }
 }
 
 dependencies {
     api(project(":model"))
 
     implementation(project(":downloader"))
+    implementation(project(":spdx-utils"))
     implementation(project(":utils"))
 
     implementation("com.fasterxml.jackson.datatype:jackson-datatype-jsr310:$jacksonVersion")
     implementation("com.fasterxml.jackson.module:jackson-module-kotlin:$jacksonVersion")
-
+    implementation("com.squareup.retrofit2:converter-jackson:$retrofitVersion")
+    implementation("com.squareup.retrofit2:retrofit:$retrofitVersion")
     implementation("com.vladsch.flexmark:flexmark:$flexmarkVersion")
-
+    implementation("org.apache.commons:commons-compress:$commonsCompressVersion")
     implementation("org.apache.poi:ooxml-schemas:$apachePoiSchemasVersion")
     implementation("org.apache.poi:poi-ooxml:$apachePoiVersion")
-
     implementation("org.cyclonedx:cyclonedx-core-java:$cyclonedxCoreJavaVersion")
-
+    implementation("org.eclipse.sw360.antenna:attribution-document-core:$antennaVersion")
+    implementation("org.eclipse.sw360.antenna:attribution-document-basic-bundle:$antennaVersion")
     implementation("org.jetbrains.kotlinx:kotlinx-html-jvm:$kotlinxHtmlVersion")
 
     // This is required to not depend on the version of Apache Xalan bundled with the JDK. Otherwise the formatting of

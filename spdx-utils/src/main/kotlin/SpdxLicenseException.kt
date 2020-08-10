@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2019 HERE Europe B.V.
+ * Copyright (C) 2017-2020 HERE Europe B.V.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -57,8 +57,11 @@ enum class SpdxLicenseException(
     GCC_EXCEPTION_2_0("GCC-exception-2.0", "GCC Runtime Library exception 2.0"),
     GCC_EXCEPTION_3_1("GCC-exception-3.1", "GCC Runtime Library exception 3.1"),
     GNU_JAVAMAIL_EXCEPTION("gnu-javamail-exception", "GNU JavaMail exception"),
+    GPL_3_0_LINKING_EXCEPTION("GPL-3.0-linking-exception", "GPL-3.0 Linking Exception"),
+    GPL_3_0_LINKING_SOURCE_EXCEPTION("GPL-3.0-linking-source-exception", "GPL-3.0 Linking Exception (with Corresponding Source)"),
     GPL_CC_1_0("GPL-CC-1.0", "GPL Cooperation Commitment 1.0"),
     I2P_GPL_JAVA_EXCEPTION("i2p-gpl-java-exception", "i2p GPL+Java Exception"),
+    LGPL_3_0_LINKING_EXCEPTION("LGPL-3.0-linking-exception", "LGPL-3.0 Linking Exception"),
     LIBTOOL_EXCEPTION("Libtool-exception", "Libtool Exception"),
     LINUX_SYSCALL_NOTE("Linux-syscall-note", "Linux Syscall Note"),
     LLVM_EXCEPTION("LLVM-exception", "LLVM Exception"),
@@ -73,6 +76,8 @@ enum class SpdxLicenseException(
     QT_GPL_EXCEPTION_1_0("Qt-GPL-exception-1.0", "Qt GPL exception 1.0"),
     QT_LGPL_EXCEPTION_1_1("Qt-LGPL-exception-1.1", "Qt LGPL exception 1.1"),
     QWT_EXCEPTION_1_0("Qwt-exception-1.0", "Qwt exception 1.0"),
+    SHL_2_0("SHL-2.0", "Solderpad Hardware License v2.0"),
+    SHL_2_1("SHL-2.1", "Solderpad Hardware License v2.1"),
     SWIFT_EXCEPTION("Swift-exception", "Swift Exception"),
     UNIVERSAL_FOSS_EXCEPTION_1_0("Universal-FOSS-exception-1.0", "Universal FOSS Exception, Version 1.0"),
     U_BOOT_EXCEPTION_2_0("u-boot-exception-2.0", "U-Boot exception 2.0"),

@@ -19,19 +19,19 @@
 
 package org.ossreviewtoolkit.model
 
-import org.ossreviewtoolkit.model.config.AnalyzerConfiguration
-import io.kotlintest.matchers.collections.shouldContainExactly
-import io.kotlintest.matchers.collections.shouldContainExactlyInAnyOrder
-
-import io.kotlintest.matchers.haveSize
-import io.kotlintest.matchers.match
-import io.kotlintest.should
-import io.kotlintest.shouldBe
-import io.kotlintest.shouldThrow
-import io.kotlintest.specs.WordSpec
+import io.kotest.assertions.throwables.shouldThrow
+import io.kotest.core.spec.style.WordSpec
+import io.kotest.matchers.collections.containExactly
+import io.kotest.matchers.collections.containExactlyInAnyOrder
+import io.kotest.matchers.collections.haveSize
+import io.kotest.matchers.should
+import io.kotest.matchers.shouldBe
+import io.kotest.matchers.string.shouldMatch
 
 import java.io.File
 import java.lang.IllegalArgumentException
+
+import org.ossreviewtoolkit.model.config.AnalyzerConfiguration
 
 private fun readOrtResult(relativeOrtResultFilePath: String): OrtResult =
     File("../analyzer/src/funTest/assets/projects")
@@ -46,7 +46,7 @@ class OrtResultTest : WordSpec({
             val id = Identifier("Maven:com.typesafe.akka:akka-stream_2.12:2.5.6")
             val dependencies = ortResult.collectDependencies(id, 1).map { it.toCoordinates() }
 
-            dependencies shouldContainExactlyInAnyOrder listOf(
+            dependencies should containExactlyInAnyOrder(
                 "Maven:com.typesafe.akka:akka-actor_2.12:2.5.6",
                 "Maven:com.typesafe:ssl-config-core_2.12:0.2.2",
                 "Maven:org.reactivestreams:reactive-streams:1.0.1"
@@ -64,7 +64,7 @@ class OrtResultTest : WordSpec({
 
             ids should haveSize(9)
             idsWithoutSubProjects should haveSize(8)
-            actualIds shouldContainExactly listOf(Identifier("Gradle:org.ossreviewtoolkit.gradle.example:lib:1.0.0"))
+            actualIds should containExactly(Identifier("Gradle:org.ossreviewtoolkit.gradle.example:lib:1.0.0"))
         }
     }
 
@@ -80,13 +80,13 @@ class OrtResultTest : WordSpec({
                 vcsProcessed = vcs.normalize()
             )
             val project2 = Project.EMPTY.copy(
-                id = Identifier("Gradle:org.ossreviewtoolkit:project1:1.0"),
+                id = Identifier("Gradle:org.ossreviewtoolkit:project2:1.0"),
                 definitionFilePath = "project2/build.gradle",
                 vcs = nestedVcs1,
                 vcsProcessed = nestedVcs1.normalize()
             )
             val project3 = Project.EMPTY.copy(
-                id = Identifier("Gradle:org.ossreviewtoolkit:project1:1.0"),
+                id = Identifier("Gradle:org.ossreviewtoolkit:project3:1.0"),
                 definitionFilePath = "project3/build.gradle",
                 vcs = nestedVcs2,
                 vcsProcessed = nestedVcs2.normalize()
@@ -102,7 +102,7 @@ class OrtResultTest : WordSpec({
                 AnalyzerRun(
                     environment = Environment(),
                     config = AnalyzerConfiguration(ignoreToolVersions = true, allowDynamicVersions = true),
-                    result = AnalyzerResult.EMPTY
+                    result = AnalyzerResult.EMPTY.copy(projects = sortedSetOf(project1, project2, project3))
                 )
             )
 
@@ -131,7 +131,7 @@ class OrtResultTest : WordSpec({
                 AnalyzerRun(
                     environment = Environment(),
                     config = AnalyzerConfiguration(ignoreToolVersions = true, allowDynamicVersions = true),
-                    result = AnalyzerResult.EMPTY
+                    result = AnalyzerResult.EMPTY.copy(projects = sortedSetOf(project))
                 )
             )
 
@@ -139,7 +139,7 @@ class OrtResultTest : WordSpec({
                 ortResult.getDefinitionFilePathRelativeToAnalyzerRoot(project) shouldBe "project1/build.gradle"
             }
 
-            e.message should match("The .* of project .* cannot be found in .*")
+            e.message shouldMatch "The .* of project .* cannot be found in .*"
         }
     }
 })

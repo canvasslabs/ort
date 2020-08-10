@@ -32,16 +32,18 @@ import org.ossreviewtoolkit.reporter.utils.ZeroBasedIntSequenceGenerator
  */
 @JsonIdentityInfo(property = "key", generator = ZeroBasedIntSequenceGenerator::class, scope = DependencyTreeNode::class)
 data class DependencyTreeNode(
-    val title: String,
     @JsonInclude(JsonInclude.Include.NON_NULL)
     val linkage: PackageLinkage?,
     @JsonInclude(JsonInclude.Include.NON_NULL)
     val pkg: EvaluatedPackage?,
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    val scope: EvaluatedScope?,
     @JsonInclude(JsonInclude.Include.NON_EMPTY)
     val pathExcludes: List<PathExclude> = emptyList(),
     @JsonInclude(JsonInclude.Include.NON_EMPTY)
     val scopeExcludes: List<ScopeExclude> = emptyList(),
     @JsonInclude(JsonInclude.Include.NON_EMPTY)
     val issues: List<EvaluatedOrtIssue> = emptyList(),
+    @JsonInclude(JsonInclude.Include.NON_EMPTY)
     val children: List<DependencyTreeNode>
 )

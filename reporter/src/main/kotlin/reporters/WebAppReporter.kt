@@ -19,32 +19,54 @@
 
 package org.ossreviewtoolkit.reporter.reporters
 
+import java.io.File
+import java.io.FileOutputStream
+import java.util.Base64
+import java.util.zip.Deflater
+
+import org.apache.commons.compress.compressors.gzip.GzipCompressorOutputStream
+import org.apache.commons.compress.compressors.gzip.GzipParameters
+
 import org.ossreviewtoolkit.reporter.Reporter
 import org.ossreviewtoolkit.reporter.ReporterInput
 import org.ossreviewtoolkit.reporter.model.EvaluatedModel
 
-import java.io.OutputStream
+private const val PLACEHOLDER = "ORT_REPORT_DATA_PLACEHOLDER"
 
 class WebAppReporter : Reporter {
     override val reporterName = "WebApp"
-    override val defaultFilename = "scan-report-web-app.html"
+
+    private val reportFilename = "scan-report-web-app.html"
 
     override fun generateReport(
-        outputStream: OutputStream,
-        input: ReporterInput
-    ) {
+        input: ReporterInput,
+        outputDir: File,
+        options: Map<String, String>
+    ): List<File> {
         val template = javaClass.classLoader.getResource("scan-report-template.html").readText()
         val evaluatedModel = EvaluatedModel.create(input)
 
-        val placeholder = "ORT_REPORT_DATA_PLACEHOLDER"
-        val index = template.indexOf(placeholder)
+        val index = template.indexOf(PLACEHOLDER)
         val prefix = template.substring(0, index)
-        val suffix = template.substring(index + placeholder.length, template.length)
+        val suffix = template.substring(index + PLACEHOLDER.length, template.length)
 
-        outputStream.bufferedWriter().use {
-            it.write(prefix)
-            evaluatedModel.toJson(it)
-            it.write(suffix)
+        val outputFile = outputDir.resolve(reportFilename)
+
+        outputFile.writeText(prefix)
+
+        FileOutputStream(outputFile, /* append = */ true).use { outputStream ->
+            val b64OutputStream = Base64.getEncoder().wrap(outputStream)
+
+            val gzipParameters = GzipParameters().apply {
+                compressionLevel = Deflater.BEST_COMPRESSION
+            }
+            GzipCompressorOutputStream(b64OutputStream, gzipParameters).bufferedWriter().use { gzipWriter ->
+                evaluatedModel.toJson(gzipWriter, prettyPrint = false)
+            }
         }
+
+        outputFile.appendText(suffix)
+
+        return listOf(outputFile)
     }
 }

@@ -19,12 +19,36 @@
 
 package org.ossreviewtoolkit.model.utils
 
+import java.util.SortedSet
+
 import org.ossreviewtoolkit.model.Identifier
 import org.ossreviewtoolkit.model.LicenseFindings
 import org.ossreviewtoolkit.model.OrtResult
 import org.ossreviewtoolkit.model.config.PathExclude
 
-import java.util.SortedSet
+/**
+ * Return a map of concluded licenses for each package [Identifier] that has a concluded license. Note that this
+ * function only returns license identifiers, license exceptions associated to licenses using the SPDX `WITH` operator
+ * are currently ignored.
+ */
+fun OrtResult.collectConcludedLicenses(omitExcluded: Boolean = false): Map<Identifier, List<String>> =
+    getPackages(omitExcluded)
+        .filter { it.pkg.concludedLicense != null }
+        .associate {
+            Pair(it.pkg.id, it.pkg.concludedLicense?.licenses().orEmpty())
+        }
+
+/**
+ * Return a map of declared licenses for each project or package [Identifier]. Only licenses contained in the SPDX
+ * expression of the processed declared license are included. Note that this function only returns license identifiers,
+ * license exceptions associated to licenses using the SPDX `WITH` operator are currently ignored.
+ */
+fun OrtResult.collectDeclaredLicenses(omitExcluded: Boolean = false): Map<Identifier, List<String>> =
+    getProjects(omitExcluded).associate {
+        Pair(it.id, it.declaredLicensesProcessed.spdxExpression?.licenses().orEmpty())
+    } + getPackages(omitExcluded).associate {
+        Pair(it.pkg.id, it.pkg.declaredLicensesProcessed.spdxExpression?.licenses().orEmpty())
+    }
 
 /**
  * Return a map of license findings for each project or package [Identifier]. The license findings for projects are
@@ -37,9 +61,8 @@ import java.util.SortedSet
 fun OrtResult.collectLicenseFindings(
     packageConfigurationProvider: PackageConfigurationProvider = SimplePackageConfigurationProvider(),
     omitExcluded: Boolean = false
-): Map<Identifier, Map<LicenseFindings, List<PathExclude>>> = LicenseResolver(
-    this, packageConfigurationProvider
-).collectLicenseFindings(omitExcluded)
+): Map<Identifier, Map<LicenseFindings, List<PathExclude>>> =
+    LicenseResolver(this, packageConfigurationProvider).collectLicenseFindings(omitExcluded)
 
 /**
  * Return all detected licenses for the given package [id]. As projects are implicitly converted to packages before
@@ -61,3 +84,9 @@ fun OrtResult.getDetectedLicensesWithCopyrights(
     omitExcluded: Boolean = true
 ): Map<String, Set<String>> =
     LicenseResolver(this, packageConfigurationProvider).getDetectedLicensesWithCopyrights(id, omitExcluded)
+
+/**
+ * Copy this [OrtResult] and add all [labels] to the existing labels, overwriting existing labels on conflict.
+ */
+fun OrtResult.mergeLabels(labels: Map<String, String>) =
+    copy(labels = this.labels + labels).apply { data += this@mergeLabels.data }

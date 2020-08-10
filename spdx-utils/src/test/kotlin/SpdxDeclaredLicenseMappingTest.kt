@@ -19,18 +19,19 @@
 
 package org.ossreviewtoolkit.spdx
 
-import org.ossreviewtoolkit.spdx.SpdxExpression.Strictness
-
-import io.kotlintest.assertSoftly
-import io.kotlintest.matchers.beEmpty
-import io.kotlintest.should
-import io.kotlintest.shouldBe
-import io.kotlintest.specs.WordSpec
+import io.kotest.core.spec.style.WordSpec
+import io.kotest.inspectors.forAll
+import io.kotest.matchers.collections.beEmpty
+import io.kotest.matchers.ints.shouldBeGreaterThanOrEqual
+import io.kotest.matchers.nulls.shouldBeNull
+import io.kotest.matchers.should
+import io.kotest.matchers.shouldBe
+import io.kotest.matchers.string.shouldContain
 
 class SpdxDeclaredLicenseMappingTest : WordSpec({
     "The list" should {
         "not contain any duplicate keys with respect to capitalization" {
-            val keys = SpdxDeclaredLicenseMapping.mappingList.unzip().first.toMutableList()
+            val keys = SpdxDeclaredLicenseMapping.rawMapping.keys.toMutableList()
             val uniqueKeys = SpdxDeclaredLicenseMapping.mapping.keys
 
             // Remove keys one by one as calling "-" would remove all occurrences of a key.
@@ -41,36 +42,38 @@ class SpdxDeclaredLicenseMappingTest : WordSpec({
     }
 
     "The mapping" should {
-        "contain only unparsable keys" {
-            val parsableLicenses = SpdxDeclaredLicenseMapping.mapping.filter { (declaredLicense, _) ->
-                try {
-                    // Restrict parsing to SPDX license identifier strings as otherwise almost anything could be parsed,
-                    // but we do want to have mappings e.g. for something like "CDDL or GPLv2 with exceptions".
-                    SpdxExpression.parse(declaredLicense, Strictness.ALLOW_DEPRECATED)
-                    true
-                } catch (e: SpdxException) {
-                    false
-                }
+        "not contain single ID strings" {
+            val licenseIdMapping = SpdxDeclaredLicenseMapping.mapping.filter { (_, expression) ->
+                expression is SpdxLicenseIdExpression
             }
 
-            parsableLicenses shouldBe emptyMap()
+            licenseIdMapping.keys.forAll { declaredLicense ->
+                try {
+                    val tokens = getTokensByTypeForExpression(declaredLicense)
+
+                    tokens.size shouldBeGreaterThanOrEqual 2
+
+                    if (tokens.size == 2) {
+                        // Rule out that the 2 tokens are caused by IDSTRING and PLUS.
+                        declaredLicense shouldContain " "
+                    }
+                } catch (e: SpdxException) {
+                    // For untokenizable strings no further checks are needed.
+                }
+            }
         }
 
         "not contain plain SPDX license ids" {
-            assertSoftly {
-                SpdxDeclaredLicenseMapping.mapping.forEach { (declaredLicense, _) ->
-                    "\"$declaredLicense\" maps to ${SpdxLicense.forId(declaredLicense)}" shouldBe
-                            "\"$declaredLicense\" maps to null"
-                }
+            SpdxDeclaredLicenseMapping.mapping.keys.forAll { declaredLicense ->
+                SpdxLicense.forId(declaredLicense).shouldBeNull()
             }
         }
 
-        "be case-insensitve" {
-            val map = SpdxDeclaredLicenseMapping.mapping
-            map.forEach { (key, license) ->
-                map[key.toLowerCase()] shouldBe license
-                map[key.toUpperCase()] shouldBe license
-                map[key.toLowerCase().capitalize()] shouldBe license
+        "be case-insensitive" {
+            SpdxDeclaredLicenseMapping.mapping.asSequence().forAll { (key, license) ->
+                SpdxDeclaredLicenseMapping.map(key.toLowerCase()) shouldBe license
+                SpdxDeclaredLicenseMapping.map(key.toUpperCase()) shouldBe license
+                SpdxDeclaredLicenseMapping.map(key.toLowerCase().capitalize()) shouldBe license
             }
         }
     }

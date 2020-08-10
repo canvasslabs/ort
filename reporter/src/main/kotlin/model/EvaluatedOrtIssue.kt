@@ -22,11 +22,11 @@ package org.ossreviewtoolkit.reporter.model
 import com.fasterxml.jackson.annotation.JsonIdentityReference
 import com.fasterxml.jackson.annotation.JsonInclude
 
+import java.time.Instant
+
 import org.ossreviewtoolkit.model.OrtIssue
 import org.ossreviewtoolkit.model.Severity
 import org.ossreviewtoolkit.model.config.IssueResolution
-
-import java.time.Instant
 
 /**
  * The evaluated form of a [OrtIssue] used by the [EvaluatedModel].
@@ -34,9 +34,12 @@ import java.time.Instant
 data class EvaluatedOrtIssue(
     val timestamp: Instant,
     val type: EvaluatedOrtIssueType,
+    @JsonInclude(JsonInclude.Include.NON_EMPTY)
     val source: String,
+    @JsonInclude(JsonInclude.Include.NON_EMPTY)
     val message: String,
     val severity: Severity = Severity.ERROR,
+    @JsonInclude(JsonInclude.Include.NON_EMPTY)
     val resolutions: List<IssueResolution>,
     @JsonIdentityReference(alwaysAsId = true)
     @JsonInclude(JsonInclude.Include.NON_NULL)

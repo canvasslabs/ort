@@ -22,6 +22,8 @@ package org.ossreviewtoolkit.model
 import com.fasterxml.jackson.annotation.JsonIgnore
 import com.fasterxml.jackson.annotation.JsonInclude
 
+import java.util.SortedSet
+
 import org.ossreviewtoolkit.model.config.Excludes
 import org.ossreviewtoolkit.model.config.LicenseFindingCuration
 import org.ossreviewtoolkit.model.config.RepositoryConfiguration
@@ -30,8 +32,6 @@ import org.ossreviewtoolkit.model.config.orEmpty
 import org.ossreviewtoolkit.spdx.SpdxExpression
 import org.ossreviewtoolkit.utils.log
 import org.ossreviewtoolkit.utils.zipWithDefault
-
-import java.util.SortedSet
 
 typealias CustomData = MutableMap<String, Any>
 
@@ -62,18 +62,26 @@ data class OrtResult(
      * An [EvaluatorRun] containing details about the evaluation that was run using the result from [scanner] as
      * input. Can be null if no evaluation was run.
      */
-    val evaluator: EvaluatorRun? = null
+    val evaluator: EvaluatorRun? = null,
+
+    /**
+     * User defined labels associated to this result. Labels are not used by ORT itself, but can be used in parts of ORT
+     * which are customizable by the user, for example in evaluator rules or in the notice reporter.
+     */
+    @JsonInclude(JsonInclude.Include.NON_EMPTY)
+    val labels: Map<String, String> = emptyMap()
 ) {
     companion object {
         /**
-         * A constant for an [OrtResult] with an empty repository an all other properties `null`.
+         * A constant for an [OrtResult] with an empty repository and all other properties `null`.
          */
         @JvmField
         val EMPTY = OrtResult(
             repository = Repository.EMPTY,
             analyzer = null,
             scanner = null,
-            evaluator = null
+            evaluator = null,
+            labels = emptyMap()
         )
     }
 
@@ -244,13 +252,17 @@ data class OrtResult(
     fun getDefinitionFilePathRelativeToAnalyzerRoot(project: Project) =
         getFilePathRelativeToAnalyzerRoot(project, project.definitionFilePath)
 
+    private val relativeProjectVcsPath: Map<Identifier, String?> by lazy {
+        getProjects().associateBy({ it.id }, { repository.getRelativePath(it.vcsProcessed) })
+    }
+
     /**
      * Return the path of a file contained in [project], relative to the analyzer root. If the project was checked out
      * from a VCS the analyzer root is the root of the working tree, if the project was not checked out from a VCS the
      * analyzer root is the input directory of the analyzer.
      */
     fun getFilePathRelativeToAnalyzerRoot(project: Project, path: String): String {
-        val vcsPath = repository.getRelativePath(project.vcsProcessed)
+        val vcsPath = relativeProjectVcsPath.getValue(project.id)
 
         requireNotNull(vcsPath) {
             "The ${project.vcsProcessed} of project '${project.id.toCoordinates()}' cannot be found in $repository."
@@ -315,7 +327,7 @@ data class OrtResult(
             analyzer = analyzer?.copy(
                 result = analyzer.result.copy(
                     packages = getPackages().map { curatedPackage ->
-                        val uncuratedPackage = CuratedPackage(curatedPackage.toUncuratedPackage(), emptyList())
+                        val uncuratedPackage = CuratedPackage(curatedPackage.toUncuratedPackage())
                         curations
                             .filter { it.isApplicable(curatedPackage.pkg.id) }
                             .fold(uncuratedPackage) { current, packageCuration -> packageCuration.apply(current) }

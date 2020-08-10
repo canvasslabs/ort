@@ -21,28 +21,10 @@ package org.ossreviewtoolkit.analyzer.managers.utils
 
 import com.fasterxml.jackson.module.kotlin.readValue
 
-import org.ossreviewtoolkit.analyzer.PackageManager
-import org.ossreviewtoolkit.analyzer.TOOL_NAME
-import org.ossreviewtoolkit.downloader.VcsHost
-import org.ossreviewtoolkit.model.Hash
-import org.ossreviewtoolkit.model.Identifier
-import org.ossreviewtoolkit.model.Package
-import org.ossreviewtoolkit.model.RemoteArtifact
-import org.ossreviewtoolkit.model.VcsInfo
-import org.ossreviewtoolkit.model.VcsType
-import org.ossreviewtoolkit.model.yamlMapper
-import org.ossreviewtoolkit.utils.DiskCache
-import org.ossreviewtoolkit.utils.Os
-import org.ossreviewtoolkit.utils.collectMessagesAsString
-import org.ossreviewtoolkit.utils.getUserOrtDirectory
-import org.ossreviewtoolkit.utils.log
-import org.ossreviewtoolkit.utils.searchUpwardsForSubdirectory
-import org.ossreviewtoolkit.utils.showStackTrace
-
 import java.io.File
-import java.net.URL
 import java.util.regex.Pattern
 
+import org.apache.logging.log4j.Level
 import org.apache.maven.artifact.repository.LegacyLocalRepositoryManager
 import org.apache.maven.bridge.MavenRepositorySystem
 import org.apache.maven.execution.DefaultMavenExecutionRequest
@@ -61,7 +43,6 @@ import org.apache.maven.project.ProjectBuildingRequest
 import org.apache.maven.project.ProjectBuildingResult
 import org.apache.maven.properties.internal.EnvironmentUtils
 import org.apache.maven.session.scope.internal.SessionScope
-import org.apache.maven.settings.Proxy
 
 import org.codehaus.plexus.DefaultContainerConfiguration
 import org.codehaus.plexus.DefaultPlexusContainer
@@ -89,6 +70,26 @@ import org.eclipse.aether.transfer.AbstractTransferListener
 import org.eclipse.aether.transfer.NoRepositoryConnectorException
 import org.eclipse.aether.transfer.NoRepositoryLayoutException
 import org.eclipse.aether.transfer.TransferEvent
+import org.eclipse.aether.util.repository.JreProxySelector
+
+import org.ossreviewtoolkit.analyzer.PackageManager
+import org.ossreviewtoolkit.downloader.VcsHost
+import org.ossreviewtoolkit.model.Hash
+import org.ossreviewtoolkit.model.Identifier
+import org.ossreviewtoolkit.model.Package
+import org.ossreviewtoolkit.model.RemoteArtifact
+import org.ossreviewtoolkit.model.VcsInfo
+import org.ossreviewtoolkit.model.VcsType
+import org.ossreviewtoolkit.model.yamlMapper
+import org.ossreviewtoolkit.utils.DiskCache
+import org.ossreviewtoolkit.utils.ORT_NAME
+import org.ossreviewtoolkit.utils.collectMessagesAsString
+import org.ossreviewtoolkit.utils.installAuthenticatorAndProxySelector
+import org.ossreviewtoolkit.utils.log
+import org.ossreviewtoolkit.utils.logOnce
+import org.ossreviewtoolkit.utils.ortDataDirectory
+import org.ossreviewtoolkit.utils.searchUpwardsForSubdirectory
+import org.ossreviewtoolkit.utils.showStackTrace
 
 fun Artifact.identifier() = "$groupId:$artifactId:$version"
 
@@ -98,12 +99,12 @@ class MavenSupport(workspaceReader: WorkspaceReader) {
         private const val MAX_DISK_CACHE_ENTRY_AGE_SECONDS = 6 * 60 * 60
 
         // See http://maven.apache.org/pom.html#SCM.
-        val SCM_REGEX = Pattern.compile("scm:(?<type>[^:@]+):(?<url>.+)")!!
-        val USER_HOST_REGEX = Pattern.compile("scm:(?<user>[^:@]+)@(?<host>[^:]+):(?<url>.+)")!!
+        private val SCM_REGEX = Pattern.compile("scm:(?<type>[^:@]+):(?<url>.+)")!!
+        private val USER_HOST_REGEX = Pattern.compile("scm:(?<user>[^:@]+)@(?<host>[^:]+):(?<url>.+)")!!
 
         private val remoteArtifactCache =
             DiskCache(
-                File(getUserOrtDirectory(), "$TOOL_NAME/cache/remote_artifacts"),
+                ortDataDirectory.resolve("cache/remote_artifacts"),
                 MAX_DISK_CACHE_SIZE_IN_BYTES, MAX_DISK_CACHE_ENTRY_AGE_SECONDS
             )
 
@@ -121,17 +122,6 @@ class MavenSupport(workspaceReader: WorkspaceReader) {
             }
         }
 
-        fun createProxyFromUrl(proxyUrl: String): Proxy {
-            val url = URL(proxyUrl)
-            return Proxy().apply {
-                protocol = url.protocol
-                username = url.userInfo?.substringBefore(':')
-                password = url.userInfo?.substringAfter(':')
-                host = url.host
-                if (url.port != -1) port = url.port
-            }
-        }
-
         fun parseLicenses(mavenProject: MavenProject) =
             mavenProject.licenses.mapNotNull {
                 if (it.comments?.startsWith("SPDX-License-Identifier:") == true) {
@@ -141,16 +131,46 @@ class MavenSupport(workspaceReader: WorkspaceReader) {
                 }?.trim()
             }.toSortedSet()
 
+        /**
+         * When asking Maven for the SCM URL of a POM that does not itself define an SCM URL, Maven returns the SCM
+         * URL of the first parent POM (if any) that defines one and appends the artifactIds of all child POMs to it,
+         * separated by slashes.
+         * This behavior is fundamentally broken because it invalidates the SCM URL for all VCS that cannot limit
+         * cloning to a specific path within a repository, or use a different syntax for that. Also, the assumption
+         * that the source code for a child artifact is stored in a top-level directory named like the artifactId
+         * inside the parent artifact's repository is often not correct.
+         * To address this, determine the SCM URL of the parent (if any) that is closest to the root POM and whose
+         * SCM URL still is a prefix of the child POM's SCM URL.
+         */
+        fun getOriginalScm(mavenProject: MavenProject): Scm? {
+            var scm = mavenProject.scm
+            var parent = mavenProject.parent
+
+            while (parent != null) {
+                parent.scm?.let { parentScm ->
+                    parentScm.connection?.let { parentConnection ->
+                        if (parentConnection.isNotBlank() && scm.connection.startsWith(parentConnection)) {
+                            scm = parentScm
+                        }
+                    }
+                }
+
+                parent = parent.parent
+            }
+
+            return scm
+        }
+
         private fun parseScm(scm: Scm?): VcsInfo {
             val connection = scm?.connection.orEmpty()
             val tag = scm?.tag?.takeIf { it != "HEAD" }.orEmpty()
 
             if (connection.isEmpty()) return VcsInfo.EMPTY
 
-            return SCM_REGEX.matcher(connection).let {
-                if (it.matches()) {
-                    val type = it.group("type")
-                    val url = it.group("url")
+            return SCM_REGEX.matcher(connection).let { matcher ->
+                if (matcher.matches()) {
+                    val type = matcher.group("type")
+                    val url = matcher.group("url")
 
                     when {
                         // CVS URLs usually start with ":pserver:" or ":ext:", but as ":" is also the delimiter used by
@@ -173,9 +193,8 @@ class MavenSupport(workspaceReader: WorkspaceReader) {
                         }
 
                         type == "svn" -> {
-                            // With Subversion, a tag actually is a path and not a symbolic revision.
-                            val path = tag.takeIf { it.isEmpty() } ?: "tags/$tag"
-                            VcsInfo(type = VcsType.SUBVERSION, url = url, revision = "", path = path)
+                            val revision = tag.takeIf { it.isEmpty() } ?: "tags/$tag"
+                            VcsInfo(type = VcsType.SUBVERSION, url = url, revision = revision)
                         }
 
                         url.startsWith("//") -> {
@@ -216,32 +235,7 @@ class MavenSupport(workspaceReader: WorkspaceReader) {
             }
         }
 
-        fun parseVcsInfo(mavenProject: MavenProject): VcsInfo {
-            // When asking Maven for the SCM URL of a POM that does not itself define an SCM URL, Maven returns the SCM
-            // URL of the parent POM (if any) and appends the child POM's artifactId to it. This behavior is
-            // fundamentally broken because it invalidates the URL for many SCMs that cannot clone / checkout a specific
-            // path from a repository. Also, the assumption that the source code for a child artifact is stored in a
-            // top-level directory named like the artifactId inside the parent artifact's repository is often not
-            // correct.
-            // To fix this, determine the SCM URL of the root parent (if there are parents) and use that as the child's
-            // SCM URL.
-            var scm = mavenProject.scm
-            var parent = mavenProject.parent
-
-            while (parent != null) {
-                parent.scm?.let {
-                    it.connection?.let { connection ->
-                        if (connection.isNotBlank() && scm.connection.startsWith(connection)) {
-                            scm = parent.scm
-                        }
-                    }
-                }
-
-                parent = parent.parent
-            }
-
-            return parseScm(scm)
-        }
+        fun parseVcsInfo(mavenProject: MavenProject) = parseScm(getOriginalScm(mavenProject))
     }
 
     val container = createContainer()
@@ -257,34 +251,26 @@ class MavenSupport(workspaceReader: WorkspaceReader) {
         EnvironmentUtils.addEnvVars(props)
         request.systemProperties = props
 
-        val populator = container.lookup(MavenExecutionRequestPopulator::class.java, "default")
+        val populator = containerLookup<MavenExecutionRequestPopulator>()
 
-        val settingsBuilder = container.lookup(org.apache.maven.settings.MavenSettingsBuilder::class.java, "default")
+        val settingsBuilder = containerLookup<org.apache.maven.settings.MavenSettingsBuilder>()
         // TODO: Add a way to configure the location of a user settings file and pass it to the method below which will
         //       merge the user settings with the global settings. The default location of the global settings file is
         //       "${user.home}/.m2/settings.xml". The settings file locations can already be overwritten using the
         //       system properties "org.apache.maven.global-settings" and "org.apache.maven.user-settings".
         val settings = settingsBuilder.buildSettings()
 
-        Os.proxy?.let { proxyUrl ->
-            // Maven only uses the first active proxy for both HTTP and HTTPS traffic.
-            settings.proxies.add(createProxyFromUrl(proxyUrl))
-            log.debug { "Added $proxyUrl as proxy." }
-        }
-
         populator.populateFromSettings(request, settings)
         populator.populateDefaults(request)
+        repositorySystemSession.injectProxy(request)
 
         return request
     }
 
     private fun createRepositorySystemSession(workspaceReader: WorkspaceReader): RepositorySystemSession {
-        val mavenRepositorySystem = container.lookup(MavenRepositorySystem::class.java, "default")
-        val aetherRepositorySystem = container.lookup(RepositorySystem::class.java, "default")
-        val repositorySystemSessionFactory = container.lookup(
-            DefaultRepositorySystemSessionFactory::class.java,
-            "default"
-        )
+        val mavenRepositorySystem = containerLookup<MavenRepositorySystem>()
+        val aetherRepositorySystem = containerLookup<RepositorySystem>()
+        val repositorySystemSessionFactory = containerLookup<DefaultRepositorySystemSessionFactory>()
 
         val repositorySystemSession = repositorySystemSessionFactory
             .newRepositorySession(createMavenExecutionRequest())
@@ -301,11 +287,31 @@ class MavenSupport(workspaceReader: WorkspaceReader) {
             aetherRepositorySystem
         )
 
-        return DefaultRepositorySystemSession(session).setWorkspaceReader(workspaceReader)
+        return DefaultRepositorySystemSession(session).setWorkspaceReader(workspaceReader).apply {
+            installAuthenticatorAndProxySelector()
+            proxySelector = JreProxySelector()
+        }
     }
 
+    /**
+     * Makes sure that the [MavenExecutionRequest] is correctly configured with the current proxy.
+     *
+     * This is necessary in the special case that in the Maven environment no repositories are
+     * defined, and hence Maven Central is used as default. Then, for the Maven Central repository
+     * no proxy is set.
+     */
+    private fun RepositorySystemSession.injectProxy(request: MavenExecutionRequest) {
+        containerLookup<MavenRepositorySystem>().injectProxy(this, request.remoteRepositories)
+    }
+
+    /**
+     * Looks up an instance of the class provided from the Maven Plexus container.
+     */
+    inline fun <reified T> containerLookup(hint: String = "default"): T =
+        container.lookup(T::class.java, hint)
+
     fun buildMavenProject(pomFile: File): ProjectBuildingResult {
-        val projectBuilder = container.lookup(ProjectBuilder::class.java, "default")
+        val projectBuilder = containerLookup<ProjectBuilder>()
         val projectBuildingRequest = createProjectBuildingRequest(true)
 
         return try {
@@ -348,11 +354,11 @@ class MavenSupport(workspaceReader: WorkspaceReader) {
             return yamlMapper.readValue(it)
         }
 
-        val repoSystem = container.lookup(RepositorySystem::class.java, "default")
-        val remoteRepositoryManager = container.lookup(RemoteRepositoryManager::class.java, "default")
-        val repositoryLayoutProvider = container.lookup(RepositoryLayoutProvider::class.java, "default")
-        val repositoryConnectorProvider = container.lookup(RepositoryConnectorProvider::class.java, "default")
-        val transporterProvider = container.lookup(TransporterProvider::class.java, "default")
+        val repoSystem = containerLookup<RepositorySystem>()
+        val remoteRepositoryManager = containerLookup<RemoteRepositoryManager>()
+        val repositoryLayoutProvider = containerLookup<RepositoryLayoutProvider>()
+        val repositoryConnectorProvider = containerLookup<RepositoryConnectorProvider>()
+        val transporterProvider = containerLookup<TransporterProvider>()
 
         // Create an artifact descriptor to get the list of repositories from the related POM file.
         val artifactDescriptorRequest = ArtifactDescriptorRequest(artifact, repositories, "project")
@@ -433,7 +439,7 @@ class MavenSupport(workspaceReader: WorkspaceReader) {
                 log.debug { "Checksums: $checksums" }
 
                 val checksum = checksums.first()
-                val tempFile = File.createTempFile("ort", "checksum-${checksum.algorithm}")
+                val tempFile = File.createTempFile(ORT_NAME, "checksum-${checksum.algorithm}")
 
                 val transporter = transporterProvider.newTransporter(repositorySystemSession, repository)
 
@@ -494,8 +500,8 @@ class MavenSupport(workspaceReader: WorkspaceReader) {
         artifact: Artifact, repositories: List<RemoteRepository>,
         localProjects: Map<String, MavenProject> = emptyMap(), sbtMode: Boolean = false
     ): Package {
-        val mavenRepositorySystem = container.lookup(MavenRepositorySystem::class.java, "default")
-        val projectBuilder = container.lookup(ProjectBuilder::class.java, "default")
+        val mavenRepositorySystem = containerLookup<MavenRepositorySystem>()
+        val projectBuilder = containerLookup<ProjectBuilder>()
         val projectBuildingRequest = createProjectBuildingRequest(false)
 
         projectBuildingRequest.remoteRepositories = repositories.map { repo ->
@@ -564,12 +570,13 @@ class MavenSupport(workspaceReader: WorkspaceReader) {
             }
         }
 
+        val browsableScmUrl = getOriginalScm(mavenProject)?.url
         val homepageUrl = mavenProject.url
-        val vcsFallbackUrls = listOfNotNull(mavenProject.scm?.url, homepageUrl)
+        val vcsFallbackUrls = listOfNotNull(browsableScmUrl, homepageUrl).toTypedArray()
 
         val vcsProcessed = localDirectory?.let {
-            PackageManager.processProjectVcs(it, vcsFromPackage, vcsFallbackUrls)
-        } ?: PackageManager.processPackageVcs(vcsFromPackage, vcsFallbackUrls)
+            PackageManager.processProjectVcs(it, vcsFromPackage, *vcsFallbackUrls)
+        } ?: PackageManager.processPackageVcs(vcsFromPackage, *vcsFallbackUrls)
 
         return Package(
             id = Identifier(
@@ -599,10 +606,10 @@ class MavenSupport(workspaceReader: WorkspaceReader) {
         @Suppress("DEPRECATION")
         val mavenSession = MavenSession(container, repositorySystemSession, request, result)
 
-        val legacySupport = container.lookup(LegacySupport::class.java, "default")
+        val legacySupport = containerLookup<LegacySupport>()
         legacySupport.session = mavenSession
 
-        val sessionScope = container.lookup(SessionScope::class.java, "default")
+        val sessionScope = containerLookup<SessionScope>()
         sessionScope.enter()
 
         try {
@@ -641,7 +648,7 @@ class HttpsMirrorSelector(private val originalMirrorSelector: MirrorSelector?) :
 
         if (repository == null || DISABLED_HTTP_REPOSITORY_URLS.none { repository.url.startsWith(it) }) return null
 
-        log.info {
+        logOnce(Level.INFO) {
             "HTTP access to ${repository.id} (${repository.url}) was disabled. Automatically switching to HTTPS."
         }
 

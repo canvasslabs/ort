@@ -21,12 +21,16 @@ package org.ossreviewtoolkit.model
 
 import com.fasterxml.jackson.module.kotlin.readValue
 
-import io.kotlintest.assertSoftly
-import io.kotlintest.matchers.string.shouldNotContain
-import io.kotlintest.matchers.string.shouldNotStartWith
-import io.kotlintest.matchers.string.shouldStartWith
-import io.kotlintest.shouldBe
-import io.kotlintest.specs.WordSpec
+import io.kotest.assertions.assertSoftly
+import io.kotest.core.spec.style.WordSpec
+import io.kotest.inspectors.forAll
+import io.kotest.matchers.should
+import io.kotest.matchers.shouldBe
+import io.kotest.matchers.string.shouldNotContain
+import io.kotest.matchers.string.shouldNotStartWith
+import io.kotest.matchers.string.shouldStartWith
+
+import org.ossreviewtoolkit.utils.test.containExactly
 
 class IdentifierTest : WordSpec({
     "String representations" should {
@@ -42,7 +46,7 @@ class IdentifierTest : WordSpec({
                         to "manager::name:version"
             )
 
-            mapping.forEach { (identifier, stringRepresentation) ->
+            mapping.entries.forAll { (identifier, stringRepresentation) ->
                 identifier.toCoordinates() shouldBe stringRepresentation
             }
         }
@@ -59,7 +63,7 @@ class IdentifierTest : WordSpec({
                         to Identifier("manager", "", "name", "version")
             )
 
-            mapping.forEach { (stringRepresentation, identifier) ->
+            mapping.entries.forAll { (stringRepresentation, identifier) ->
                 Identifier(stringRepresentation) shouldBe identifier
             }
         }
@@ -93,7 +97,7 @@ class IdentifierTest : WordSpec({
 
             val map = yamlMapper.readValue<Map<Identifier, Int>>(serializedMap)
 
-            map shouldBe mapOf(Identifier("type", "namespace", "name", "version") to 1)
+            map should containExactly(Identifier("type", "namespace", "name", "version") to 1)
         }
 
         "be deserialized correctly from a map key even if incomplete" {
@@ -101,7 +105,7 @@ class IdentifierTest : WordSpec({
 
             val map = yamlMapper.readValue<Map<Identifier, Int>>(serializedMap)
 
-            map shouldBe mapOf(Identifier("type", "namespace", "", "") to 1)
+            map should containExactly(Identifier("type", "namespace", "", "") to 1)
         }
     }
 

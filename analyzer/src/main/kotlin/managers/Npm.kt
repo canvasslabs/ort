@@ -24,15 +24,23 @@ package org.ossreviewtoolkit.analyzer.managers
 import com.fasterxml.jackson.databind.JsonNode
 import com.fasterxml.jackson.databind.node.ObjectNode
 
+import com.vdurmont.semver4j.Requirement
+
+import java.io.File
+import java.net.HttpURLConnection
+import java.net.URLEncoder
+import java.util.SortedSet
+
+import okhttp3.Request
+
 import org.ossreviewtoolkit.analyzer.AbstractPackageManagerFactory
-import org.ossreviewtoolkit.analyzer.HTTP_CACHE_PATH
 import org.ossreviewtoolkit.analyzer.PackageManager
 import org.ossreviewtoolkit.analyzer.managers.utils.expandNpmShortcutURL
 import org.ossreviewtoolkit.analyzer.managers.utils.hasNpmLockFile
 import org.ossreviewtoolkit.analyzer.managers.utils.mapDefinitionFilesForNpm
-import org.ossreviewtoolkit.analyzer.managers.utils.readProxySettingFromNpmRc
-import org.ossreviewtoolkit.downloader.VersionControlSystem
+import org.ossreviewtoolkit.analyzer.managers.utils.readProxySettingsFromNpmRc
 import org.ossreviewtoolkit.downloader.VcsHost
+import org.ossreviewtoolkit.downloader.VersionControlSystem
 import org.ossreviewtoolkit.model.Hash
 import org.ossreviewtoolkit.model.Identifier
 import org.ossreviewtoolkit.model.Package
@@ -48,29 +56,16 @@ import org.ossreviewtoolkit.model.config.RepositoryConfiguration
 import org.ossreviewtoolkit.model.createAndLogIssue
 import org.ossreviewtoolkit.model.jsonMapper
 import org.ossreviewtoolkit.model.readValue
-import org.ossreviewtoolkit.spdx.SpdxLicense
+import org.ossreviewtoolkit.spdx.SpdxConstants
 import org.ossreviewtoolkit.utils.CommandLineTool
-import org.ossreviewtoolkit.utils.Os
 import org.ossreviewtoolkit.utils.OkHttpClientHelper
-import org.ossreviewtoolkit.utils.OkHttpClientHelper.applyProxySettingsFromUrl
-import org.ossreviewtoolkit.utils.getUserHomeDirectory
+import org.ossreviewtoolkit.utils.Os
+import org.ossreviewtoolkit.utils.installAuthenticatorAndProxySelector
 import org.ossreviewtoolkit.utils.isSymbolicLink
 import org.ossreviewtoolkit.utils.log
 import org.ossreviewtoolkit.utils.realFile
 import org.ossreviewtoolkit.utils.stashDirectories
 import org.ossreviewtoolkit.utils.textValueOrEmpty
-
-import com.vdurmont.semver4j.Requirement
-
-import java.io.File
-import java.io.FileFilter
-import java.net.HttpURLConnection
-import java.net.URL
-import java.net.URLEncoder
-import java.util.SortedSet
-
-import okhttp3.OkHttpClient
-import okhttp3.Request
 
 /**
  * The [Node package manager](https://www.npmjs.com/) for JavaScript.
@@ -91,6 +86,8 @@ open class Npm(
         ) = Npm(managerName, analysisRoot, analyzerConfig, repoConfig)
     }
 
+    private val ortProxySelector = installAuthenticatorAndProxySelector()
+
     /**
      * Array of parameters passed to the install command when installing dependencies.
      */
@@ -104,12 +101,22 @@ open class Npm(
 
     override fun mapDefinitionFiles(definitionFiles: List<File>) = mapDefinitionFilesForNpm(definitionFiles).toList()
 
-    override fun beforeResolution(definitionFiles: List<File>) =
+    override fun beforeResolution(definitionFiles: List<File>) {
         // We do not actually depend on any features specific to an NPM version, but we still want to stick to a
         // fixed minor version to be sure to get consistent results.
         checkVersion(analyzerConfig.ignoreToolVersions)
 
-    override fun resolveDependencies(definitionFile: File): ProjectAnalyzerResult? {
+        val npmRcFile = Os.userHomeDirectory.resolve(".npmrc")
+        if (npmRcFile.isFile) {
+            ortProxySelector.addProxies(managerName, readProxySettingsFromNpmRc(npmRcFile.readText()))
+        }
+    }
+
+    override fun afterResolution(definitionFiles: List<File>) {
+        ortProxySelector.removeProxyOrigin(managerName)
+    }
+
+    override fun resolveDependencies(definitionFile: File): List<ProjectAnalyzerResult> {
         val workingDir = definitionFile.parentFile
 
         stashDirectories(File(workingDir, "node_modules")).use {
@@ -131,19 +138,13 @@ open class Npm(
 
             // TODO: add support for peerDependencies and bundledDependencies.
 
-            return parseProject(
-                definitionFile, sortedSetOf(dependenciesScope, devDependenciesScope),
-                packages.values.toSortedSet()
+            return listOf(
+                parseProject(
+                    definitionFile,
+                    sortedSetOf(dependenciesScope, devDependenciesScope),
+                    packages.values.toSortedSet()
+                )
             )
-        }
-    }
-
-    private val applyProxySettingsFromNpmRc: OkHttpClient.Builder.() -> Unit = {
-        val npmRcFile = getUserHomeDirectory().resolve(".npmrc")
-        if (npmRcFile.isFile) {
-            readProxySettingFromNpmRc(npmRcFile.readText())?.let { proxyUrl ->
-                applyProxySettingsFromUrl(URL(proxyUrl))
-            }
         }
     }
 
@@ -173,7 +174,7 @@ open class Npm(
             when {
                 // NPM does not mean https://unlicense.org/ here, but the wish to not "grant others the right to use a
                 // private or unpublished package under any terms", which corresponds to SPDX's "NONE".
-                declaredLicense == "UNLICENSED" -> SpdxLicense.NONE
+                declaredLicense == "UNLICENSED" -> SpdxConstants.NONE
                 // NPM allows to declare non-SPDX licenses only by referencing a license file. Avoid reporting an
                 // [OrtIssue] by mapping this to a valid license identifier.
                 declaredLicense.startsWith("SEE LICENSE IN ") -> "LicenseRef-ort-unknown-license-reference"
@@ -188,21 +189,12 @@ open class Npm(
 
         log.info { "Searching for 'package.json' files in '$nodeModulesDir'..." }
 
-        nodeModulesDir.walkTopDown().filter {
+        nodeModulesDir.walk().filter {
             it.name == "package.json" && isValidNodeModulesDirectory(nodeModulesDir, nodeModulesDirForPackageJson(it))
         }.forEach {
             val packageDir = it.parentFile
-            val realPackageDir = packageDir.realFile()
-            val isSymbolicPackageDir = packageDir != realPackageDir
 
-            log.debug {
-                val prefix = "Found a 'package.json' file in '$packageDir'"
-                if (isSymbolicPackageDir) {
-                    "$prefix which links to '$realPackageDir'."
-                } else {
-                    "$prefix."
-                }
-            }
+            log.debug { "Found a 'package.json' file in '$packageDir'." }
 
             val json = it.readValue<ObjectNode>()
             val rawName = json["name"].textValue()
@@ -229,10 +221,14 @@ open class Npm(
                 rawName
             }
 
-            if (isSymbolicPackageDir) {
+            if (packageDir.isSymbolicLink()) {
+                val realPackageDir = packageDir.realFile()
+
+                log.debug { "The package directory '$packageDir' links to '$realPackageDir'." }
+
                 // Yarn workspaces refer to project dependencies from the same workspace via symbolic links. Use that
                 // as the trigger to get VcsInfo locally instead of querying the NPM registry.
-                log.debug { "Resolving the package info for '$identifier' locally." }
+                log.debug { "Resolving the package info for '$identifier' locally from '$realPackageDir'." }
 
                 val vcsFromDirectory = VersionControlSystem.forDirectory(realPackageDir)?.getInfo() ?: VcsInfo.EMPTY
                 vcsFromPackage = vcsFromPackage.merge(vcsFromDirectory)
@@ -244,7 +240,7 @@ open class Npm(
                     .url("https://registry.npmjs.org/$encodedName")
                     .build()
 
-                OkHttpClientHelper.execute(HTTP_CACHE_PATH, pkgRequest, applyProxySettingsFromNpmRc).use { response ->
+                OkHttpClientHelper.execute(pkgRequest).use { response ->
                     if (response.code == HttpURLConnection.HTTP_OK) {
                         log.debug {
                             if (response.cacheResponse != null) {
@@ -308,7 +304,7 @@ open class Npm(
                     hash = hash
                 ),
                 vcs = vcsFromPackage,
-                vcsProcessed = processPackageVcs(vcsFromPackage, listOf(homepageUrl))
+                vcsProcessed = processPackageVcs(vcsFromPackage, homepageUrl)
             )
 
             require(module.id.name.isNotEmpty()) {
@@ -385,12 +381,12 @@ open class Npm(
         val nodeModulesDir = moduleDir.resolve("node_modules")
         if (!nodeModulesDir.isDirectory) return emptyList()
 
-        val searchDirs = nodeModulesDir.listFiles(FileFilter {
+        val searchDirs = nodeModulesDir.walk().maxDepth(1).filter {
             it.isDirectory && it.name.startsWith("@")
-        }) + nodeModulesDir
+        }.toList() + nodeModulesDir
 
         return searchDirs.flatMap { dir ->
-            dir.listFiles(FileFilter { it.isSymbolicLink() && it.isDirectory }).toList()
+            dir.walk().maxDepth(1).filter { it.isDirectory && it.isSymbolicLink() }.toList()
         }
     }
 
@@ -519,7 +515,7 @@ open class Npm(
             definitionFilePath = VersionControlSystem.getPathInfo(packageJson).path,
             declaredLicenses = declaredLicenses,
             vcs = vcsFromPackage,
-            vcsProcessed = processProjectVcs(projectDir, vcsFromPackage, listOf(homepageUrl)),
+            vcsProcessed = processProjectVcs(projectDir, vcsFromPackage, homepageUrl),
             homepageUrl = homepageUrl,
             scopes = scopes
         )

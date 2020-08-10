@@ -19,6 +19,16 @@
 
 package org.ossreviewtoolkit.analyzer
 
+import java.io.File
+import java.time.Instant
+import java.util.concurrent.Executors
+
+import kotlinx.coroutines.asCoroutineDispatcher
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withContext
+
 import org.ossreviewtoolkit.analyzer.managers.Unmanaged
 import org.ossreviewtoolkit.downloader.VersionControlSystem
 import org.ossreviewtoolkit.model.AnalyzerResult
@@ -35,19 +45,6 @@ import org.ossreviewtoolkit.model.readValue
 import org.ossreviewtoolkit.utils.NamedThreadFactory
 import org.ossreviewtoolkit.utils.ORT_CONFIG_FILENAME
 import org.ossreviewtoolkit.utils.log
-
-import java.io.File
-import java.time.Instant
-import java.util.concurrent.Executors
-
-import kotlinx.coroutines.asCoroutineDispatcher
-import kotlinx.coroutines.async
-import kotlinx.coroutines.coroutineScope
-import kotlinx.coroutines.runBlocking
-import kotlinx.coroutines.withContext
-
-const val TOOL_NAME = "analyzer"
-const val HTTP_CACHE_PATH = "$TOOL_NAME/cache/http"
 
 /**
  * The class to run the analysis. The signatures of public functions in this class define the library API.
@@ -132,7 +129,8 @@ class Analyzer(private val config: AnalyzerConfiguration) {
         managedFiles: Map<PackageManager, List<File>>,
         curationProvider: PackageCurationProvider?
     ): AnalyzerResult {
-        val analysisDispatcher = Executors.newFixedThreadPool(5, NamedThreadFactory(TOOL_NAME)).asCoroutineDispatcher()
+        val threadFactory = NamedThreadFactory(javaClass.simpleName)
+        val analysisDispatcher = Executors.newFixedThreadPool(5, threadFactory).asCoroutineDispatcher()
         val analyzerResultBuilder = AnalyzerResultBuilder()
 
         analysisDispatcher.use { dispatcher ->
@@ -144,35 +142,39 @@ class Analyzer(private val config: AnalyzerConfiguration) {
 
                             // By convention, project ids must be of the type of the respective package manager.
                             results.forEach { (_, result) ->
-                                require(result.project.id.type == manager.managerName) {
-                                    "Project '${result.project.id.toCoordinates()}' must be of type " +
-                                            "'${manager.managerName}'."
+                                val invalidProjects = result.filter { it.project.id.type != manager.managerName }
+                                require(invalidProjects.isEmpty()) {
+                                    val projectString =
+                                        invalidProjects.joinToString { "'${it.project.id.toCoordinates()}'" }
+                                    "Projects $projectString must be of type '${manager.managerName}'."
                                 }
                             }
 
                             curationProvider?.let { provider ->
-                                results.mapValues { entry ->
-                                    ProjectAnalyzerResult(
-                                        project = entry.value.project,
-                                        issues = entry.value.issues,
-                                        packages = entry.value.packages.map { curatedPackage ->
-                                            val curations = provider.getCurationsFor(curatedPackage.pkg.id)
-                                            curations.fold(curatedPackage) { cur, packageCuration ->
-                                                log.debug {
-                                                    "Applying curation '$packageCuration' to package " +
-                                                            "'${curatedPackage.pkg.id.toCoordinates()}'."
+                                results.mapValues { (_, projectAnalyzerResults) ->
+                                    projectAnalyzerResults.map {
+                                        ProjectAnalyzerResult(
+                                            project = it.project,
+                                            issues = it.issues,
+                                            packages = it.packages.map { curatedPackage ->
+                                                val curations = provider.getCurationsFor(curatedPackage.pkg.id)
+                                                curations.fold(curatedPackage) { cur, packageCuration ->
+                                                    log.debug {
+                                                        "Applying curation '$packageCuration' to package " +
+                                                                "'${curatedPackage.pkg.id.toCoordinates()}'."
+                                                    }
+                                                    packageCuration.apply(cur)
                                                 }
-                                                packageCuration.apply(cur)
-                                            }
-                                        }.toSortedSet()
-                                    )
+                                            }.toSortedSet()
+                                        )
+                                    }
                                 }
                             } ?: results
                         }
                     }
-                }.forEach {
-                    it.await().forEach { (_, analyzerResult) ->
-                        analyzerResultBuilder.addResult(analyzerResult)
+                }.forEach { resolutionResult ->
+                    resolutionResult.await().forEach { (_, analyzerResults) ->
+                        analyzerResults.forEach { analyzerResultBuilder.addResult(it) }
                     }
                 }
             }

@@ -19,6 +19,13 @@
 
 package org.ossreviewtoolkit.downloader.vcs
 
+import io.kotest.core.spec.style.StringSpec
+import io.kotest.core.test.TestCase
+import io.kotest.core.test.TestResult
+import io.kotest.matchers.shouldBe
+
+import java.io.File
+
 import org.ossreviewtoolkit.model.Package
 import org.ossreviewtoolkit.model.VcsInfo
 import org.ossreviewtoolkit.model.VcsType
@@ -26,16 +33,8 @@ import org.ossreviewtoolkit.utils.ORT_NAME
 import org.ossreviewtoolkit.utils.safeDeleteRecursively
 import org.ossreviewtoolkit.utils.test.ExpensiveTag
 
-import io.kotlintest.TestCase
-import io.kotlintest.TestResult
-import io.kotlintest.shouldBe
-import io.kotlintest.specs.StringSpec
-
-import java.io.File
-import java.io.FileFilter
-
 private const val REPO_URL = "https://github.com/oss-review-toolkit/ort-test-data-git-repo"
-private const val REPO_REV = "f00ec4cbb670b49a156fd95d29e8fd148d931ba9"
+private const val REPO_REV = "31588aa8f8555474e1c3c66a359ec99e4cd4b1fa"
 private const val REPO_MANIFEST = "manifest.xml"
 
 class GitRepoDownloadTest : StringSpec() {
@@ -68,7 +67,11 @@ class GitRepoDownloadTest : StringSpec() {
                 "src"
             )
 
-            val actualSpdxFiles = spdxDir.listFiles(FileFilter { it.isDirectory }).map { it.name }.sorted()
+            val actualSpdxFiles = spdxDir.walk().maxDepth(1).filter {
+                it.isDirectory && it != spdxDir
+            }.map {
+                it.name
+            }.sorted()
 
             val submodulesDir = File(outputDir, "submodules")
             val expectedSubmodulesFiles = listOf(
@@ -77,7 +80,11 @@ class GitRepoDownloadTest : StringSpec() {
                 "test-data-npm"
             )
 
-            val actualSubmodulesFiles = submodulesDir.listFiles(FileFilter { it.isDirectory }).map { it.name }.sorted()
+            val actualSubmodulesFiles = submodulesDir.walk().maxDepth(1).filter {
+                it.isDirectory && it != submodulesDir
+            }.map {
+                it.name
+            }.sorted()
 
             workingTree.isValid() shouldBe true
             workingTree.getInfo() shouldBe vcs

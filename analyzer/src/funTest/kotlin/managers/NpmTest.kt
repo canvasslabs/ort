@@ -19,19 +19,18 @@
 
 package org.ossreviewtoolkit.analyzer.managers
 
+import io.kotest.core.spec.style.WordSpec
+import io.kotest.matchers.shouldBe
+
+import java.io.File
+
 import org.ossreviewtoolkit.downloader.VersionControlSystem
-import org.ossreviewtoolkit.model.yamlMapper
 import org.ossreviewtoolkit.utils.normalizeVcsUrl
 import org.ossreviewtoolkit.utils.test.DEFAULT_ANALYZER_CONFIGURATION
 import org.ossreviewtoolkit.utils.test.DEFAULT_REPOSITORY_CONFIGURATION
 import org.ossreviewtoolkit.utils.test.USER_DIR
 import org.ossreviewtoolkit.utils.test.patchActualResult
 import org.ossreviewtoolkit.utils.test.patchExpectedResult
-
-import io.kotlintest.shouldBe
-import io.kotlintest.specs.WordSpec
-
-import java.io.File
 
 class NpmTest : WordSpec() {
     private val projectsDir = File("src/funTest/assets/projects/synthetic/npm").absoluteFile
@@ -45,72 +44,72 @@ class NpmTest : WordSpec() {
                 val workingDir = File(projectsDir, "shrinkwrap")
                 val packageFile = File(workingDir, "package.json")
 
-                val result = createNPM().resolveDependencies(listOf(packageFile))[packageFile]
+                val result = createNPM().resolveSingleProject(packageFile)
                 val vcsPath = vcsDir.getPathToRoot(workingDir)
                 val expectedResult = patchExpectedResult(
                     File(projectsDir.parentFile, "npm-expected-output.yml"),
-                    custom = Pair("npm-project", "npm-${workingDir.name}"),
+                    custom = mapOf("npm-project" to "npm-${workingDir.name}"),
                     definitionFilePath = "$vcsPath/package.json",
                     url = normalizeVcsUrl(vcsUrl),
                     revision = vcsRevision,
                     path = vcsPath
                 )
 
-                yamlMapper.writeValueAsString(result) shouldBe expectedResult
+                result.toYaml() shouldBe expectedResult
             }
 
             "resolve package-lock dependencies correctly" {
                 val workingDir = File(projectsDir, "package-lock")
                 val packageFile = File(workingDir, "package.json")
 
-                val result = createNPM().resolveDependencies(listOf(packageFile))[packageFile]
+                val result = createNPM().resolveSingleProject(packageFile)
                 val vcsPath = vcsDir.getPathToRoot(workingDir)
                 val expectedResult = patchExpectedResult(
                     File(projectsDir.parentFile, "npm-expected-output.yml"),
-                    custom = Pair("npm-project", "npm-${workingDir.name}"),
+                    custom = mapOf("npm-project" to "npm-${workingDir.name}"),
                     definitionFilePath = "$vcsPath/package.json",
                     url = normalizeVcsUrl(vcsUrl),
                     revision = vcsRevision,
                     path = vcsPath
                 )
 
-                yamlMapper.writeValueAsString(result) shouldBe expectedResult
+                result.toYaml() shouldBe expectedResult
             }
 
             "show error if no lockfile is present" {
                 val workingDir = File(projectsDir, "no-lockfile")
                 val packageFile = File(workingDir, "package.json")
 
-                val result = createNPM().resolveDependencies(listOf(packageFile))[packageFile]
+                val result = createNPM().resolveSingleProject(packageFile)
                 val vcsPath = vcsDir.getPathToRoot(workingDir)
                 val expectedResult = patchExpectedResult(
                     File(projectsDir.parentFile, "npm-expected-output-no-lockfile.yml"),
-                    custom = Pair("npm-project", "npm-${workingDir.name}"),
+                    custom = mapOf("npm-project" to "npm-${workingDir.name}"),
                     definitionFilePath = "$vcsPath/package.json",
                     url = normalizeVcsUrl(vcsUrl),
                     revision = vcsRevision,
                     path = vcsPath
                 )
 
-                patchActualResult(yamlMapper.writeValueAsString(result)) shouldBe expectedResult
+                patchActualResult(result.toYaml()) shouldBe expectedResult
             }
 
             "resolve dependencies even if the node_modules directory already exists" {
                 val workingDir = File(projectsDir, "node-modules")
                 val packageFile = File(workingDir, "package.json")
 
-                val result = createNPM().resolveDependencies(listOf(packageFile))[packageFile]
+                val result = createNPM().resolveSingleProject(packageFile)
                 val vcsPath = vcsDir.getPathToRoot(workingDir)
                 val expectedResult = patchExpectedResult(
                     File(projectsDir.parentFile, "npm-expected-output.yml"),
-                    custom = Pair("npm-project", "npm-${workingDir.name}"),
+                    custom = mapOf("npm-project" to "npm-${workingDir.name}"),
                     definitionFilePath = "$vcsPath/package.json",
                     url = normalizeVcsUrl(vcsUrl),
                     revision = vcsRevision,
                     path = vcsPath
                 )
 
-                yamlMapper.writeValueAsString(result) shouldBe expectedResult
+                result.toYaml() shouldBe expectedResult
             }
         }
     }

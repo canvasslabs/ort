@@ -28,12 +28,12 @@ const initState = {
     },
     summary: {
         declaredLicensesChart: [],
-        detectedLicensesChart: [],
+        detectedLicensesProcessedChart: [],
         declaredLicensesFilter: {
             filteredInfo: {},
             sortedInfo: {}
         },
-        detectedLicensesFilter: {
+        detectedLicensesProcessedFilter: {
             filteredInfo: {},
             sortedInfo: {}
         },
@@ -53,6 +53,13 @@ const initState = {
             sortedInfo: {}
         },
         filterData: [],
+        showColumnKeys: [
+            'declaredLicensesProcessed',
+            'detectedLicensesProcessed',
+            'levels',
+            'scopeIndexes'
+        ],
+        showColumnsDropDown: false,
         shouldComponentUpdate: false
     },
     tree: {
@@ -243,16 +250,16 @@ export default (state = initState, action) => {
     }
     case 'SUMMARY::CHANGE_DETECTED_LICENSES_TABLE': {
         const {
-            detectedLicensesChart,
-            detectedLicensesFilter
+            detectedLicensesProcessedChart,
+            detectedLicensesProcessedFilter
         } = action.payload;
 
         return {
             ...state,
             summary: {
                 ...state.summary,
-                detectedLicensesChart,
-                detectedLicensesFilter
+                detectedLicensesProcessedChart,
+                detectedLicensesProcessedFilter
             }
         };
     }
@@ -282,6 +289,33 @@ export default (state = initState, action) => {
             }
         };
     }
+    case 'TABLE::COLUMNS_PACKAGES_TABLE_TOGGLE': {
+        const { columnKey } = action.payload;
+        let {
+            table: {
+                showColumnKeys
+            }
+        } = state;
+
+        if (columnKey && showColumnKeys) {
+            const keys = new Set(showColumnKeys);
+            if (keys.has(columnKey)) {
+                keys.delete(columnKey);
+            } else {
+                keys.add(columnKey);
+            }
+
+            showColumnKeys = Array.from(keys);
+        }
+
+        return {
+            ...state,
+            table: {
+                ...state.table,
+                showColumnKeys
+            }
+        };
+    }
     case 'TABLE::CHANGE_PACKAGES_TABLE': {
         const { filter, filterData } = action.payload;
 
@@ -295,6 +329,19 @@ export default (state = initState, action) => {
         };
     }
     case 'TABLE::CLEAR_FILTERS_TABLE': {
+        return {
+            ...state,
+            table: {
+                ...state.table,
+                filter: {
+                    filteredInfo: {},
+                    sortedInfo: {}
+                },
+                filterData: []
+            }
+        };
+    }
+    case 'TABLE::CLEAR_SEARCH_TABLE': {
         return {
             ...state,
             table: {
@@ -335,7 +382,7 @@ export default (state = initState, action) => {
                 ...state,
                 tree: {
                     ...state.tree,
-                    selectedWebAppTreeNode: selectedWebAppTreeNode || state.tree.selectedWebAppTreeNode,
+                    selectedWebAppTreeNode,
                     selectedKeys,
                     showDrawer: true
                 }

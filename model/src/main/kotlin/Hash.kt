@@ -26,11 +26,11 @@ import com.fasterxml.jackson.databind.JsonNode
 import com.fasterxml.jackson.databind.annotation.JsonDeserialize
 import com.fasterxml.jackson.databind.deser.std.StdDeserializer
 
-import org.ossreviewtoolkit.utils.hash
-import org.ossreviewtoolkit.utils.toHexString
-
 import java.io.File
 import java.util.Base64
+
+import org.ossreviewtoolkit.utils.hash
+import org.ossreviewtoolkit.utils.toHexString
 
 /**
  * A class that bundles a hash algorithm with its hash value.
@@ -100,7 +100,7 @@ data class Hash(
     }
 }
 
-class HashDeserializer : StdDeserializer<Hash>(Hash::class.java) {
+private class HashDeserializer : StdDeserializer<Hash>(Hash::class.java) {
     override fun deserialize(p: JsonParser, ctxt: DeserializationContext): Hash {
         val node = p.codec.readTree<JsonNode>(p)
         return if (node.isTextual) {

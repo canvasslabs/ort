@@ -33,10 +33,9 @@ data class CopyrightFinding(
      */
     val location: TextLocation
 ) : Comparable<CopyrightFinding> {
-    override fun compareTo(other: CopyrightFinding) =
-        compareValuesBy(
-            this,
-            other,
-            compareBy(CopyrightFinding::statement).thenBy(CopyrightFinding::location)
-        ) { it }
+    companion object {
+        private val COMPARATOR = compareBy(CopyrightFinding::statement).thenBy(CopyrightFinding::location)
+    }
+
+    override fun compareTo(other: CopyrightFinding) = COMPARATOR.compare(this, other)
 }

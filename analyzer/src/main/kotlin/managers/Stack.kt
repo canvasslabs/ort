@@ -19,8 +19,18 @@
 
 package org.ossreviewtoolkit.analyzer.managers
 
+import com.paypal.digraph.parser.GraphParser
+
+import com.vdurmont.semver4j.Requirement
+
+import java.io.File
+import java.io.IOException
+import java.net.HttpURLConnection
+import java.util.SortedSet
+
+import okhttp3.Request
+
 import org.ossreviewtoolkit.analyzer.AbstractPackageManagerFactory
-import org.ossreviewtoolkit.analyzer.HTTP_CACHE_PATH
 import org.ossreviewtoolkit.analyzer.PackageManager
 import org.ossreviewtoolkit.downloader.VersionControlSystem
 import org.ossreviewtoolkit.model.Identifier
@@ -39,19 +49,6 @@ import org.ossreviewtoolkit.utils.OkHttpClientHelper
 import org.ossreviewtoolkit.utils.ProcessCapture
 import org.ossreviewtoolkit.utils.log
 import org.ossreviewtoolkit.utils.safeDeleteRecursively
-
-import com.paypal.digraph.parser.GraphParser
-
-import com.vdurmont.semver4j.Requirement
-
-import java.io.File
-import java.io.FileFilter
-import java.io.IOException
-import java.net.HttpURLConnection
-import java.nio.file.FileSystems
-import java.util.SortedSet
-
-import okhttp3.Request
 
 /**
  * The [Stack](https://haskellstack.org/) package manager for Haskell.
@@ -84,15 +81,13 @@ class Stack(
 
     override fun beforeResolution(definitionFiles: List<File>) = checkVersion(analyzerConfig.ignoreToolVersions)
 
-    override fun resolveDependencies(definitionFile: File): ProjectAnalyzerResult? {
+    override fun resolveDependencies(definitionFile: File): List<ProjectAnalyzerResult> {
         val workingDir = definitionFile.parentFile
 
         // Parse project information from the *.cabal file.
-        val cabalMatcher = FileSystems.getDefault().getPathMatcher("glob:**/*.cabal")
-
-        val cabalFiles = workingDir.listFiles(FileFilter {
-            cabalMatcher.matches(it.toPath())
-        })
+        val cabalFiles = workingDir.walk().filter {
+            it.isFile && it.extension == "cabal"
+        }.toList()
 
         val cabalFile = when (cabalFiles.size) {
             0 -> throw IOException("No *.cabal file found in '$workingDir'.")
@@ -169,12 +164,17 @@ class Stack(
             definitionFilePath = VersionControlSystem.getPathInfo(definitionFile).path,
             declaredLicenses = projectPackage.declaredLicenses,
             vcs = projectPackage.vcs,
-            vcsProcessed = processProjectVcs(workingDir, projectPackage.vcs, listOf(projectPackage.homepageUrl)),
+            vcsProcessed = processProjectVcs(workingDir, projectPackage.vcs, projectPackage.homepageUrl),
             homepageUrl = projectPackage.homepageUrl,
             scopes = scopes
         )
 
-        return ProjectAnalyzerResult(project, allPackages.values.mapTo(sortedSetOf()) { it.toCuratedPackage() })
+        return listOf(
+            ProjectAnalyzerResult(
+                project = project,
+                packages = allPackages.values.mapTo(sortedSetOf()) { it.toCuratedPackage() }
+            )
+        )
     }
 
     private fun buildDependencyTree(
@@ -221,7 +221,7 @@ class Stack(
             .url("${getPackageUrl(pkgId.name, pkgId.version)}/src/${pkgId.name}.cabal")
             .build()
 
-        return OkHttpClientHelper.execute(HTTP_CACHE_PATH, pkgRequest).use { response ->
+        return OkHttpClientHelper.execute(pkgRequest).use { response ->
             val body = response.body?.string()?.trim()
 
             if (response.code != HttpURLConnection.HTTP_OK || body.isNullOrEmpty()) {
@@ -355,7 +355,7 @@ class Stack(
             binaryArtifact = RemoteArtifact.EMPTY,
             sourceArtifact = artifact,
             vcs = vcs,
-            vcsProcessed = processPackageVcs(vcs, listOf(homepageUrl))
+            vcsProcessed = processPackageVcs(vcs, homepageUrl)
         )
     }
 }

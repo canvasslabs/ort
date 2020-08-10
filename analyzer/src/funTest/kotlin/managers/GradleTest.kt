@@ -19,9 +19,18 @@
 
 package org.ossreviewtoolkit.analyzer.managers
 
+import io.kotest.core.spec.Spec
+import io.kotest.core.spec.style.StringSpec
+import io.kotest.data.forAll
+import io.kotest.data.headers
+import io.kotest.data.row
+import io.kotest.data.table
+import io.kotest.matchers.shouldBe
+
+import java.io.File
+
 import org.ossreviewtoolkit.downloader.VersionControlSystem
 import org.ossreviewtoolkit.downloader.vcs.Git
-import org.ossreviewtoolkit.model.yamlMapper
 import org.ossreviewtoolkit.utils.Os
 import org.ossreviewtoolkit.utils.ProcessCapture
 import org.ossreviewtoolkit.utils.normalizeVcsUrl
@@ -31,17 +40,6 @@ import org.ossreviewtoolkit.utils.test.ExpensiveTag
 import org.ossreviewtoolkit.utils.test.USER_DIR
 import org.ossreviewtoolkit.utils.test.patchActualResult
 import org.ossreviewtoolkit.utils.test.patchExpectedResult
-
-import io.kotlintest.Spec
-import io.kotlintest.shouldBe
-import io.kotlintest.shouldNotBe
-import io.kotlintest.specs.StringSpec
-import io.kotlintest.tables.forAll
-import io.kotlintest.tables.headers
-import io.kotlintest.tables.row
-import io.kotlintest.tables.table
-
-import java.io.File
 
 class GradleTest : StringSpec() {
     private val projectDir = File("src/funTest/assets/projects/synthetic/gradle").absoluteFile
@@ -65,11 +63,9 @@ class GradleTest : StringSpec() {
                 revision = vcsRevision
             )
 
-            val result = createGradle().resolveDependencies(listOf(packageFile))[packageFile]
+            val result = createGradle().resolveSingleProject(packageFile)
 
-            result shouldNotBe null
-            result!!.issues shouldBe emptyList()
-            yamlMapper.writeValueAsString(result) shouldBe expectedResult
+            result.toYaml() shouldBe expectedResult
         }
 
         "Project dependencies are detected correctly" {
@@ -80,11 +76,9 @@ class GradleTest : StringSpec() {
                 revision = vcsRevision
             )
 
-            val result = createGradle().resolveDependencies(listOf(packageFile))[packageFile]
+            val result = createGradle().resolveSingleProject(packageFile)
 
-            result shouldNotBe null
-            result!!.issues shouldBe emptyList()
-            yamlMapper.writeValueAsString(result) shouldBe expectedResult
+            result.toYaml() shouldBe expectedResult
         }
 
         "External dependencies are detected correctly" {
@@ -95,11 +89,9 @@ class GradleTest : StringSpec() {
                 revision = vcsRevision
             )
 
-            val result = createGradle().resolveDependencies(listOf(packageFile))[packageFile]
+            val result = createGradle().resolveSingleProject(packageFile)
 
-            result shouldNotBe null
-            result!!.issues shouldBe emptyList()
-            yamlMapper.writeValueAsString(result) shouldBe expectedResult
+            result.toYaml() shouldBe expectedResult
         }
 
         "Unresolved dependencies are detected correctly" {
@@ -110,11 +102,9 @@ class GradleTest : StringSpec() {
                 revision = vcsRevision
             )
 
-            val result = createGradle().resolveDependencies(listOf(packageFile))[packageFile]
+            val result = createGradle().resolveSingleProject(packageFile)
 
-            result shouldNotBe null
-            result!!.issues shouldBe emptyList()
-            patchActualResult(yamlMapper.writeValueAsString(result)) shouldBe expectedResult
+            patchActualResult(result.toYaml()) shouldBe expectedResult
         }
 
         // Disabled because despite following the example at [1] Gradle says there is "No service of type
@@ -129,10 +119,9 @@ class GradleTest : StringSpec() {
                 revision = vcsRevision
             )
 
-            val result = createGradle().resolveDependencies(listOf(packageFile))[packageFile]
+            val result = createGradle().resolveSingleProject(packageFile)
 
-            result shouldNotBe null
-            yamlMapper.writeValueAsString(result) shouldBe expectedResult
+            result.toYaml() shouldBe expectedResult
         }
 
         // Disabled as it causes hangs and memory issues on CI.
@@ -186,11 +175,9 @@ class GradleTest : StringSpec() {
                     revision = vcsRevision
                 )
 
-                val result = createGradle().resolveDependencies(listOf(packageFile))[packageFile]
+                val result = createGradle().resolveSingleProject(packageFile)
 
-                result shouldNotBe null
-                result!!.issues shouldBe emptyList()
-                yamlMapper.writeValueAsString(result) shouldBe expectedResult
+                result.toYaml() shouldBe expectedResult
             }
         }
     }

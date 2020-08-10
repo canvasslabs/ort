@@ -19,10 +19,8 @@
 
 package org.ossreviewtoolkit.analyzer.managers
 
-import com.fasterxml.jackson.annotation.JsonIgnoreProperties
-import com.fasterxml.jackson.annotation.JsonProperty
-import com.fasterxml.jackson.core.JsonFactory
-import com.fasterxml.jackson.module.kotlin.readValues
+import java.io.File
+import java.util.SortedSet
 
 import org.ossreviewtoolkit.analyzer.AbstractPackageManagerFactory
 import org.ossreviewtoolkit.analyzer.PackageManager
@@ -39,12 +37,9 @@ import org.ossreviewtoolkit.model.Scope
 import org.ossreviewtoolkit.model.VcsInfo
 import org.ossreviewtoolkit.model.config.AnalyzerConfiguration
 import org.ossreviewtoolkit.model.config.RepositoryConfiguration
-import org.ossreviewtoolkit.model.jsonMapper
 import org.ossreviewtoolkit.utils.CommandLineTool
+import org.ossreviewtoolkit.utils.Os
 import org.ossreviewtoolkit.utils.stashDirectories
-
-import java.io.File
-import java.util.SortedSet
 
 /**
  * The [Go Modules](https://github.com/golang/go/wiki/Modules) package manager for Go. The implementation is
@@ -90,13 +85,10 @@ class GoMod(
                 .contains("vendor")
         }
 
-    override fun resolveDependencies(definitionFile: File): ProjectAnalyzerResult? {
+    override fun resolveDependencies(definitionFile: File): List<ProjectAnalyzerResult> {
         val projectDir = definitionFile.parentFile
 
         stashDirectories(File(projectDir, "vendor")).use {
-            // Vendor the dependencies in order to link them to a separate `vendor` scope.
-            run("mod", "vendor", workingDir = projectDir).requireSuccess()
-
             val edges = getDependencyGraph(projectDir)
             val vendorModules = getVendorModules(projectDir)
 
@@ -122,36 +114,39 @@ class GoMod(
                 )
             )
 
-            return ProjectAnalyzerResult(
-                project = Project(
-                    id = Identifier(
-                        type = managerName,
-                        namespace = "",
-                        name = projectName,
-                        version = projectVcs.revision
+            return listOf(
+                ProjectAnalyzerResult(
+                    project = Project(
+                        id = Identifier(
+                            type = managerName,
+                            namespace = "",
+                            name = projectName,
+                            version = projectVcs.revision
+                        ),
+                        definitionFilePath = VersionControlSystem.getPathInfo(definitionFile).path,
+                        declaredLicenses = sortedSetOf(), // Go mod doesn't support declared licenses.
+                        vcs = projectVcs,
+                        vcsProcessed = projectVcs,
+                        homepageUrl = "",
+                        scopes = scopes
                     ),
-                    definitionFilePath = VersionControlSystem.getPathInfo(definitionFile).path,
-                    declaredLicenses = sortedSetOf(), // Go mod doesn't support declared licenses.
-                    vcs = projectVcs,
-                    vcsProcessed = projectVcs,
-                    homepageUrl = "",
-                    scopes = scopes
-                ),
-                packages = packages.mapTo(sortedSetOf()) { it.toCuratedPackage() }
+                    packages = packages.mapTo(sortedSetOf()) { it.toCuratedPackage() }
+                )
             )
         }
     }
 
-    private fun getVendorModules(projectDir: File): Set<Identifier> {
-        val vendorModulesJson = run("list", "-json", "-m", "-mod=vendor", "all", workingDir = projectDir)
+    private fun getVendorModules(projectDir: File): Set<Identifier> =
+        run(projectDir, "mod", "vendor", "-v")
             .requireSuccess()
-            .stdout
-
-        return jsonMapper
-            .readValues<ModuleDependency>(JsonFactory().createParser(vendorModulesJson))
-            .asSequence()
-            .mapTo(mutableSetOf()) { Identifier(managerName, "", it.name, it.version.orEmpty()) }
-    }
+            .stderr
+            .lineSequence()
+            .filter { it.startsWith("# ") }
+            .map {
+                val parts = it.removePrefix("# ").split(" ", limit = 2)
+                Identifier(managerName, "", parts[0], parts[1])
+            }
+            .toSet()
 
     private fun getDependencyGraph(projectDir: File): Set<Edge> {
         val graph = run("mod", "graph", workingDir = projectDir).requireSuccess().stdout
@@ -211,7 +206,7 @@ class GoMod(
     }
 
     private fun getGoProxy(): String {
-        val firstProxy = System.getenv("GOPROXY").orEmpty()
+        val firstProxy = Os.env["GOPROXY"].orEmpty()
             .split(",")
             .filterNot { it == "direct" || it == "off" }
             .firstOrNull()
@@ -220,15 +215,6 @@ class GoMod(
         return if (firstProxy.isNotBlank()) firstProxy else DEFAULT_GO_PROXY
     }
 }
-
-@Suppress("UnusedPrivateClass") // Used by jsonMapper.readValues() and passed as type parameter.
-@JsonIgnoreProperties(ignoreUnknown = true)
-private data class ModuleDependency(
-    @JsonProperty("Path") val name: String,
-    @JsonProperty("Dir") val dir: String,
-    @JsonProperty("Version") val version: String?,
-    @JsonProperty("Main") val isMain: Boolean = false
-)
 
 private data class Edge(
     val source: Identifier,

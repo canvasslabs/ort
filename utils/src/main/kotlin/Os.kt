@@ -19,25 +19,72 @@
 
 package org.ossreviewtoolkit.utils
 
+import java.io.File
+import java.lang.IllegalArgumentException
+
 /**
  * Operating-System-specific utility functions.
  */
 object Os {
+    /**
+     * The operating system name.
+     */
     val name = System.getProperty("os.name").orEmpty()
+
+    /**
+     * The operating system name in lower case, for private use.
+     */
     private val nameLowerCase = name.toLowerCase()
 
+    /**
+     * Whether the operating system is Linux or not.
+     */
     val isLinux = "linux" in nameLowerCase
+
+    /**
+     * Whether the operating system is macOS or not.
+     */
     val isMac = "mac" in nameLowerCase
+
+    /**
+     * Whether the operating system is Windows or not.
+     */
     val isWindows = "windows" in nameLowerCase
 
+    /**
+     * The currently set environment variables. Keys are case-insensitive on Windows.
+     */
     val env = System.getenv().let { env ->
         if (isWindows) env.toSortedMap(String.CASE_INSENSITIVE_ORDER) else env.toSortedMap()
     }
 
-    val proxy = listOf(env["https_proxy"], env["http_proxy"]).find {
-        it != null
-    }?.let { proxy ->
-        // Note that even HTTPS proxies use "http://" as the protocol!
-        proxy.takeIf { it.startsWith("http") } ?: "http://$proxy"
+    /**
+     * The current user's home directory.
+     */
+    val userHomeDirectory by lazy {
+        File(fixupUserHomeProperty())
+    }
+
+    /**
+     * Check if the "user.home" property is set to a sane value and otherwise set it to the value of an (OS-specific)
+     * environment variable for the user home directory, and return that value. This works around the issue that esp. in
+     * certain Docker scenarios "user.home" is set to "?", see https://bugs.openjdk.java.net/browse/JDK-8193433 for some
+     * background information.
+     */
+    fun fixupUserHomeProperty(): String {
+        val userHome = System.getProperty("user.home")
+        if (!userHome.isNullOrBlank() && userHome != "?") return userHome
+
+        val fallbackUserHome = listOfNotNull(
+            env["HOME"],
+            env["USERPROFILE"]
+        ).firstOrNull {
+            it.isNotBlank()
+        } ?: throw IllegalArgumentException("Unable to determine a user home directory.")
+
+        log.warn { "Fixing up the user home directory from '$userHome' to '$fallbackUserHome'." }
+        System.setProperty("user.home", fallbackUserHome)
+
+        return fallbackUserHome
     }
 }

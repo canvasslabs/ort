@@ -21,11 +21,19 @@ package org.ossreviewtoolkit.analyzer.managers
 
 import com.fasterxml.jackson.module.kotlin.readValue
 
+import com.vdurmont.semver4j.Requirement
+
+import java.io.File
+import java.io.IOException
+import java.net.HttpURLConnection
+import java.util.SortedSet
+
+import okhttp3.Request
+
 import org.ossreviewtoolkit.analyzer.AbstractPackageManagerFactory
-import org.ossreviewtoolkit.analyzer.HTTP_CACHE_PATH
 import org.ossreviewtoolkit.analyzer.PackageManager
-import org.ossreviewtoolkit.downloader.VersionControlSystem
 import org.ossreviewtoolkit.downloader.VcsHost
+import org.ossreviewtoolkit.downloader.VersionControlSystem
 import org.ossreviewtoolkit.model.Hash
 import org.ossreviewtoolkit.model.Identifier
 import org.ossreviewtoolkit.model.OrtIssue
@@ -42,22 +50,13 @@ import org.ossreviewtoolkit.model.createAndLogIssue
 import org.ossreviewtoolkit.model.jsonMapper
 import org.ossreviewtoolkit.model.yamlMapper
 import org.ossreviewtoolkit.utils.CommandLineTool
-import org.ossreviewtoolkit.utils.Os
 import org.ossreviewtoolkit.utils.OkHttpClientHelper
+import org.ossreviewtoolkit.utils.Os
 import org.ossreviewtoolkit.utils.collectMessagesAsString
 import org.ossreviewtoolkit.utils.log
 import org.ossreviewtoolkit.utils.showStackTrace
 import org.ossreviewtoolkit.utils.stashDirectories
 import org.ossreviewtoolkit.utils.textValueOrEmpty
-
-import com.vdurmont.semver4j.Requirement
-
-import java.io.File
-import java.io.IOException
-import java.net.HttpURLConnection
-import java.util.SortedSet
-
-import okhttp3.Request
 
 /**
  * The [Bundler](https://bundler.io/) package manager for Ruby. Also see
@@ -92,7 +91,7 @@ class Bundler(
         // fixed versions to be sure to get consistent results.
         checkVersion(analyzerConfig.ignoreToolVersions)
 
-    override fun resolveDependencies(definitionFile: File): ProjectAnalyzerResult? {
+    override fun resolveDependencies(definitionFile: File): List<ProjectAnalyzerResult> {
         val workingDir = definitionFile.parentFile
 
         stashDirectories(File(workingDir, "vendor")).use {
@@ -115,12 +114,18 @@ class Bundler(
                 definitionFilePath = VersionControlSystem.getPathInfo(definitionFile).path,
                 declaredLicenses = declaredLicenses.toSortedSet(),
                 vcs = VcsInfo.EMPTY,
-                vcsProcessed = processProjectVcs(workingDir, fallbackUrls = listOf(homepageUrl)),
+                vcsProcessed = processProjectVcs(workingDir, VcsInfo.EMPTY, homepageUrl),
                 homepageUrl = homepageUrl,
                 scopes = scopes.toSortedSet()
             )
 
-            return ProjectAnalyzerResult(project, packages.mapTo(sortedSetOf()) { it.toCuratedPackage() }, issues)
+            return listOf(
+                ProjectAnalyzerResult(
+                    project = project,
+                    packages = packages.mapTo(sortedSetOf()) { it.toCuratedPackage() },
+                    issues = issues
+                )
+            )
         }
     }
 
@@ -169,7 +174,7 @@ class Bundler(
                     binaryArtifact = RemoteArtifact.EMPTY,
                     sourceArtifact = gemSpec.artifact,
                     vcs = gemSpec.vcs,
-                    vcsProcessed = processPackageVcs(gemSpec.vcs, listOf(gemSpec.homepageUrl))
+                    vcsProcessed = processPackageVcs(gemSpec.vcs, gemSpec.homepageUrl)
                 )
 
                 val transitiveDependencies = mutableSetOf<PackageReference>()
@@ -195,7 +200,11 @@ class Bundler(
         scriptFile.writeBytes(javaClass.getResource("/scripts/bundler_dependencies.rb").readBytes())
 
         try {
-            val scriptCmd = run(workingDir, "exec", "ruby", scriptFile.path)
+            val scriptCmd = run(
+                "exec", "ruby", scriptFile.path,
+                workingDir = workingDir,
+                environment = mapOf("BUNDLE_PATH" to "vendor/bundle")
+            )
             return jsonMapper.readValue(scriptCmd.stdout)
         } finally {
             if (!scriptFile.delete()) {
@@ -204,29 +213,31 @@ class Bundler(
         }
     }
 
-    private fun parseProject(workingDir: File): GemSpec {
-        val gemspecFile = getGemspecFile(workingDir)
-        return if (gemspecFile != null) {
-            // Project is a gem.
-            getGemspec(gemspecFile.name.substringBefore('.'), workingDir)
-        } else {
-            GemSpec(workingDir.name, "", "", sortedSetOf(), "", emptySet(), VcsInfo.EMPTY, RemoteArtifact.EMPTY)
-        }
-    }
+    private fun parseProject(workingDir: File) =
+        getGemspecFile(workingDir)?.let { gemspecFile ->
+            // Project is a Gem, i.e. a library.
+            getGemspec(gemspecFile.nameWithoutExtension, workingDir)
+        } ?: GemSpec(workingDir.name, "", "", sortedSetOf(), "", emptySet(), VcsInfo.EMPTY, RemoteArtifact.EMPTY)
 
     private fun getGemspec(gemName: String, workingDir: File): GemSpec {
-        val spec = run(workingDir, "exec", "gem", "specification", gemName).stdout
+        val spec = run(
+            "exec", "gem", "specification", gemName,
+            workingDir = workingDir,
+            environment = mapOf("BUNDLE_PATH" to "vendor/bundle")
+        ).stdout
 
         return GemSpec.createFromYaml(spec)
     }
 
     private fun getGemspecFile(workingDir: File) =
-        workingDir.listFiles { _, name -> name.endsWith(".gemspec") }.firstOrNull()
+        workingDir.walk().maxDepth(1).filter { it.isFile && it.extension == "gemspec" }.firstOrNull()
 
     private fun installDependencies(workingDir: File) {
         requireLockfile(workingDir) { File(workingDir, "Gemfile.lock").isFile }
 
-        run(workingDir, "install", "--path", "vendor/bundle")
+        // Work around "--path" being deprecated since Bundler 2.1 and avoid tampering with the ".bundle/config" file at
+        // all by using the "BUNDLER_PATH" environment variable to specify where to install the Gems to.
+        run("install", workingDir = workingDir, environment = mapOf("BUNDLE_PATH" to "vendor/bundle"))
     }
 
     private fun queryRubygems(name: String, version: String, retryCount: Int = 3): GemSpec? {
@@ -236,7 +247,7 @@ class Bundler(
             .url("https://rubygems.org/api/v2/rubygems/$name/versions/$version.json")
             .build()
 
-        OkHttpClientHelper.execute(HTTP_CACHE_PATH, request).use { response ->
+        OkHttpClientHelper.execute(request).use { response ->
             when (response.code) {
                 HttpURLConnection.HTTP_OK -> {
                     val body = response.body?.string()?.trim()

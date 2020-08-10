@@ -19,6 +19,14 @@
 
 package org.ossreviewtoolkit.downloader
 
+import io.kotest.core.spec.style.StringSpec
+import io.kotest.core.test.TestCase
+import io.kotest.core.test.TestResult
+import io.kotest.matchers.nulls.shouldBeNull
+import io.kotest.matchers.shouldBe
+
+import java.io.File
+
 import org.ossreviewtoolkit.model.Identifier
 import org.ossreviewtoolkit.model.Package
 import org.ossreviewtoolkit.model.RemoteArtifact
@@ -26,14 +34,7 @@ import org.ossreviewtoolkit.model.VcsInfo
 import org.ossreviewtoolkit.model.VcsType
 import org.ossreviewtoolkit.utils.ORT_NAME
 import org.ossreviewtoolkit.utils.safeDeleteRecursively
-
-import io.kotlintest.TestCase
-import io.kotlintest.TestResult
-import io.kotlintest.shouldBe
-import io.kotlintest.shouldNotBe
-import io.kotlintest.specs.StringSpec
-
-import java.io.File
+import org.ossreviewtoolkit.utils.test.shouldNotBeNull
 
 class BeanUtilsTest : StringSpec() {
     private lateinit var outputDir: File
@@ -69,13 +70,12 @@ class BeanUtilsTest : StringSpec() {
                 vcs = vcsFromCuration
             )
 
-            val downloadResult = Downloader().download(pkg, outputDir)
+            val downloadResult = Downloader.download(pkg, outputDir)
 
-            downloadResult.downloadDirectory.walkTopDown().onEnter { it.name != ".svn" }.count() shouldBe 302
-            downloadResult.sourceArtifact shouldBe null
+            downloadResult.downloadDirectory.walk().onEnter { it.name != ".svn" }.count() shouldBe 302
+            downloadResult.sourceArtifact.shouldBeNull()
 
-            downloadResult.vcsInfo shouldNotBe null
-            with(downloadResult.vcsInfo!!) {
+            downloadResult.vcsInfo shouldNotBeNull {
                 type shouldBe VcsType.SUBVERSION
                 url shouldBe vcsFromCuration.url
                 revision shouldBe "928490"

@@ -19,26 +19,10 @@
 
 package org.ossreviewtoolkit.reporter.reporters
 
-import org.ossreviewtoolkit.downloader.VcsHost
-import org.ossreviewtoolkit.model.Environment
-import org.ossreviewtoolkit.model.Project
-import org.ossreviewtoolkit.model.RemoteArtifact
-import org.ossreviewtoolkit.model.Severity
-import org.ossreviewtoolkit.model.VcsInfo
-import org.ossreviewtoolkit.model.config.RepositoryConfiguration
-import org.ossreviewtoolkit.model.yamlMapper
-import org.ossreviewtoolkit.reporter.Reporter
-import org.ossreviewtoolkit.reporter.ReporterInput
-import org.ossreviewtoolkit.reporter.reporters.ReportTableModel.IssueTable
-import org.ossreviewtoolkit.reporter.reporters.ReportTableModel.ProjectTable
-import org.ossreviewtoolkit.reporter.reporters.ReportTableModel.ResolvableIssue
-import org.ossreviewtoolkit.utils.ORT_FULL_NAME
-import org.ossreviewtoolkit.utils.isValidUrl
-import org.ossreviewtoolkit.utils.normalizeLineBreaks
 import com.vladsch.flexmark.html.HtmlRenderer
 import com.vladsch.flexmark.parser.Parser
 
-import java.io.OutputStream
+import java.io.File
 import java.time.Instant
 
 import javax.xml.parsers.DocumentBuilderFactory
@@ -46,23 +30,56 @@ import javax.xml.parsers.DocumentBuilderFactory
 import kotlinx.html.*
 import kotlinx.html.dom.*
 
+import org.ossreviewtoolkit.downloader.VcsHost
+import org.ossreviewtoolkit.model.Environment
+import org.ossreviewtoolkit.model.Identifier
+import org.ossreviewtoolkit.model.Project
+import org.ossreviewtoolkit.model.RemoteArtifact
+import org.ossreviewtoolkit.model.Severity
+import org.ossreviewtoolkit.model.VcsInfo
+import org.ossreviewtoolkit.model.config.RepositoryConfiguration
+import org.ossreviewtoolkit.model.licenses.ResolvedLicenseLocation
+import org.ossreviewtoolkit.model.yamlMapper
+import org.ossreviewtoolkit.reporter.Reporter
+import org.ossreviewtoolkit.reporter.ReporterInput
+import org.ossreviewtoolkit.reporter.description
+import org.ossreviewtoolkit.reporter.utils.ReportTableModel
+import org.ossreviewtoolkit.reporter.utils.ReportTableModel.IssueTable
+import org.ossreviewtoolkit.reporter.utils.ReportTableModel.ProjectTable
+import org.ossreviewtoolkit.reporter.utils.ReportTableModel.ResolvableIssue
+import org.ossreviewtoolkit.reporter.utils.ReportTableModelMapper
+import org.ossreviewtoolkit.reporter.utils.SCOPE_EXCLUDE_LIST_COMPARATOR
+import org.ossreviewtoolkit.reporter.utils.containsUnresolved
+import org.ossreviewtoolkit.utils.ORT_FULL_NAME
+import org.ossreviewtoolkit.utils.isValidUrl
+import org.ossreviewtoolkit.utils.normalizeLineBreaks
+
 @Suppress("LargeClass")
 class StaticHtmlReporter : Reporter {
+    override val reporterName = "StaticHtml"
+
+    private val reportFilename = "scan-report.html"
     private val css = javaClass.getResource("/static-html-reporter.css").readText()
 
-    override val reporterName = "StaticHtml"
-    override val defaultFilename = "scan-report.html"
-
-    override fun generateReport(outputStream: OutputStream, input: ReporterInput) {
-        val tabularScanRecord =
-            ReportTableModelMapper(input.resolutionProvider, input.packageConfigurationProvider).mapToReportTableModel(
-                input.ortResult
+    override fun generateReport(
+        input: ReporterInput,
+        outputDir: File,
+        options: Map<String, String>
+    ): List<File> {
+        val tabularScanRecord = ReportTableModelMapper(input.resolutionProvider)
+            .mapToReportTableModel(
+                input.ortResult,
+                input.licenseInfoResolver
             )
-        val html = renderHtml(tabularScanRecord)
 
-        outputStream.bufferedWriter().use {
+        val html = renderHtml(tabularScanRecord)
+        val outputFile = outputDir.resolve(reportFilename)
+
+        outputFile.bufferedWriter().use {
             it.write(html)
         }
+
+        return listOf(outputFile)
     }
 
     private fun renderHtml(reportTableModel: ReportTableModel): String {
@@ -189,7 +206,7 @@ class StaticHtmlReporter : Reporter {
                         if (projectTable.isExcluded()) {
                             projectTable.pathExcludes.forEach { exclude ->
                                 +" "
-                                div("ort-reason") { +"Excluded: ${exclude.reason} - ${exclude.comment}" }
+                                div("ort-reason") { +"Excluded: ${exclude.description}" }
                             }
                         }
                     }
@@ -315,11 +332,11 @@ class StaticHtmlReporter : Reporter {
     private fun TBODY.issueRow(rowIndex: Int, row: ReportTableModel.IssueRow) {
         val rowId = "issue-$rowIndex"
 
-        val worstSeverity = row.analyzerIssues.flatMap { it.value }.map { it.severity }.min() ?: Severity.ERROR
+        val issues = (row.analyzerIssues + row.scanIssues).flatMap { it.value }
 
-        val areAllResolved = row.analyzerIssues.isNotEmpty() && row.analyzerIssues.all { (_, issues) ->
-            issues.all { it.isResolved }
-        }
+        val worstSeverity = issues.filterNot { it.isResolved }.map { it.severity }.min() ?: Severity.ERROR
+
+        val areAllResolved = issues.isNotEmpty() && issues.all { it.isResolved }
 
         val cssClass = if (areAllResolved) {
             "ort-resolved"
@@ -388,7 +405,7 @@ class StaticHtmlReporter : Reporter {
 
         table.pathExcludes.forEach { exclude ->
             p {
-                div("ort-reason") { +"${exclude.reason} - ${exclude.comment}" }
+                div("ort-reason") { +exclude.description }
             }
         }
 
@@ -467,19 +484,20 @@ class StaticHtmlReporter : Reporter {
             td {
                 if (row.scopes.isNotEmpty()) {
                     ul {
-                        row.scopes.entries.sortedWith(compareBy({ it.value.isNotEmpty() }, { it.key })).forEach {
-                            val excludedClass = if (it.value.isNotEmpty()) "ort-excluded" else ""
-                            li(excludedClass) {
-                                +it.key
-                                if (it.value.isNotEmpty()) {
-                                    +" "
-                                    div("ort-reason") {
-                                        +"Excluded: "
-                                        +it.value.joinToString { "${it.reason} - ${it.comment}" }
+                        row.scopes.entries.sortedWith(SCOPE_EXCLUDE_LIST_COMPARATOR)
+                            .forEach { (scopeName, scopeExcludes) ->
+                                val excludedClass = if (scopeExcludes.isNotEmpty()) "ort-excluded" else ""
+                                li(excludedClass) {
+                                    +scopeName
+                                    if (scopeExcludes.isNotEmpty()) {
+                                        +" "
+                                        div("ort-reason") {
+                                            +"Excluded: "
+                                            +scopeExcludes.joinToString { it.description }
+                                        }
                                     }
                                 }
                             }
-                        }
                     }
                 }
             }
@@ -496,7 +514,7 @@ class StaticHtmlReporter : Reporter {
                         dd {
                             row.declaredLicenses.forEach {
                                 div {
-                                    +if (it.contains(",")) "\"$it\"" else it
+                                    +it.license.toString()
                                 }
                             }
                         }
@@ -507,70 +525,31 @@ class StaticHtmlReporter : Reporter {
                     em { +"Detected Licenses:" }
                     dl {
                         dd {
-                            row.detectedLicenses.forEach { (finding, excludes) ->
-                                val firstFinding = finding.locations.first()
+                            row.detectedLicenses.forEach { license ->
+                                val firstFinding =
+                                    license.locations.firstOrNull { it.matchingPathExcludes.isEmpty() }
+                                        ?: license.locations.firstOrNull()
 
-                                val permalink = when {
-                                    row.vcsInfo != VcsInfo.EMPTY -> {
-                                        val path = listOfNotNull(
-                                            row.vcsInfo.path.takeIf { it.isNotEmpty() },
-                                            firstFinding.path
-                                        ).joinToString("/")
+                                val permalink = firstFinding?.permalink(row.id)
+                                val pathExcludes =
+                                    license.locations.flatMapTo(mutableSetOf()) { it.matchingPathExcludes }
 
-                                        VcsHost.toPermalink(
-                                            row.vcsInfo.copy(path = path),
-                                            firstFinding.startLine, firstFinding.endLine
-                                        )
-                                    }
-
-                                    row.sourceArtifact != RemoteArtifact.EMPTY -> {
-                                        val mavenCentralPattern = Regex("https?://repo[^/]+maven[^/]+org/.*")
-                                        if (row.sourceArtifact.url.matches(mavenCentralPattern)) {
-                                            // At least for source artifacts on Maven Central, use the "proxy" from
-                                            // Sonatype which has the Archive Browser plugin installed to link to the
-                                            // files with findings.
-                                            with(row.id) {
-                                                val group = namespace.replace('.', '/')
-                                                "https://repository.sonatype.org/" +
-                                                        "service/local/repositories/central-proxy/" +
-                                                        "archive/$group/$name/$version/$name-$version-sources.jar/" +
-                                                        "!/${firstFinding.path}"
-                                            }
-                                        } else {
-                                            null
-                                        }
-                                    }
-
-                                    else -> null
-                                }
-
-                                if (excludes.isEmpty()) {
+                                if (!license.isDetectedExcluded) {
                                     div {
-                                        +finding.license
+                                        +license.license.toString()
                                         if (permalink != null) {
-                                            val count = finding.locations.size
-                                            if (count > 1) {
-                                                +" (exemplary "
-                                                a {
-                                                    href = permalink
-                                                    +"link"
-                                                }
-                                                +" to the first of $count locations)"
-                                            } else {
-                                                +" ("
-                                                a {
-                                                    href = permalink
-                                                    +"link"
-                                                }
-                                                +" to the location)"
-                                            }
+                                            val count = license.locations.count { it.matchingPathExcludes.isEmpty() }
+                                            permalink(permalink, count)
                                         }
                                     }
                                 } else {
                                     div("ort-excluded") {
-                                        +"${finding.license} (Excluded: "
-                                        +excludes.joinToString { "${it.reason} - ${it.comment}" }
+                                        +"${license.license} (Excluded: "
+                                        +pathExcludes.joinToString { it.description }
                                         +")"
+                                        if (permalink != null) {
+                                            permalink(permalink, license.locations.size)
+                                        }
                                     }
                                 }
                             }
@@ -629,5 +608,56 @@ class StaticHtmlReporter : Reporter {
         val document = markdownParser.parse(markdown)
         val renderer = HtmlRenderer.builder().build()
         unsafe { +renderer.render(document) }
+    }
+}
+
+private fun DIV.permalink(permalink: String, count: Int) {
+    if (count > 1) {
+        +" (exemplary "
+        a(href = permalink) { +"link" }
+        +" to the first of $count locations)"
+    } else {
+        +" ("
+        a(href = permalink) { +"link" }
+        +" to the location)"
+    }
+}
+
+private fun ResolvedLicenseLocation.permalink(id: Identifier): String? {
+    val sourceArtifact = provenance.sourceArtifact
+    val vcsInfo = provenance.vcsInfo
+
+    return when {
+        sourceArtifact != null && sourceArtifact != RemoteArtifact.EMPTY -> {
+            val mavenCentralPattern = Regex("https?://repo[^/]+maven[^/]+org/.*")
+            when {
+                sourceArtifact.url.matches(mavenCentralPattern) -> {
+                    // At least for source artifacts on Maven Central, use the "proxy" from Sonatype which has the
+                    // Archive Browser plugin installed to link to the files with findings.
+                    with(id) {
+                        val group = namespace.replace('.', '/')
+                        "https://repository.sonatype.org/" +
+                                "service/local/repositories/central-proxy/" +
+                                "archive/$group/$name/$version/$name-$version-sources.jar/" +
+                                "!/${location.path}"
+                    }
+                }
+                else -> null
+            }
+        }
+
+        vcsInfo != null && vcsInfo != VcsInfo.EMPTY -> {
+            val path = listOfNotNull(
+                vcsInfo.path.takeIf { it.isNotEmpty() },
+                location.path
+            ).joinToString("/")
+
+            VcsHost.toPermalink(
+                vcsInfo.copy(path = path),
+                location.startLine, location.endLine
+            )
+        }
+
+        else -> null
     }
 }

@@ -19,17 +19,12 @@
 
 package org.ossreviewtoolkit.analyzer.managers
 
-import io.kotlintest.matchers.beEmpty
-import io.kotlintest.should
-import io.kotlintest.shouldBe
-import io.kotlintest.shouldNotBe
-import io.kotlintest.specs.StringSpec
+import io.kotest.core.spec.style.StringSpec
+import io.kotest.matchers.shouldBe
 
 import java.io.File
 
 import org.ossreviewtoolkit.downloader.VersionControlSystem
-import org.ossreviewtoolkit.model.yamlMapper
-import org.ossreviewtoolkit.utils.Os
 import org.ossreviewtoolkit.utils.normalizeVcsUrl
 import org.ossreviewtoolkit.utils.test.DEFAULT_ANALYZER_CONFIGURATION
 import org.ossreviewtoolkit.utils.test.DEFAULT_REPOSITORY_CONFIGURATION
@@ -43,7 +38,7 @@ class GoModTest : StringSpec() {
     private val vcsRevision = vcsDir.getRevision()
 
     init {
-        "Project dependencies are detected correctly".config(enabled = !Os.isWindows) {
+        "Project dependencies are detected correctly" {
             val definitionFile = File(projectDir, "go.mod")
             val vcsPath = vcsDir.getPathToRoot(projectDir)
             val expectedResult = patchExpectedResult(
@@ -54,11 +49,9 @@ class GoModTest : StringSpec() {
                 url = normalizeVcsUrl(vcsUrl)
             )
 
-            val result = createGoMod().resolveDependencies(listOf(definitionFile))[definitionFile]
+            val result = createGoMod().resolveSingleProject(definitionFile)
 
-            result shouldNotBe null
-            result!!.issues should beEmpty()
-            yamlMapper.writeValueAsString(result) shouldBe expectedResult
+            result.toYaml() shouldBe expectedResult
         }
     }
 

@@ -22,6 +22,8 @@ package org.ossreviewtoolkit.reporter.model
 import com.fasterxml.jackson.annotation.JsonIdentityReference
 import com.fasterxml.jackson.annotation.JsonInclude
 
+import java.util.SortedSet
+
 import org.ossreviewtoolkit.model.Identifier
 import org.ossreviewtoolkit.model.Package
 import org.ossreviewtoolkit.model.PackageCurationResult
@@ -31,8 +33,6 @@ import org.ossreviewtoolkit.model.config.PathExclude
 import org.ossreviewtoolkit.model.config.ScopeExclude
 import org.ossreviewtoolkit.spdx.SpdxExpression
 
-import java.util.SortedSet
-
 /**
  * The evaluated form of a [Package] used by the [EvaluatedModel].
  */
@@ -41,26 +41,40 @@ data class EvaluatedPackage(
     val isProject: Boolean,
     val definitionFilePath: String,
     val purl: String = id.toPurl(),
+    @JsonInclude(JsonInclude.Include.NON_EMPTY)
     val declaredLicenses: List<LicenseId>,
     val declaredLicensesProcessed: EvaluatedProcessedDeclaredLicense,
+    @JsonInclude(JsonInclude.Include.NON_EMPTY)
     val detectedLicenses: Set<LicenseId>,
+    @JsonInclude(JsonInclude.Include.NON_EMPTY)
+    val detectedExcludedLicenses: Set<LicenseId>,
     @JsonInclude(JsonInclude.Include.NON_NULL)
     val concludedLicense: SpdxExpression? = null,
+    @JsonInclude(JsonInclude.Include.NON_EMPTY)
     val description: String,
+    @JsonInclude(JsonInclude.Include.NON_EMPTY)
     val homepageUrl: String,
     val binaryArtifact: RemoteArtifact,
     val sourceArtifact: RemoteArtifact,
     val vcs: VcsInfo,
     val vcsProcessed: VcsInfo = vcs.normalize(),
+    @JsonInclude(JsonInclude.Include.NON_EMPTY)
     val curations: List<PackageCurationResult>,
     @JsonIdentityReference(alwaysAsId = true)
     val paths: MutableList<EvaluatedPackagePath>,
+    @JsonInclude(JsonInclude.Include.NON_EMPTY)
     val levels: SortedSet<Int>,
-    val scopes: MutableSet<ScopeName>,
+    @JsonInclude(JsonInclude.Include.NON_EMPTY)
+    val scopes: MutableSet<EvaluatedScope>,
+    @JsonInclude(JsonInclude.Include.NON_EMPTY)
     val scanResults: List<EvaluatedScanResult>,
+    @JsonInclude(JsonInclude.Include.NON_EMPTY)
     val findings: List<EvaluatedFinding>,
     val isExcluded: Boolean,
+    @JsonInclude(JsonInclude.Include.NON_EMPTY)
     val pathExcludes: List<PathExclude>,
+    @JsonInclude(JsonInclude.Include.NON_EMPTY)
     val scopeExcludes: List<ScopeExclude>,
+    @JsonInclude(JsonInclude.Include.NON_EMPTY)
     val issues: List<EvaluatedOrtIssue>
 )

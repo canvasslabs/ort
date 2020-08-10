@@ -23,15 +23,13 @@ import com.fasterxml.jackson.annotation.JsonCreator
 import com.fasterxml.jackson.databind.annotation.JsonSerialize
 import com.fasterxml.jackson.databind.ser.std.ToStringSerializer
 
-import java.util.EnumSet
-
 import org.antlr.v4.runtime.CharStreams
 import org.antlr.v4.runtime.CommonTokenStream
 
 /**
  * An SPDX expression as defined by version 2.1 of the [SPDX specification, appendix IV][1].
  *
- * [1]: https://spdx.org/spdx-specification-21-web-version#h.jxpfx0ykyb60
+ * [1]: https://spdx.dev/spdx-specification-21-web-version#h.jxpfx0ykyb60
  */
 @JsonSerialize(using = ToStringSerializer::class)
 sealed class SpdxExpression {
@@ -57,13 +55,18 @@ sealed class SpdxExpression {
 
     companion object {
         /**
+         * The "WITH" keyword, used to concatenate a license with an exception.
+         */
+        const val WITH = "WITH"
+
+        /**
          * Parse a string into an [SpdxExpression]. Parsing only checks the syntax and the individual license
          * expressions may be invalid SPDX identifiers, which is useful to parse expressions with non-SPDX declared
          * licenses. Throws an [SpdxException] if the string cannot be parsed.
          */
         @JsonCreator
         @JvmStatic
-        fun parse(expression: String) = parse(expression, Strictness.ALLOW_ANY)
+        fun parse(expression: String): SpdxExpression = parse(expression, Strictness.ALLOW_ANY)
 
         /**
          * Parse a string into an [SpdxExpression]. [strictness] defines whether only the syntax is checked
@@ -89,22 +92,21 @@ sealed class SpdxExpression {
     }
 
     /**
-     * Return all single licenses contained in the expression tree whereas a single license is one of:
-     * [SpdxLicenseIdExpression], [SpdxLicenseReferenceExpression] or [SpdxCompoundExpression] using [SpdxOperator.WITH]
-     * as operator.
+     * Return all single licenses contained in this expression as list of [SpdxSingleLicenseExpression]s.
      */
-    abstract fun decompose(): Set<SpdxExpression>
+    abstract fun decompose(): Set<SpdxSingleLicenseExpression>
+
+    /**
+     * Return the [disjunctive normal form][1] of this expression.
+     *
+     * [1]: https://en.wikipedia.org/wiki/Disjunctive_normal_form
+     */
+    open fun disjunctiveNormalForm(): SpdxExpression = this
 
     /**
      * Return all license IDs contained in this expression. Non-SPDX licenses and SPDX license references are included.
      */
     abstract fun licenses(): List<String>
-
-    /**
-     * Return all [SpdxLicense]s contained in this expression. Non-SPDX licenses and SPDX license references are
-     * ignored.
-     */
-    abstract fun spdxLicenses(): EnumSet<SpdxLicense>
 
     /**
      * Normalize all license IDs using a mapping containing common misspellings of license IDs. If [mapDeprecated] is
@@ -122,6 +124,36 @@ sealed class SpdxExpression {
     abstract fun validate(strictness: Strictness)
 
     /**
+     * Return all valid license choices for this SPDX expression, by converting it to the
+     * [disjunctive normal form][disjunctiveNormalForm] and collecting all disjunct expressions.
+     */
+    fun validChoices(): Set<SpdxExpression> = disjunctiveNormalForm().validChoicesForDnf()
+
+    /**
+     * Internal implementation of [validChoices], assuming that this expression is already in disjunctive normal form.
+     */
+    protected open fun validChoicesForDnf(): Set<SpdxExpression> = setOf(this)
+
+    /**
+     * Return if this expression is valid according to the [strictness]. Also see [validate].
+     */
+    fun isValid(strictness: Strictness = Strictness.ALLOW_CURRENT): Boolean =
+        runCatching { validate(strictness) }.isSuccess
+
+    /**
+     * Return true if [choice] is a valid license choice for this SPDX expression. This can only be the case, if
+     * [choice] does not offer a license choice itself and if the [licenses][SpdxSingleLicenseExpression] contained in
+     * [choice] match any of the [valid license choices][validChoices].
+     */
+    fun isValidChoice(choice: SpdxExpression): Boolean = !choice.offersChoice() && choice in validChoices()
+
+    /**
+     * Return true if this expression offers a license choice. This can only be true if this expression contains the
+     * [OR operator][SpdxOperator.OR].
+     */
+    open fun offersChoice(): Boolean = false
+
+    /**
      * Concatenate [this][SpdxExpression] and [other] using [SpdxOperator.AND].
      */
     infix fun and(other: SpdxExpression) = SpdxCompoundExpression(this, SpdxOperator.AND, other)
@@ -136,44 +168,84 @@ sealed class SpdxExpression {
  * An SPDX expression compound of a [left] and a [right] expression with an [operator] as defined by version 2.1 of the
  * [SPDX specification, appendix IV][1].
  *
- * [1]: https://spdx.org/spdx-specification-21-web-version#h.jxpfx0ykyb60
+ * [1]: https://spdx.dev/spdx-specification-21-web-version#h.jxpfx0ykyb60
  */
-data class SpdxCompoundExpression(
+class SpdxCompoundExpression(
     val left: SpdxExpression,
     val operator: SpdxOperator,
     val right: SpdxExpression
 ) : SpdxExpression() {
-    override fun decompose(): Set<SpdxExpression> =
-        when (operator) {
-            SpdxOperator.WITH -> setOf(this)
-            else -> left.decompose() + right.decompose()
+    override fun decompose() = left.decompose() + right.decompose()
+
+    override fun disjunctiveNormalForm(): SpdxExpression {
+        val leftDnf = left.disjunctiveNormalForm()
+        val rightDnf = right.disjunctiveNormalForm()
+
+        return when (operator) {
+            SpdxOperator.OR -> SpdxCompoundExpression(leftDnf, SpdxOperator.OR, rightDnf)
+
+            SpdxOperator.AND -> when {
+                leftDnf is SpdxCompoundExpression && leftDnf.operator == SpdxOperator.OR &&
+                        rightDnf is SpdxCompoundExpression && rightDnf.operator == SpdxOperator.OR ->
+                    ((leftDnf.left and rightDnf.left) or (leftDnf.left and rightDnf.right)) or
+                            ((leftDnf.right and rightDnf.left) or (leftDnf.right and rightDnf.right))
+
+                leftDnf is SpdxCompoundExpression && leftDnf.operator == SpdxOperator.OR ->
+                    (leftDnf.left and rightDnf) or (leftDnf.right and rightDnf)
+
+                rightDnf is SpdxCompoundExpression && rightDnf.operator == SpdxOperator.OR ->
+                    (leftDnf and rightDnf.left) or (leftDnf and rightDnf.right)
+
+                else -> SpdxCompoundExpression(leftDnf, operator, rightDnf)
+            }
         }
+    }
 
     override fun licenses() = left.licenses() + right.licenses()
-
-    override fun spdxLicenses() = left.spdxLicenses() + right.spdxLicenses()
 
     override fun normalize(mapDeprecated: Boolean) =
         SpdxCompoundExpression(left.normalize(mapDeprecated), operator, right.normalize(mapDeprecated))
 
     override fun validate(strictness: Strictness) {
         left.validate(strictness)
-
-        if (operator == SpdxOperator.WITH && !(left is SpdxLicenseIdExpression
-                    || left is SpdxLicenseReferenceExpression)) {
-            throw SpdxException("Argument '$left' for WITH is not a license identifier.")
-        }
-
-        if (operator == SpdxOperator.WITH && right !is SpdxLicenseExceptionExpression) {
-            throw SpdxException("Argument '$right' for WITH is not an SPDX license exception id.")
-        }
-
-        if (operator != SpdxOperator.WITH && right is SpdxLicenseExceptionExpression) {
-            throw SpdxException("Argument '$right' for $operator must not be an SPDX license exception id.")
-        }
-
         right.validate(strictness)
     }
+
+    override fun validChoicesForDnf(): Set<SpdxExpression> =
+        when (operator) {
+            SpdxOperator.AND -> setOf(this)
+
+            SpdxOperator.OR -> {
+                val validChoicesLeft = when (left) {
+                    is SpdxCompoundExpression -> left.validChoicesForDnf()
+                    else -> left.validChoices()
+                }
+
+                val validChoicesRight = when (right) {
+                    is SpdxCompoundExpression -> right.validChoicesForDnf()
+                    else -> right.validChoices()
+                }
+
+                validChoicesLeft + validChoicesRight
+            }
+        }
+
+    override fun offersChoice(): Boolean =
+        when (operator) {
+            SpdxOperator.OR -> true
+            SpdxOperator.AND -> left.offersChoice() || right.offersChoice()
+        }
+
+    override fun equals(other: Any?): Boolean {
+        if (other !is SpdxExpression) return false
+
+        val validChoices = validChoices().map { it.decompose() }
+        val otherValidChoices = other.validChoices().map { it.decompose() }
+
+        return validChoices.size == otherValidChoices.size && validChoices.all { otherValidChoices.contains(it) }
+    }
+
+    override fun hashCode() = decompose().sumBy { it.hashCode() }
 
     override fun toString(): String {
         // If the priority of this operator is higher than the binding of the left or right operator, we need to put the
@@ -192,53 +264,136 @@ data class SpdxCompoundExpression(
 }
 
 /**
- * An SPDX expression for a license exception [id] as defined by version 2.1 of the [SPDX specification, appendix I][1].
- *
- * [1]: https://spdx.org/spdx-specification-21-web-version#h.ruv3yl8g6czd
+ * An SPDX expression that contains only a single license with an optional exception. Can be
+ * [SpdxLicenseWithExceptionExpression] or any subtype of [SpdxSimpleExpression].
  */
-data class SpdxLicenseExceptionExpression(
-    val id: String
-) : SpdxExpression() {
-    override fun decompose(): Set<SpdxExpression> = emptySet()
-
-    override fun licenses() = emptyList<String>()
-
-    override fun spdxLicenses() = enumSetOf<SpdxLicense>()
-
-    override fun normalize(mapDeprecated: Boolean) = this
-
-    override fun validate(strictness: Strictness) {
-        val licenseException = SpdxLicenseException.forId(id)
-        when (strictness) {
-            Strictness.ALLOW_ANY -> id // Return something non-null.
-            Strictness.ALLOW_DEPRECATED -> licenseException
-            Strictness.ALLOW_CURRENT -> licenseException?.takeUnless { licenseException.deprecated }
-        } ?: throw SpdxException("'$id' is not a valid SPDX license exception id.")
+sealed class SpdxSingleLicenseExpression : SpdxExpression() {
+    companion object {
+        /**
+         * Parse a string into an [SpdxSingleLicenseExpression]. Throws an [SpdxException] if the string cannot be
+         * parsed. Throws a [ClassCastException] if the string is an [SpdxCompoundExpression].
+         */
+        @JsonCreator
+        @JvmStatic
+        fun parse(expression: String): SpdxSingleLicenseExpression =
+            SpdxExpression.parse(expression) as SpdxSingleLicenseExpression
     }
 
-    override fun toString() = id
+    /**
+     * Return the string identifier of this license without any license exception.
+     */
+    abstract fun simpleLicense(): String
+}
+
+/**
+ * An SPDX expression that contains a [license] with an [exception].
+ */
+class SpdxLicenseWithExceptionExpression(
+    val license: SpdxSimpleExpression,
+    val exception: String
+) : SpdxSingleLicenseExpression() {
+    companion object {
+        /**
+         * Parse a string into an [SpdxLicenseWithExceptionExpression]. Throws an [SpdxException] if the string cannot
+         * be parsed. Throws a [ClassCastException] if the string is not an [SpdxLicenseWithExceptionExpression].
+         */
+        @JsonCreator
+        @JvmStatic
+        fun parse(expression: String): SpdxLicenseWithExceptionExpression =
+            SpdxExpression.parse(expression) as SpdxLicenseWithExceptionExpression
+    }
+
+    override fun decompose() = setOf(this)
+
+    override fun simpleLicense() = license.toString()
+
+    override fun licenses() = license.licenses()
+
+    override fun normalize(mapDeprecated: Boolean): SpdxExpression {
+        // Manually cast to SpdxLicenseException, because the type resolver does not recognize that in all subclasses of
+        // SpdxSimpleExpression normalize() returns an SpdxSingleLicenseExpression.
+        val normalizedLicense = license.normalize(mapDeprecated) as SpdxSingleLicenseExpression
+
+        return when (normalizedLicense) {
+            is SpdxSimpleExpression -> SpdxLicenseWithExceptionExpression(normalizedLicense, exception)
+
+            // This case happens if a deprecated license identifier that contains an exception is used together with
+            // another exception, for example "GPL-2.0-with-classpath-exception WITH Classpath-exception-2.0". If the
+            // exceptions are equal ignore this issue, otherwise throw an exception.
+            is SpdxLicenseWithExceptionExpression -> {
+                if (normalizedLicense.exception == exception) {
+                    normalizedLicense
+                } else {
+                    throw SpdxException(
+                        "'$this' cannot be normalized, because the license '$license' contains the exception " +
+                                "'${normalizedLicense.exception}' which is different from '$exception'."
+                    )
+                }
+            }
+        }
+    }
+
+    override fun validate(strictness: Strictness) {
+        license.validate(strictness)
+
+        val spdxException = SpdxLicenseException.forId(exception)
+        when (strictness) {
+            Strictness.ALLOW_ANY -> exception // Return something non-null.
+            Strictness.ALLOW_DEPRECATED -> spdxException
+            Strictness.ALLOW_CURRENT -> spdxException?.takeUnless { spdxException.deprecated }
+        } ?: throw SpdxException("'$exception' is not a valid SPDX license exception id.")
+    }
+
+    override fun equals(other: Any?) =
+        when (other) {
+            is SpdxLicenseWithExceptionExpression -> license == other.license && exception == other.exception
+            is SpdxExpression -> {
+                val decomposed = other.decompose()
+                decomposed.size == 1 && decomposed.first().let {
+                    it is SpdxLicenseWithExceptionExpression && it.license == license && it.exception == exception
+                }
+            }
+            else -> false
+        }
+
+    override fun hashCode() = license.hashCode() + 31 * exception.hashCode()
+
+    override fun toString(): String = "$license $WITH $exception"
+}
+
+/**
+ * A simple SPDX expression as defined by version 2.1 of the [SPDX specification, appendix IV][1]. A simple expression
+ * can be either a [SpdxLicenseIdExpression] or a [SpdxLicenseReferenceExpression].
+ *
+ * [1]: https://spdx.dev/spdx-specification-21-web-version#h.jxpfx0ykyb60
+ */
+sealed class SpdxSimpleExpression : SpdxSingleLicenseExpression() {
+    /**
+     * Concatenate [this][SpdxSimpleExpression] and [other] using [SpdxExpression.WITH].
+     */
+    infix fun with(other: String) = SpdxLicenseWithExceptionExpression(this, other)
 }
 
 /**
  * An SPDX expression for a license [id] as defined by version 2.1 of the [SPDX specification, appendix I][1].
  * [orLaterVersion] indicates whether the license id also describes later versions of the license.
  *
- * [1]: https://spdx.org/spdx-specification-21-web-version#h.luq9dgcle9mo
+ * [1]: https://spdx.dev/spdx-specification-21-web-version#h.luq9dgcle9mo
  */
-data class SpdxLicenseIdExpression(
+class SpdxLicenseIdExpression(
     val id: String,
     val orLaterVersion: Boolean = false
-) : SpdxExpression() {
-    override fun decompose(): Set<SpdxExpression> = setOf(this)
+) : SpdxSimpleExpression() {
+    override fun decompose() = setOf(this)
 
     private val spdxLicense = SpdxLicense.forId(toString())
 
+    override fun simpleLicense() = toString()
+
     override fun licenses() = listOf(toString())
 
-    override fun spdxLicenses() = spdxLicense?.let { enumSetOf(it) } ?: enumSetOf()
-
     override fun normalize(mapDeprecated: Boolean) =
-        SpdxLicenseAliasMapping.map(toString(), mapDeprecated) ?: this
+        SpdxSimpleLicenseMapping.map(toString(), mapDeprecated) ?: this
 
     override fun validate(strictness: Strictness) {
         when (strictness) {
@@ -248,10 +403,19 @@ data class SpdxLicenseIdExpression(
         } ?: throw SpdxException("'$this' is not a valid SPDX license id.")
     }
 
-    /**
-     * Concatenate [this][SpdxLicenseIdExpression] and [other] using [SpdxOperator.WITH].
-     */
-    infix fun with(other: SpdxLicenseExceptionExpression) = SpdxCompoundExpression(this, SpdxOperator.WITH, other)
+    override fun equals(other: Any?) =
+        when (other) {
+            is SpdxLicenseIdExpression -> id == other.id && orLaterVersion == other.orLaterVersion
+            is SpdxExpression -> {
+                val decomposed = other.decompose()
+                decomposed.size == 1 && decomposed.first().let {
+                    it is SpdxLicenseIdExpression && it.id == id && it.orLaterVersion == orLaterVersion
+                }
+            }
+            else -> false
+        }
+
+    override fun hashCode() = id.hashCode() + 31 * orLaterVersion.hashCode()
 
     override fun toString() =
         buildString {
@@ -266,16 +430,16 @@ data class SpdxLicenseIdExpression(
  * An SPDX expression for a license reference [id] as defined by version 2.1 of the
  * [SPDX specification, appendix IV][1].
  *
- * [1]: https://spdx.org/spdx-specification-21-web-version#h.jxpfx0ykyb60
+ * [1]: https://spdx.dev/spdx-specification-21-web-version#h.jxpfx0ykyb60
  */
 data class SpdxLicenseReferenceExpression(
     val id: String
-) : SpdxExpression() {
-    override fun decompose(): Set<SpdxExpression> = setOf(this)
+) : SpdxSimpleExpression() {
+    override fun decompose() = setOf(this)
+
+    override fun simpleLicense() = id
 
     override fun licenses() = listOf(id)
-
-    override fun spdxLicenses() = enumSetOf<SpdxLicense>()
 
     override fun normalize(mapDeprecated: Boolean) = this
 
@@ -287,6 +451,18 @@ data class SpdxLicenseReferenceExpression(
         }
     }
 
+    override fun equals(other: Any?) =
+        when (other) {
+            is SpdxLicenseReferenceExpression -> id == other.id
+            is SpdxExpression -> {
+                val decomposed = other.decompose()
+                decomposed.size == 1 && decomposed.first().let { it is SpdxLicenseReferenceExpression && it.id == id }
+            }
+            else -> false
+        }
+
+    override fun hashCode() = id.hashCode()
+
     override fun toString() = id
 }
 
@@ -294,7 +470,7 @@ data class SpdxLicenseReferenceExpression(
  * An SPDX operator for use in compound expressions as defined by version 2.1 of the
  * [SPDX specification, appendix IV][1].
  *
- * [1]: https://spdx.org/spdx-specification-21-web-version#h.jxpfx0ykyb60
+ * [1]: https://spdx.dev/spdx-specification-21-web-version#h.jxpfx0ykyb60
  */
 enum class SpdxOperator(
     /**
@@ -313,12 +489,5 @@ enum class SpdxOperator(
      * The disjunctive binary "OR" operator to construct a new license expression if presented with a choice between
      * two or more licenses, where both the left and right operands are valid [SpdxExpressions][SpdxExpression].
      */
-    OR(0),
-
-    /**
-     * Use the binary "WITH" operator to construct a new license expression if a set of license terms apply except under
-     * special circumstances. The left operand is a [SpdxLicenseIdExpression] value and the right operand is a
-     * [SpdxLicenseExceptionExpression] that represents the special exception terms.
-     */
-    WITH(2)
+    OR(0)
 }

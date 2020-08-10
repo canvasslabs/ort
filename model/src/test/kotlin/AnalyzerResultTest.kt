@@ -21,12 +21,11 @@ package org.ossreviewtoolkit.model
 
 import com.fasterxml.jackson.module.kotlin.readValue
 
-import org.ossreviewtoolkit.utils.DeclaredLicenseProcessor
+import io.kotest.core.spec.style.WordSpec
+import io.kotest.matchers.should
+import io.kotest.matchers.shouldBe
 
-import io.kotlintest.matchers.haveSize
-import io.kotlintest.should
-import io.kotlintest.shouldBe
-import io.kotlintest.specs.WordSpec
+import org.ossreviewtoolkit.utils.test.containExactly
 
 class AnalyzerResultTest : WordSpec() {
     private val issue1 = OrtIssue(source = "source-1", message = "message-1")
@@ -87,50 +86,12 @@ class AnalyzerResultTest : WordSpec() {
                     .addResult(analyzerResult2)
                     .build()
 
-                analyzerResult.collectIssues() shouldBe mapOf(
+                analyzerResult.collectIssues() should containExactly(
                     package1.id to setOf(issue1),
                     package3.id to setOf(issue2),
                     project1.id to setOf(issue3, issue4),
                     project2.id to setOf(issue4)
                 )
-            }
-
-            "contain declared license issues" {
-                val invalidProjectLicense = sortedSetOf("invalid project license")
-                val invalidPackageLicense = sortedSetOf("invalid package license")
-                val analyzerResult = AnalyzerResult(
-                    projects = sortedSetOf(
-                        project1.copy(
-                            declaredLicenses = invalidProjectLicense,
-                            declaredLicensesProcessed = DeclaredLicenseProcessor.process(invalidProjectLicense),
-                            scopes = sortedSetOf()
-                        )
-                    ),
-                    packages = sortedSetOf(
-                        package1.copy(
-                            declaredLicenses = invalidPackageLicense,
-                            declaredLicensesProcessed = DeclaredLicenseProcessor.process(invalidPackageLicense)
-                        ).toCuratedPackage()
-                    )
-                )
-
-                val issues = analyzerResult.collectIssues()
-
-                issues.getValue(project1.id).let { projectIssues ->
-                    projectIssues should haveSize(1)
-                    projectIssues.first().severity shouldBe Severity.WARNING
-                    projectIssues.first().source shouldBe project1.id.toCoordinates()
-                    projectIssues.first().message shouldBe "The declared license 'invalid project license' could not " +
-                            "be mapped to a valid license or parsed as an SPDX expression."
-                }
-
-                issues.getValue(package1.id).let { packageIssues ->
-                    packageIssues should haveSize(1)
-                    packageIssues.first().severity shouldBe Severity.WARNING
-                    packageIssues.first().source shouldBe package1.id.toCoordinates()
-                    packageIssues.first().message shouldBe "The declared license 'invalid package license' could not " +
-                            "be mapped to a valid license or parsed as an SPDX expression."
-                }
             }
         }
 

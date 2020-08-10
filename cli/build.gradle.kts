@@ -1,6 +1,7 @@
 /*
  * Copyright (C) 2017-2019 HERE Europe B.V.
  * Copyright (C) 2019 Bosch Software Innovations GmbH
+ * Copyright (C) 2020 Bosch.IO GmbH
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -20,8 +21,10 @@
 
 val cliktVersion: String by project
 val config4kVersion: String by project
-val kotlintestVersion: String by project
+val jacksonVersion: String by project
+val kotestVersion: String by project
 val log4jCoreVersion: String by project
+val postgresVersion: String by project
 val reflectionsVersion: String by project
 
 plugins {
@@ -43,8 +46,36 @@ tasks.named<CreateStartScripts>("startScripts") {
     }
 }
 
+val fatJar by tasks.registering(Jar::class) {
+    description = "Creates a fat jar that includes all required dependencies."
+    group = "Build"
+
+    archiveBaseName.set(application.applicationName)
+
+    manifest.from(tasks.jar.get().manifest)
+    manifest {
+        attributes["Main-Class"] = application.mainClassName
+    }
+
+    isZip64 = true
+
+    val classpath = configurations.runtimeClasspath.get().filterNot {
+        it.isFile && it.extension == "pom"
+    }.map {
+        if (it.isDirectory) it else zipTree(it)
+    }
+
+    from(classpath) {
+        exclude("META-INF/*.DSA")
+        exclude("META-INF/*.RSA")
+        exclude("META-INF/*.SF")
+    }
+
+    with(tasks.jar.get())
+}
+
 repositories {
-    // Need to repeat the analyzer's custom repository definition here, see
+    // Need to repeat several custom repository definitions of other submodules here, see
     // https://github.com/gradle/gradle/issues/4106.
     exclusiveContent {
         forRepository {
@@ -53,6 +84,36 @@ repositories {
 
         filter {
             includeGroup("org.gradle")
+        }
+    }
+
+    exclusiveContent {
+        forRepository {
+            maven("https://download.eclipse.org/antenna/releases/")
+        }
+
+        filter {
+            includeGroup("org.eclipse.sw360.antenna")
+        }
+    }
+
+    exclusiveContent {
+        forRepository {
+            maven("https://jitpack.io/")
+        }
+
+        filter {
+            includeGroup("com.github.ralfstuckert.pdfbox-layout")
+        }
+    }
+
+    exclusiveContent {
+        forRepository {
+            maven("https://repository.mulesoft.org/nexus/content/repositories/public/")
+        }
+
+        filter {
+            includeGroup("com.github.everit-org.json-schema")
         }
     }
 }
@@ -66,17 +127,18 @@ dependencies {
     implementation(project(":scanner"))
     implementation(project(":utils"))
 
+    implementation("com.fasterxml.jackson.module:jackson-module-kotlin:$jacksonVersion")
     implementation("com.github.ajalt:clikt:$cliktVersion")
     implementation("org.apache.logging.log4j:log4j-core:$log4jCoreVersion")
     implementation("org.jetbrains.kotlin:kotlin-stdlib-jdk8")
     implementation("org.jetbrains.kotlin:kotlin-reflect")
+    implementation("org.postgresql:postgresql:$postgresVersion")
     implementation("org.reflections:reflections:$reflectionsVersion")
 
     testImplementation(project(":test-utils"))
 
-    testImplementation("io.kotlintest:kotlintest-core:$kotlintestVersion")
-    testImplementation("io.kotlintest:kotlintest-assertions:$kotlintestVersion")
-    testImplementation("io.kotlintest:kotlintest-runner-junit5:$kotlintestVersion")
+    testImplementation("io.kotest:kotest-runner-junit5-jvm:$kotestVersion")
+    testImplementation("io.kotest:kotest-assertions-core-jvm:$kotestVersion")
 
     funTestImplementation(sourceSets["main"].output)
     funTestImplementation(sourceSets["test"].output)

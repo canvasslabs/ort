@@ -19,34 +19,20 @@
 
 package org.ossreviewtoolkit.reporter.reporters
 
-import org.ossreviewtoolkit.model.Environment
-import org.ossreviewtoolkit.model.OrtResult
-import org.ossreviewtoolkit.reporter.DefaultResolutionProvider
-import org.ossreviewtoolkit.reporter.ReporterInput
-import org.ossreviewtoolkit.utils.test.patchExpectedResult
-import org.ossreviewtoolkit.utils.test.readOrtResult
+import io.kotest.core.spec.style.WordSpec
+import io.kotest.matchers.shouldBe
 
-import io.kotlintest.shouldBe
-import io.kotlintest.specs.WordSpec
-
-import java.io.ByteArrayOutputStream
 import java.io.File
 
 import javax.xml.transform.TransformerFactory
 
-private fun generateReport(ortResult: OrtResult) =
-    ByteArrayOutputStream().also { outputStream ->
-        val resolutionProvider = DefaultResolutionProvider()
-        resolutionProvider.add(ortResult.getResolutions())
-
-        StaticHtmlReporter().generateReport(
-            outputStream,
-            ReporterInput(
-                ortResult,
-                resolutionProvider = resolutionProvider
-            )
-        )
-    }.toString("UTF-8")
+import org.ossreviewtoolkit.model.Environment
+import org.ossreviewtoolkit.model.OrtResult
+import org.ossreviewtoolkit.model.utils.DefaultResolutionProvider
+import org.ossreviewtoolkit.reporter.ReporterInput
+import org.ossreviewtoolkit.utils.ORT_NAME
+import org.ossreviewtoolkit.utils.test.patchExpectedResult
+import org.ossreviewtoolkit.utils.test.readOrtResult
 
 class StaticHtmlReporterTest : WordSpec({
     "StaticHtmlReporter" should {
@@ -63,10 +49,21 @@ class StaticHtmlReporterTest : WordSpec({
 
             val expectedReport = patchExpectedResult(
                 File("src/funTest/assets/static-html-reporter-test-expected-output.html"),
-                "<REPLACE_ORT_VERSION>" to Environment().ortVersion
+                mapOf("<REPLACE_ORT_VERSION>" to Environment().ortVersion)
             )
 
             actualReport shouldBe expectedReport
         }
     }
 })
+
+private fun generateReport(ortResult: OrtResult): String {
+    val input = ReporterInput(
+        ortResult,
+        resolutionProvider = DefaultResolutionProvider().add(ortResult.getResolutions())
+    )
+
+    val outputDir = createTempDir(ORT_NAME, StaticHtmlReporterTest::class.simpleName).apply { deleteOnExit() }
+
+    return StaticHtmlReporter().generateReport(input, outputDir).single().readText()
+}

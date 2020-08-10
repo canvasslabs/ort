@@ -17,39 +17,35 @@
 
 FROM frolvlad/alpine-java:jdk8-slim AS build
 
-COPY . /usr/local/src/ort
-
-WORKDIR /usr/local/src/ort
-
+# Apk install commands.
 RUN apk add --no-cache \
         # Required for Node.js to build the reporter-web-app.
         libstdc++ \
         # Required to allow to download via a proxy with a self-signed certificate.
         ca-certificates \
         coreutils \
-        openssl \
-    && \
-    scripts/import_proxy_certs.sh
+        openssl
 
-RUN scripts/set_gradle_proxy.sh && \
+COPY . /usr/local/src/ort
+
+WORKDIR /usr/local/src/ort
+
+# Gradle build.
+RUN scripts/import_proxy_certs.sh && \
+    scripts/set_gradle_proxy.sh && \
     sed -i -r 's,(^distributionUrl=)(.+)-all\.zip$,\1\2-bin.zip,' gradle/wrapper/gradle-wrapper.properties && \
     ./gradlew --no-daemon --stacktrace :cli:distTar
 
 FROM adoptopenjdk:11-jre-hotspot-bionic
 
-COPY --from=build /usr/local/src/ort/scripts/import_proxy_certs.sh /opt/ort/bin/import_proxy_certs.sh
-COPY --from=build /usr/local/src/ort/scripts/set_gradle_proxy.sh /opt/ort/bin/set_gradle_proxy.sh
-COPY --from=build /usr/local/src/ort/cli/build/distributions/ort-*.tar /opt/ort.tar
-RUN tar xf /opt/ort.tar -C /opt/ort --strip-components 1 && rm /opt/ort.tar
-
 ENV \
     # Package manager versions.
     BOWER_VERSION=1.8.8 \
     BUNDLER_VERSION=1.16.1-1 \
-    CARGO_VERSION=0.40.0-3ubuntu1~18.04.1 \
+    CARGO_VERSION=0.44.1-0ubuntu1~18.04.1 \
     COMPOSER_VERSION=1.6.3-1 \
     CONAN_VERSION=1.18.0 \
-    FLUTTER_VERSION=v1.7.8+hotfix.3-stable \
+    FLUTTER_VERSION=v1.12.13+hotfix.9-stable \
     GO_DEP_VERSION=0.5.4 \
     GO_VERSION=1.13.4 \
     HASKELL_STACK_VERSION=2.1.3 \
@@ -59,19 +55,20 @@ ENV \
     PYTHON_VIRTUALENV_VERSION=15.1.0 \
     SBT_VERSION=1.3.8 \
     YARN_VERSION=1.21.1 \
+    # SDK versions.
+    ANDROID_SDK_VERSION=6609375 \
     # Scanner versions.
     SCANCODE_VERSION=3.0.2 \
     # Installation directories.
+    ANDROID_HOME=/opt/android-sdk \
     FLUTTER_HOME=/opt/flutter \
     GOPATH=$HOME/go
 
-ENV \
-    DEBIAN_FRONTEND=noninteractive \
+ENV DEBIAN_FRONTEND=noninteractive \
     PATH="$PATH:$HOME/.local/bin:$FLUTTER_HOME/bin:$FLUTTER_HOME/bin/cache/dart-sdk/bin:$GOPATH/bin:/opt/go/bin"
 
 # Apt install commands.
-RUN \
-    apt-get update && \
+RUN apt-get update && \
     apt-get install -y --no-install-recommends gnupg && \
     echo 'Acquire::https::dl.bintray.com::Verify-Peer "false";' | tee -a /etc/apt/apt.conf.d/00sbt && \
     echo "deb https://dl.bintray.com/sbt/debian /" | tee -a /etc/apt/sources.list.d/sbt.list && \
@@ -89,6 +86,7 @@ RUN \
         make \
         netbase \
         openssh-client \
+        unzip \
         xz-utils \
         zlib1g-dev \
         # Install VCS tools (no specific versions required here).
@@ -108,6 +106,8 @@ RUN \
         sbt=$SBT_VERSION \
     && \
     rm -rf /var/lib/apt/lists/*
+
+COPY --from=build /usr/local/src/ort/scripts/import_proxy_certs.sh /usr/local/src/ort/scripts/set_gradle_proxy.sh /opt/ort/bin/
 
 # Custom install commands.
 RUN /opt/ort/bin/import_proxy_certs.sh && \
@@ -131,6 +131,16 @@ RUN /opt/ort/bin/import_proxy_certs.sh && \
     mkdir -p $GOPATH/bin && \
     curl -ksS https://raw.githubusercontent.com/golang/dep/v$GO_DEP_VERSION/install.sh | sh && \
     curl -ksS https://raw.githubusercontent.com/commercialhaskell/stack/v$HASKELL_STACK_VERSION/etc/scripts/get-stack.sh | sh && \
+    # Install SDKs required for analysis.
+    curl -Os https://dl.google.com/android/repository/commandlinetools-linux-${ANDROID_SDK_VERSION}_latest.zip && \
+    unzip -q commandlinetools-linux-${ANDROID_SDK_VERSION}_latest.zip -d $ANDROID_HOME && \
+    rm commandlinetools-linux-${ANDROID_SDK_VERSION}_latest.zip && \
+    PROXY_HOST_AND_PORT=${https_proxy#*://} && \
+    if [ -n "$PROXY_HOST_AND_PORT" ]; then \
+        # While sdkmanager uses HTTPS by default, the proxy type is still called "http".
+        SDK_MANAGER_PROXY_OPTIONS="--proxy=http --proxy_host=${PROXY_HOST_AND_PORT%:*} --proxy_port=${PROXY_HOST_AND_PORT##*:}"; \
+    fi && \
+    yes | $ANDROID_HOME/tools/bin/sdkmanager $SDK_MANAGER_PROXY_OPTIONS --sdk_root=$ANDROID_HOME "platform-tools" && \
     # Add scanners (in versions known to work).
     curl -ksSL https://github.com/nexB/scancode-toolkit/archive/v$SCANCODE_VERSION.tar.gz | \
         tar -zxC /usr/local && \
@@ -139,6 +149,10 @@ RUN /opt/ort/bin/import_proxy_certs.sh && \
         chmod -R o=u /usr/local/scancode-toolkit-$SCANCODE_VERSION && \
         ln -s /usr/local/scancode-toolkit-$SCANCODE_VERSION/scancode /usr/local/bin/scancode
 
-RUN /opt/ort/bin/ort requirements
+COPY --from=build /usr/local/src/ort/cli/build/distributions/ort-*.tar /opt/ort.tar
+
+RUN tar xf /opt/ort.tar -C /opt/ort --strip-components 1 && \
+    rm /opt/ort.tar && \
+    /opt/ort/bin/ort requirements
 
 ENTRYPOINT ["/opt/ort/bin/ort"]

@@ -20,10 +20,12 @@
 package org.ossreviewtoolkit.commands
 
 import com.github.ajalt.clikt.core.CliktCommand
+import com.github.ajalt.clikt.core.ProgramResult
 import com.github.ajalt.clikt.core.UsageError
 import com.github.ajalt.clikt.parameters.groups.mutuallyExclusiveOptions
 import com.github.ajalt.clikt.parameters.groups.required
 import com.github.ajalt.clikt.parameters.groups.single
+import com.github.ajalt.clikt.parameters.options.associate
 import com.github.ajalt.clikt.parameters.options.convert
 import com.github.ajalt.clikt.parameters.options.default
 import com.github.ajalt.clikt.parameters.options.flag
@@ -33,45 +35,58 @@ import com.github.ajalt.clikt.parameters.options.split
 import com.github.ajalt.clikt.parameters.types.enum
 import com.github.ajalt.clikt.parameters.types.file
 
+import java.io.File
+
 import org.ossreviewtoolkit.GroupTypes
 import org.ossreviewtoolkit.GroupTypes.FileType
 import org.ossreviewtoolkit.GroupTypes.StringType
 import org.ossreviewtoolkit.evaluator.Evaluator
+import org.ossreviewtoolkit.model.FileFormat
 import org.ossreviewtoolkit.model.OrtResult
-import org.ossreviewtoolkit.model.OutputFormat
 import org.ossreviewtoolkit.model.RuleViolation
 import org.ossreviewtoolkit.model.Severity
 import org.ossreviewtoolkit.model.licenses.LicenseConfiguration
 import org.ossreviewtoolkit.model.licenses.orEmpty
 import org.ossreviewtoolkit.model.mapper
 import org.ossreviewtoolkit.model.readValue
-import org.ossreviewtoolkit.model.utils.SimplePackageConfigurationProvider
+import org.ossreviewtoolkit.model.utils.mergeLabels
+import org.ossreviewtoolkit.utils.PackageConfigurationOption
+import org.ossreviewtoolkit.utils.createProvider
 import org.ossreviewtoolkit.utils.expandTilde
 import org.ossreviewtoolkit.utils.log
 import org.ossreviewtoolkit.utils.safeMkdirs
-
-import java.io.File
 
 class EvaluatorCommand : CliktCommand(name = "evaluate", help = "Evaluate rules on ORT result files.") {
     private val ortFile by option(
         "--ort-file", "-i",
         help = "The ORT result file to read as input."
-    ).file(mustExist = true, canBeFile = true, canBeDir = false, mustBeWritable = false, mustBeReadable = true)
-        .convert { it.expandTilde() }
+    ).convert { it.expandTilde() }
+        .file(mustExist = true, canBeFile = true, canBeDir = false, mustBeWritable = false, mustBeReadable = true)
         .required()
 
-    private val packageConfigurationDir by option(
-        "--package-configuration-dir",
-        help = "The directory containing the package configuration files to read as input. It is searched recursively."
-    ).file(mustExist = true, canBeFile = false, canBeDir = true, mustBeWritable = false, mustBeReadable = true)
-        .convert { it.expandTilde() }
+    private val packageConfigurationOption by mutuallyExclusiveOptions<PackageConfigurationOption>(
+        option(
+            "--package-configuration-dir",
+            help = "The directory containing the package configuration files to read as input. It is searched " +
+                    "recursively."
+        ).convert { it.expandTilde() }
+            .file(mustExist = true, canBeFile = false, canBeDir = true, mustBeWritable = false, mustBeReadable = true)
+            .convert { PackageConfigurationOption.Dir(it) },
+        option(
+            "--package-configuration-file",
+            help = "The file containing the package configurations to read as input."
+        ).convert { it.expandTilde() }
+            .file(mustExist = true, canBeFile = true, canBeDir = false, mustBeWritable = false, mustBeReadable = true)
+            .convert { PackageConfigurationOption.File(it) }
+    ).single()
 
     private val rules by mutuallyExclusiveOptions<GroupTypes>(
         option(
             "--rules-file", "-r",
             help = "The name of a script file containing rules."
-        ).file(mustExist = true, canBeFile = true, canBeDir = false, mustBeWritable = false, mustBeReadable = true)
-            .convert { FileType(it.expandTilde()) },
+        ).convert { it.expandTilde() }
+            .file(mustExist = true, canBeFile = true, canBeDir = false, mustBeWritable = false, mustBeReadable = true)
+            .convert { FileType(it) },
         option(
             "--rules-resource",
             help = "The name of a script resource on the classpath that contains rules."
@@ -83,13 +98,13 @@ class EvaluatorCommand : CliktCommand(name = "evaluate", help = "Evaluate rules 
         help = "The directory to write the evaluation results as ORT result file(s) to, in the specified output " +
                 "format(s). If no output directory is specified, no output formats are written and only the exit " +
                 "code signals a success or failure."
-    ).file(mustExist = false, canBeFile = false, canBeDir = true, mustBeWritable = false, mustBeReadable = false)
-        .convert { it.expandTilde() }
+    ).convert { it.expandTilde() }
+        .file(mustExist = false, canBeFile = false, canBeDir = true, mustBeWritable = false, mustBeReadable = false)
 
     private val outputFormats by option(
         "--output-formats", "-f",
         help = "The list of output formats to be used for the ORT result file(s)."
-    ).enum<OutputFormat>().split(",").default(listOf(OutputFormat.YAML))
+    ).enum<FileFormat>().split(",").default(listOf(FileFormat.YAML))
 
     private val syntaxCheck by option(
         "--syntax-check",
@@ -100,22 +115,28 @@ class EvaluatorCommand : CliktCommand(name = "evaluate", help = "Evaluate rules 
         "--repository-configuration-file",
         help = "A file containing the repository configuration. If set the .ort.yml overrides the repository " +
                 "configuration contained in the ort result from the input file."
-    ).file(mustExist = true, canBeFile = true, canBeDir = false, mustBeWritable = false, mustBeReadable = true)
-        .convert { it.expandTilde() }
+    ).convert { it.expandTilde() }
+        .file(mustExist = true, canBeFile = true, canBeDir = false, mustBeWritable = false, mustBeReadable = true)
 
     private val packageCurationsFile by option(
         "--package-curations-file",
         help = "A file containing package curation data. This replaces all package curations contained in the given " +
                 "ORT result file with the ones present in the given file."
-    ).file(mustExist = true, canBeFile = true, canBeDir = false, mustBeWritable = false, mustBeReadable = true)
-        .convert { it.expandTilde() }
+    ).convert { it.expandTilde() }
+        .file(mustExist = true, canBeFile = true, canBeDir = false, mustBeWritable = false, mustBeReadable = true)
 
     private val licenseConfigurationFile by option(
         "--license-configuration-file",
         help = "A file containing the license configuration. That license configuration is passed as parameter to " +
                 "the rules script."
-    ).file(mustExist = true, canBeFile = true, canBeDir = false, mustBeWritable = false, mustBeReadable = true)
-        .convert { it.expandTilde() }
+    ).convert { it.expandTilde() }
+        .file(mustExist = true, canBeFile = true, canBeDir = false, mustBeWritable = false, mustBeReadable = true)
+
+    private val labels by option(
+        "--label", "-l",
+        help = "Add a label to the ORT result. Can be used multiple times. Any existing label with the same key in " +
+                "the input ORT result will be overwritten. For example: --label distribution=external"
+    ).associate()
 
     override fun run() {
         val absoluteOutputDir = outputDir?.normalize()
@@ -128,7 +149,7 @@ class EvaluatorCommand : CliktCommand(name = "evaluate", help = "Evaluate rules 
 
             val existingOutputFiles = outputFiles.filter { it.exists() }
             if (existingOutputFiles.isNotEmpty()) {
-                throw UsageError("None of the output files $existingOutputFiles must exist yet.", statusCode = 2)
+                throw UsageError("None of the output files $existingOutputFiles must exist yet.")
             }
         }
 
@@ -137,9 +158,7 @@ class EvaluatorCommand : CliktCommand(name = "evaluate", help = "Evaluate rules 
             ortResultInput = ortResultInput.replaceConfig(it.readValue())
         }
 
-        val packageConfigurationProvider =
-            packageConfigurationDir?.let { SimplePackageConfigurationProvider.forDirectory(it) }
-                ?: SimplePackageConfigurationProvider()
+        val packageConfigurationProvider = packageConfigurationOption.createProvider()
 
         val licenseConfiguration = licenseConfigurationFile?.readValue<LicenseConfiguration>().orEmpty()
 
@@ -152,14 +171,19 @@ class EvaluatorCommand : CliktCommand(name = "evaluate", help = "Evaluate rules 
             is StringType -> {
                 val rulesResource = (rules as StringType).string
                 javaClass.classLoader.getResource(rulesResource)?.readText()
-                    ?: throw UsageError("Invalid rules resource '$rulesResource'.", statusCode = 2)
+                    ?: throw UsageError("Invalid rules resource '$rulesResource'.")
             }
         }
 
         val evaluator = Evaluator(ortResultInput, packageConfigurationProvider, licenseConfiguration)
 
         if (syntaxCheck) {
-            if (evaluator.checkSyntax(script)) return else throw UsageError("Syntax check failed.", statusCode = 2)
+            if (evaluator.checkSyntax(script)) {
+                return
+            } else {
+                println("Syntax check failed.")
+                throw ProgramResult(2)
+            }
         }
 
         val evaluatorRun by lazy { evaluator.run(script) }
@@ -176,7 +200,7 @@ class EvaluatorCommand : CliktCommand(name = "evaluate", help = "Evaluate rules 
             // Note: This overwrites any existing EvaluatorRun from the input file.
             val ortResultOutput = ortResultInput.copy(evaluator = evaluatorRun).apply {
                 data += ortResultInput.data
-            }
+            }.mergeLabels(labels)
 
             absoluteOutputDir.safeMkdirs()
 
@@ -186,7 +210,10 @@ class EvaluatorCommand : CliktCommand(name = "evaluate", help = "Evaluate rules 
             }
         }
 
-        if (evaluatorRun.violations.isNotEmpty()) throw UsageError("Rule violations found.", statusCode = 2)
+        if (evaluatorRun.violations.isNotEmpty()) {
+            println("Rule violations found.")
+            throw ProgramResult(2)
+        }
     }
 
     private fun printSummary(errors: List<RuleViolation>) {

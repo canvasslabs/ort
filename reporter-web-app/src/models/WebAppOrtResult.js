@@ -17,6 +17,7 @@
  * License-Filename: LICENSE
  */
 
+import Repository from './Repository';
 import Statistics from './Statistics';
 import WebAppCopyright from './WebAppCopyright';
 import WebAppLicense from './WebAppLicense';
@@ -32,11 +33,15 @@ import WebAppRuleViolation from './WebAppRuleViolation';
 import WebAppResolution from './WebAppResolution';
 
 class WebAppOrtResult {
+    #concludedLicensePackages = [];
+
     #copyrights = [];
 
     #customData = {};
 
     #declaredLicenses = [];
+
+    #declaredLicensesProcessed = [];
 
     #dependencyTrees = [];
 
@@ -45,6 +50,8 @@ class WebAppOrtResult {
     #treeNodesByKeyMap;
 
     #detectedLicenses = [];
+
+    #detectedLicensesProcessed = [];
 
     #issues = [];
 
@@ -78,6 +85,8 @@ class WebAppOrtResult {
 
     #statistics = {};
 
+    #repository;
+
     #repositoryConfiguration;
 
     #ruleViolations = [];
@@ -98,44 +107,6 @@ class WebAppOrtResult {
                 this.#customData = obj.custom_data || obj.customData;
             }
 
-            if (obj.dependency_trees || obj.dependencyTrees) {
-                const dependencyTrees = obj.dependency_trees || obj.dependencyTrees;
-                const treeNodesByPackageIndexMap = new Map();
-                const treeNodesByKeyMap = new Map();
-                const callback = (webAppTreeNode) => {
-                    const { packageIndex, key } = webAppTreeNode;
-                    const parentKey = webAppTreeNode.parent ? webAppTreeNode.parent.key : webAppTreeNode.packageIndex;
-
-                    treeNodesByKeyMap.set(key, webAppTreeNode);
-
-                    if (!treeNodesByPackageIndexMap.has(packageIndex)) {
-                        treeNodesByPackageIndexMap.set(
-                            packageIndex,
-                            {
-                                keys: new Set([key]),
-                                parentKeys: new Set([parentKey])
-                            }
-                        );
-                    } else {
-                        treeNodesByPackageIndexMap.get(packageIndex).keys.add(key);
-                        treeNodesByPackageIndexMap.get(packageIndex).parentKeys.add(parentKey);
-                    }
-                };
-
-                for (let i = 0, len = dependencyTrees.length; i < len; i++) {
-                    this.#dependencyTrees.push(
-                        new WebAppTreeNode(
-                            dependencyTrees[i],
-                            this,
-                            callback
-                        )
-                    );
-                }
-
-                this.#treeNodesByPackageIndexMap = treeNodesByPackageIndexMap;
-                this.#treeNodesByKeyMap = treeNodesByKeyMap;
-            }
-
             if (obj.licenses) {
                 const { licenses } = obj;
                 this.#licensesIndexesByNameMap.clear();
@@ -148,8 +119,6 @@ class WebAppOrtResult {
 
             if (obj.packages) {
                 const { packages } = obj;
-                let declaredLicenses = new Set();
-                let detectedLicenses = new Set();
 
                 for (let i = 0, len = packages.length; i < len; i++) {
                     const webAppPackage = new WebAppPackage(packages[i], this);
@@ -159,17 +128,22 @@ class WebAppOrtResult {
                         this.#projects.push(webAppPackage);
                     }
 
-                    declaredLicenses = new Set([
-                        ...declaredLicenses,
+                    if (webAppPackage.concludedLicense
+                        && webAppPackage.concludedLicense.length > 0) {
+                        this.#concludedLicensePackages.push(webAppPackage);
+                    }
+
+                    const declaredLicenses = new Set([
+                        ...this.#declaredLicenses,
                         ...webAppPackage.declaredLicenses
                     ]);
-                    this.#declaredLicenses = Array.from(declaredLicenses);
+                    this.#declaredLicenses = Array.from(declaredLicenses).sort();
 
-                    detectedLicenses = new Set([
+                    const detectedLicenses = new Set([
                         ...this.#detectedLicenses,
                         ...webAppPackage.detectedLicenses
                     ]);
-                    this.#detectedLicenses = Array.from(detectedLicenses);
+                    this.#detectedLicenses = Array.from(detectedLicenses).sort();
                 }
             }
 
@@ -196,25 +170,13 @@ class WebAppOrtResult {
                 }
             }
 
-            if (obj.scopes) {
-                const { scopes } = obj;
-                for (let i = 0, len = scopes.length; i < len; i++) {
-                    const webAppScope = new WebAppScope(scopes[i]);
-                    this.#scopes.push(webAppScope);
-                    this.#scopesByNameMap.set(webAppScope.name, webAppScope);
-                }
+            if (obj.repository) {
+                this.#repository = new Repository(obj.repository);
             }
 
-            if (obj.statistics) {
-                const { statistics } = obj;
-                this.#statistics = new Statistics(statistics);
-                const { dependencyTree: { totalTreeDepth } } = this.#statistics;
-
-                if (totalTreeDepth) {
-                    for (let i = 0, len = totalTreeDepth; i < len; i++) {
-                        this.#levels.push(i);
-                    }
-                }
+            if (obj.repository_configuration || obj.repositoryConfiguration) {
+                this.#repositoryConfiguration = obj.repository_configuration
+                    || obj.repositoryConfiguration;
             }
 
             if (obj.scope_excludes || obj.scopeExcludes) {
@@ -224,9 +186,41 @@ class WebAppOrtResult {
                 }
             }
 
-            if (obj.repository_configuration || obj.repositoryConfiguration) {
-                this.#repositoryConfiguration = obj.repository_configuration
-                    || obj.repositoryConfiguration;
+            if (obj.scopes) {
+                const { scopes } = obj;
+                for (let i = 0, len = scopes.length; i < len; i++) {
+                    const webAppScope = new WebAppScope(scopes[i], this);
+                    this.#scopes.push(webAppScope);
+                    this.#scopesByNameMap.set(webAppScope.name, webAppScope);
+                }
+            }
+
+            if (obj.statistics) {
+                const { statistics } = obj;
+                this.#statistics = new Statistics(statistics);
+                const {
+                    dependencyTree: {
+                        totalTreeDepth
+                    },
+                    licenses: {
+                        declared,
+                        detected
+                    }
+                } = this.#statistics;
+
+                if (declared) {
+                    this.#declaredLicensesProcessed = [...declared.keys()];
+                }
+
+                if (detected) {
+                    this.#detectedLicensesProcessed = [...detected.keys()];
+                }
+
+                if (totalTreeDepth) {
+                    for (let i = 0, len = totalTreeDepth; i < len; i++) {
+                        this.#levels.push(i);
+                    }
+                }
             }
 
             if (obj.issues) {
@@ -280,7 +274,49 @@ class WebAppOrtResult {
                     this.#ruleViolationResolutions.push(new WebAppResolution(ruleViolationResolutions[i]));
                 }
             }
+
+            if (obj.dependency_trees || obj.dependencyTrees) {
+                const dependencyTrees = obj.dependency_trees || obj.dependencyTrees;
+                const treeNodesByPackageIndexMap = new Map();
+                const treeNodesByKeyMap = new Map();
+                const callback = (webAppTreeNode) => {
+                    const { packageIndex, key } = webAppTreeNode;
+                    const parentKey = webAppTreeNode.parent ? webAppTreeNode.parent.key : webAppTreeNode.packageIndex;
+
+                    treeNodesByKeyMap.set(key, webAppTreeNode);
+
+                    if (!treeNodesByPackageIndexMap.has(packageIndex)) {
+                        treeNodesByPackageIndexMap.set(
+                            packageIndex,
+                            {
+                                keys: new Set([key]),
+                                parentKeys: new Set([parentKey])
+                            }
+                        );
+                    } else {
+                        treeNodesByPackageIndexMap.get(packageIndex).keys.add(key);
+                        treeNodesByPackageIndexMap.get(packageIndex).parentKeys.add(parentKey);
+                    }
+                };
+
+                for (let i = 0, len = dependencyTrees.length; i < len; i++) {
+                    this.#dependencyTrees.push(
+                        new WebAppTreeNode(
+                            dependencyTrees[i],
+                            this,
+                            callback
+                        )
+                    );
+                }
+
+                this.#treeNodesByPackageIndexMap = treeNodesByPackageIndexMap;
+                this.#treeNodesByKeyMap = treeNodesByKeyMap;
+            }
         }
+    }
+
+    get concludedLicensePackages() {
+        return this.#concludedLicensePackages;
     }
 
     get copyrights() {
@@ -293,6 +329,10 @@ class WebAppOrtResult {
 
     get declaredLicenses() {
         return this.#declaredLicenses;
+    }
+
+    get declaredLicensesProcessed() {
+        return this.#declaredLicensesProcessed;
     }
 
     get dependencyTrees() {
@@ -309,6 +349,10 @@ class WebAppOrtResult {
 
     get detectedLicenses() {
         return this.#detectedLicenses;
+    }
+
+    get detectedLicensesProcessed() {
+        return this.#detectedLicensesProcessed;
     }
 
     get issues() {
@@ -343,6 +387,22 @@ class WebAppOrtResult {
         return this.#projects;
     }
 
+    get repository() {
+        return this.#repository;
+    }
+
+    get repositoryConfiguration() {
+        return this.#repositoryConfiguration;
+    }
+
+    get ruleViolations() {
+        return this.#ruleViolations;
+    }
+
+    get ruleViolationResolutions() {
+        return this.#ruleViolationResolutions;
+    }
+
     get scanResults() {
         return this.#scanResults;
     }
@@ -357,18 +417,6 @@ class WebAppOrtResult {
 
     get statistics() {
         return this.#statistics;
-    }
-
-    get repositoryConfiguration() {
-        return this.#repositoryConfiguration;
-    }
-
-    get ruleViolations() {
-        return this.#ruleViolations;
-    }
-
-    get ruleViolationResolutions() {
-        return this.#ruleViolationResolutions;
     }
 
     getCopyrightByIndex(val) {
@@ -403,6 +451,10 @@ class WebAppOrtResult {
         return this.#pathExcludes[val] || null;
     }
 
+    getRuleViolationResolutionByIndex(val) {
+        return this.#ruleViolationResolutions[val] || null;
+    }
+
     getScanResultByIndex(val) {
         return this.#scanResults[val] || null;
     }
@@ -413,10 +465,6 @@ class WebAppOrtResult {
 
     getScopeByName(val) {
         return this.#scopesByNameMap.get(val) || null;
-    }
-
-    getRuleViolationResolutionByIndex(val) {
-        return this.#ruleViolationResolutions[val] || null;
     }
 
     getScopeExcludeByIndex(val) {
@@ -435,20 +483,24 @@ class WebAppOrtResult {
         return this.#ruleViolationsByPackageIndexMap.get(val) || [];
     }
 
-    hasDeclaredLicenses() {
-        if (this.#declaredLicenses.length > 0) {
-            return true;
-        }
+    hasConcludedLicenses() {
+        return this.#concludedLicensePackages.length > 0;
+    }
 
-        return false;
+    hasDeclaredLicenses() {
+        return this.#declaredLicenses.length > 0;
+    }
+
+    hasDeclaredLicensesProcessed() {
+        return this.#declaredLicensesProcessed.length > 0;
     }
 
     hasDetectedLicenses() {
-        if (this.#detectedLicenses.length > 0) {
-            return true;
-        }
+        return this.#detectedLicenses.length > 0;
+    }
 
-        return false;
+    hasDetectedLicensesProcessed() {
+        return this.#detectedLicensesProcessed.length > 0;
     }
 
     hasExcludes() {
@@ -477,35 +529,11 @@ class WebAppOrtResult {
     }
 
     hasLevels() {
-        if (this.#levels.length > 0) {
-            return true;
-        }
-
-        return false;
+        return this.#levels.length > 0;
     }
 
     hasPathExcludes() {
-        if (this.#pathExcludes.length > 0) {
-            return true;
-        }
-
-        return false;
-    }
-
-    hasScopes() {
-        if (this.#scopes.length > 0) {
-            return true;
-        }
-
-        return false;
-    }
-
-    hasScopeExcludes() {
-        if (this.#scopeExcludes.length > 0) {
-            return true;
-        }
-
-        return false;
+        return this.#pathExcludes.length > 0;
     }
 
     hasRepositoryConfiguration() {
@@ -531,6 +559,14 @@ class WebAppOrtResult {
 
     hasRuleViolationsForPackageIndex(val) {
         return this.#ruleViolationsByPackageIndexMap.has(val);
+    }
+
+    hasScopes() {
+        return this.#scopes.length > 0;
+    }
+
+    hasScopeExcludes() {
+        return this.#scopeExcludes.length > 0;
     }
 }
 

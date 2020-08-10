@@ -20,7 +20,13 @@
 package org.ossreviewtoolkit.commands
 
 import com.github.ajalt.clikt.core.CliktCommand
-import com.github.ajalt.clikt.core.UsageError
+import com.github.ajalt.clikt.core.ProgramResult
+
+import com.vdurmont.semver4j.SemverException
+
+import java.io.File
+import java.io.IOException
+import java.lang.reflect.Modifier
 
 import org.ossreviewtoolkit.analyzer.PackageManager
 import org.ossreviewtoolkit.downloader.VersionControlSystem
@@ -31,15 +37,9 @@ import org.ossreviewtoolkit.scanner.Scanner
 import org.ossreviewtoolkit.utils.CommandLineTool
 import org.ossreviewtoolkit.utils.log
 
-import com.vdurmont.semver4j.SemverException
-
-import java.io.File
-import java.io.IOException
-import java.lang.reflect.Modifier
-
 import org.reflections.Reflections
 
-class RequirementsCommand : CliktCommand(name = "requirements", help = "List the required command line tools.") {
+class RequirementsCommand : CliktCommand(help = "List the required command line tools.") {
     override fun run() {
         val reflections = Reflections("org.ossreviewtoolkit")
         val classes = reflections.getSubTypesOf(CommandLineTool::class.java)
@@ -99,7 +99,8 @@ class RequirementsCommand : CliktCommand(name = "requirements", help = "List the
                     allTools.getOrPut(category) { mutableListOf() } += instance
                 }
             } catch (e: Exception) {
-                throw UsageError("There was an error instantiating $it: $e.", statusCode = 1)
+                log.error { "There was an error instantiating $it: $e." }
+                throw ProgramResult(1)
             }
         }
 
@@ -116,7 +117,11 @@ class RequirementsCommand : CliktCommand(name = "requirements", help = "List the
                         try {
                             val actualVersion = tool.getVersion()
                             try {
-                                if (tool.getVersionRequirement().isSatisfiedBy(actualVersion)) {
+                                val isRequiredVersion = tool.getVersionRequirement().let {
+                                    it == CommandLineTool.ANY_VERSION || it.isSatisfiedBy(actualVersion)
+                                }
+
+                                if (isRequiredVersion) {
                                     Pair("\t* ", "Found version $actualVersion.")
                                 } else {
                                     statusCode = statusCode or 2
@@ -142,7 +147,7 @@ class RequirementsCommand : CliktCommand(name = "requirements", help = "List the
                     append(prefix)
                     append("${tool.javaClass.simpleName}: Requires '${tool.command()}' in ")
 
-                    if (tool.getVersionRequirement().toString() == CommandLineTool.ANY_VERSION.toString()) {
+                    if (tool.getVersionRequirement() == CommandLineTool.ANY_VERSION) {
                         append("no specific version. ")
                     } else {
                         append("version ${tool.getVersionRequirement()}. ")
@@ -163,7 +168,9 @@ class RequirementsCommand : CliktCommand(name = "requirements", help = "List the
         println("\t* The tool was found in the PATH environment in the required version.")
 
         if (statusCode != 0) {
-            throw UsageError("Not all tools were found in their required versions.", statusCode = statusCode)
+            println()
+            println("Not all tools were found in their required versions.")
+            throw ProgramResult(statusCode)
         }
     }
 }

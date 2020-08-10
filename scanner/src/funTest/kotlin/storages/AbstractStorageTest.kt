@@ -20,6 +20,17 @@
 
 package org.ossreviewtoolkit.scanner.storages
 
+import io.kotest.core.spec.style.StringSpec
+import io.kotest.matchers.beOfType
+import io.kotest.matchers.collections.beEmpty
+import io.kotest.matchers.collections.containExactly
+import io.kotest.matchers.collections.containExactlyInAnyOrder
+import io.kotest.matchers.should
+import io.kotest.matchers.shouldBe
+
+import java.time.Duration
+import java.time.Instant
+
 import org.ossreviewtoolkit.model.EMPTY_JSON_NODE
 import org.ossreviewtoolkit.model.Failure
 import org.ossreviewtoolkit.model.Hash
@@ -39,17 +50,6 @@ import org.ossreviewtoolkit.model.VcsInfo
 import org.ossreviewtoolkit.model.VcsType
 import org.ossreviewtoolkit.model.jsonMapper
 import org.ossreviewtoolkit.scanner.ScanResultsStorage
-
-import io.kotlintest.matchers.beEmpty
-import io.kotlintest.matchers.beOfType
-import io.kotlintest.matchers.collections.containExactly
-import io.kotlintest.matchers.collections.containExactlyInAnyOrder
-import io.kotlintest.should
-import io.kotlintest.shouldBe
-import io.kotlintest.specs.StringSpec
-
-import java.time.Duration
-import java.time.Instant
 
 abstract class AbstractStorageTest : StringSpec() {
     private companion object {
@@ -110,8 +110,8 @@ abstract class AbstractStorageTest : StringSpec() {
         1,
         "packageVerificationCode",
         sortedSetOf(
-            LicenseFinding("license 1.1", DUMMY_TEXT_LOCATION),
-            LicenseFinding("license 1.2", DUMMY_TEXT_LOCATION)
+            LicenseFinding("license-1.1", DUMMY_TEXT_LOCATION),
+            LicenseFinding("license-1.2", DUMMY_TEXT_LOCATION)
         ),
         sortedSetOf(),
         mutableListOf(error1, error2)

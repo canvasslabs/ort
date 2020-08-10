@@ -19,13 +19,13 @@
 
 package org.ossreviewtoolkit.utils.test
 
+import java.io.File
+import java.time.Instant
+
 import org.ossreviewtoolkit.model.OrtResult
 import org.ossreviewtoolkit.model.config.AnalyzerConfiguration
 import org.ossreviewtoolkit.model.config.RepositoryConfiguration
 import org.ossreviewtoolkit.model.readValue
-
-import java.io.File
-import java.time.Instant
 
 val DEFAULT_ANALYZER_CONFIGURATION = AnalyzerConfiguration(ignoreToolVersions = false, allowDynamicVersions = false)
 val DEFAULT_REPOSITORY_CONFIGURATION = RepositoryConfiguration()
@@ -43,18 +43,14 @@ private val START_AND_END_TIME_REGEX = Regex("((start|end)_time): \".*\"")
 private val TIMESTAMP_REGEX = Regex("(timestamp): \".*\"")
 
 fun patchExpectedResult(
-    result: File, custom: Pair<String, String>? = null, definitionFilePath: String? = null,
+    result: File, custom: Map<String, String> = emptyMap(), definitionFilePath: String? = null,
     url: String? = null, revision: String? = null, path: String? = null,
     urlProcessed: String? = null
 ): String {
-    fun String.replaceIfNotNull(strings: Pair<String, String>?) =
-        if (strings != null) replace(strings.first, strings.second) else this
-
     fun String.replaceIfNotNull(oldValue: String, newValue: String?) =
         if (newValue != null) replace(oldValue, newValue) else this
 
-    return result.readText()
-        .replaceIfNotNull(custom)
+    return custom.entries.fold(result.readText()) { text, entry -> text.replaceIfNotNull(entry.key, entry.value) }
         .replaceIfNotNull("<REPLACE_JAVA>", System.getProperty("java.version"))
         .replaceIfNotNull("<REPLACE_OS>", System.getProperty("os.name"))
         .replaceIfNotNull("<REPLACE_DEFINITION_FILE_PATH>", definitionFilePath)

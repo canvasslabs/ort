@@ -7,9 +7,9 @@
 | [![Linux build status][1]][2]  | [![Windows build status][3]][4] | [![JitPack build status][5]][6] |
 | [![Linux code coverage][7]][8] |                                 |                                 |
 
-| REUSE status             | Interact with us!              |
-| :----------------------- | :----------------------------- |
-| [![REUSE status][9]][10] | [![ort-talk][11]][12]          |
+| License status           | Code quality      | TODOs              | Interact with us!              |
+| :----------------------- | :---------------- | :----------------- | :----------------------------- |
+| [![REUSE status][9]][10] | [![LGTM][11]][12] | [![TODOs][13]][14] | [![ort-talk][15]][16]          |
 
 [1]: https://travis-ci.com/oss-review-toolkit/ort.svg?branch=master
 [2]: https://travis-ci.com/oss-review-toolkit/ort
@@ -21,8 +21,12 @@
 [8]: https://codecov.io/gh/oss-review-toolkit/ort/
 [9]: https://api.reuse.software/badge/github.com/oss-review-toolkit/ort
 [10]: https://api.reuse.software/info/github.com/oss-review-toolkit/ort
-[11]: https://img.shields.io/badge/slack-ort--talk-blue.svg?longCache=true&logo=slack
-[12]: https://join.slack.com/t/ort-talk/shared_invite/enQtMzk3MDU5Njk0Njc1LThiNmJmMjc5YWUxZTU4OGI5NmY3YTFlZWM5YTliZmY5ODc0MGMyOWIwYmRiZWFmNGMzOWY2NzVhYTI0NTJkNmY
+[11]: https://img.shields.io/lgtm/alerts/g/oss-review-toolkit/ort.svg?logo=lgtm&logoWidth=18
+[12]: https://lgtm.com/projects/g/oss-review-toolkit/ort/alerts/
+[13]: https://badgen.net/https/api.tickgit.com/badgen/github.com/oss-review-toolkit/ort
+[14]: https://www.tickgit.com/browse?repo=github.com/oss-review-toolkit/ort
+[15]: https://img.shields.io/badge/slack-ort--talk-blue.svg?longCache=true&logo=slack
+[16]: https://join.slack.com/t/ort-talk/shared_invite/enQtMzk3MDU5Njk0Njc1LThiNmJmMjc5YWUxZTU4OGI5NmY3YTFlZWM5YTliZmY5ODc0MGMyOWIwYmRiZWFmNGMzOWY2NzVhYTI0NTJkNmY
 
 # Introduction
 
@@ -50,7 +54,7 @@ The following tools are [planned](https://github.com/oss-review-toolkit/ort/proj
 
 * _Advisor_ - retrieves security advisories based on the Analyzer result.
 * _Documenter_ - generates the final outcome of the review process incl. legal conclusions, e.g. annotated
-  [SPDX](https://spdx.org/) files that can be included into the distribution.
+  [SPDX](https://spdx.dev/) files that can be included into the distribution.
 
 # Installation
 
@@ -143,9 +147,10 @@ or
 
 A basic ORT pipeline (using the _analyzer_, _scanner_ and _reporter_) can easily be run on
 [Jenkins CI](https://jenkins.io/) by using the [Jenkinsfile](./Jenkinsfile) in a (declarative)
-[pipeline](https://jenkins.io/doc/book/pipeline/) job. The job accepts various parameters that are translated to ORT
-command line arguments. Additionally, one can trigger a downstream job which e.g. further processes scan results. Note
-that it is the downstream job's responsibility to copy any artifacts it needs from the upstream job.
+[pipeline](https://jenkins.io/doc/book/pipeline/) job. Please see the [Jenkinsfile](./Jenkinsfile) itself for
+documentation of the required Jenkins plugins. The job accepts various parameters that are translated to ORT command
+line arguments. Additionally, one can trigger a downstream job which e.g. further processes scan results. Note that it
+is the downstream job's responsibility to copy any artifacts it needs from the upstream job.
 
 ## Getting started
 
@@ -155,11 +160,13 @@ Please see [Getting Started](./docs/getting-started.md) for an introduction to t
 
 Please see the documentation below for details about the ORT configuration.
 
-* [The .ort.yml file](docs/config-file-ort-yml.md) - project-specific license finding curations, exclusions
+* [The .ort.yml file](./docs/config-file-ort-yml.md) - project-specific license finding curations, exclusions
   and resolutions to address issues found within a project's code repository.
-* [The curations.yml file](docs/config-file-curations-yml.md) - curations correct invalid or missing package metadata
+* [The package configuration file](./docs/config-file-package-configuration-yml.md) - package (dependency) and provenance
+  specific license finding curations and exclusions to address issues found within a scan result for a package.
+* [The curations.yml file](./docs/config-file-curations-yml.md) - curations correct invalid or missing package metadata
   and set the concluded license for packages.
-* [The resolutions.yml file](docs/config-file-resolution-yml.md) - resolutions allow *resolving* any issues
+* [The resolutions.yml file](./docs/config-file-resolutions-yml.md) - resolutions allow *resolving* any issues
   or policy rule violations by providing a reason why they are acceptable and can be ignored.
 
 # Details on the tools
@@ -289,7 +296,8 @@ ort {
 
 ### PostgreSQL Storage
 
-To use PostgreSQL to store scan results, use the following configuration:
+To use PostgreSQL for storing scan results you need at least version 9.4, create a database with the `client_encoding`
+set to `UTF8`, and a configuration like the following:
 
 ```hocon
 ort {
@@ -305,19 +313,19 @@ ort {
 }
 ```
 
-The _scanner_ creates a table called `scan_results` and stores the data in a
-[jsonb](https://www.postgresql.org/docs/current/datatype-json.html) column.
+While the specified schema already needs to exist, the _scanner_ will itself create a table called `scan_results` and
+store the data in a [jsonb](https://www.postgresql.org/docs/current/datatype-json.html) column.
 
 If you do not want to use SSL set the `sslmode` to `disable`, other possible values are explained in the
 [documentation](https://jdbc.postgresql.org/documentation/head/ssl-client.html). For other supported configuration
-options see [PostgresStorageConfiguration.kt](model/src/main/kotlin/config/PostgresStorageConfiguration.kt).
+options see [PostgresStorageConfiguration.kt](./model/src/main/kotlin/config/PostgresStorageConfiguration.kt).
 
 <a name="evaluator">&nbsp;</a>
 
 [![Evaluator](./logos/evaluator.png)](./evaluator/src/main/kotlin)
 
 The _evaluator_ is used to perform custom license policy checks on scan results. The rules to check against are
-implemented as scripts (currently Kontlin scripts, with a dedicated DSL, but support for other scripting can be added as
+implemented as scripts (currently Kotlin scripts, with a dedicated DSL, but support for other scripting can be added as
 well. See [rules.kts](./docs/examples/rules.kts) for an example file.
 
 <a name="reporter">&nbsp;</a>
@@ -329,11 +337,14 @@ designed to support multiple output formats.
 
 Currently, the following report formats are supported (reporter names are case-insensitive):
 
+* [Amazon OSS Attribution Builder](https://github.com/amzn/oss-attribution-builder) document (*experimental*, `-f AmazonOssAttributionBuilder`)
+* [Antenna Attribution Document (PDF)](./docs/reporters/AntennaAttributionDocumentReporter.md) (`-f AntennaAttributionDocument`)
 * [CycloneDX](https://cyclonedx.org/) BOM (`-f CycloneDx`)
 * [Excel](https://products.office.com/excel) sheet (`-f Excel`)
 * [NOTICE](http://www.apache.org/dev/licensing-howto.html) file in two variants
   * List license texts and copyrights by package (`-f NoticeByPackage`)
   * Summarize all license texts and copyrights (`-f NoticeSummary`)
+* [SPDX Document](https://spdx.dev/specifications/), version 2.2 (`-f SpdxDocument`)
 * Static HTML (`-f StaticHtml`)
 * Web App (`-f WebApp`)
 
@@ -381,4 +392,4 @@ Copyright (C) 2017-2020 HERE Europe B.V.
 
 See the [LICENSE](./LICENSE) file in the root of this project for license details.
 
-OSS Review Toolkit (ORT) is a [Linux Foundation project](https://www.linuxfoundation.org).
+OSS Review Toolkit (ORT) is a [Linux Foundation project](https://www.linuxfoundation.org) and part of [ACT](https://automatecompliance.org/).

@@ -19,18 +19,17 @@
 
 package org.ossreviewtoolkit.analyzer.managers
 
+import io.kotest.core.spec.style.WordSpec
+import io.kotest.matchers.shouldBe
+
+import java.io.File
+
 import org.ossreviewtoolkit.downloader.VersionControlSystem
-import org.ossreviewtoolkit.model.yamlMapper
 import org.ossreviewtoolkit.utils.normalizeVcsUrl
 import org.ossreviewtoolkit.utils.test.DEFAULT_ANALYZER_CONFIGURATION
 import org.ossreviewtoolkit.utils.test.DEFAULT_REPOSITORY_CONFIGURATION
 import org.ossreviewtoolkit.utils.test.USER_DIR
 import org.ossreviewtoolkit.utils.test.patchExpectedResult
-
-import io.kotlintest.shouldBe
-import io.kotlintest.specs.WordSpec
-
-import java.io.File
 
 class YarnTest : WordSpec() {
     private fun getExpectedResult(projectDir: File, expectedResultTemplateFile: String): String {
@@ -45,14 +44,15 @@ class YarnTest : WordSpec() {
             definitionFilePath = "$vcsPath/package.json",
             url = normalizeVcsUrl(vcsUrl),
             revision = vcsRevision,
-            path = vcsPath
+            path = vcsPath,
+            custom = mapOf("<REPLACE_RAW_URL>" to vcsUrl)
         )
     }
 
     private fun resolveDependencies(projectDir: File): String {
         val packageFile = File(projectDir, "package.json")
-        val result = createYarn().resolveDependencies(listOf(packageFile))[packageFile]
-        return yamlMapper.writeValueAsString(result)
+        val result = createYarn().resolveSingleProject(packageFile)
+        return result.toYaml()
     }
 
     init {

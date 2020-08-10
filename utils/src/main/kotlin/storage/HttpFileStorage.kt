@@ -19,10 +19,6 @@
 
 package org.ossreviewtoolkit.utils.storage
 
-import org.ossreviewtoolkit.utils.OkHttpClientHelper
-import org.ossreviewtoolkit.utils.getUserOrtDirectory
-import org.ossreviewtoolkit.utils.log
-
 import java.io.IOException
 import java.io.InputStream
 import java.net.HttpURLConnection
@@ -32,6 +28,9 @@ import okhttp3.CacheControl
 import okhttp3.Headers.Companion.toHeaders
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
+
+import org.ossreviewtoolkit.utils.OkHttpClientHelper
+import org.ossreviewtoolkit.utils.log
 
 /**
  * A [FileStorage] that stores files on an HTTP server.
@@ -48,17 +47,23 @@ class HttpFileStorage(
     private val headers: Map<String, String> = emptyMap(),
 
     /**
-     * A path inside the [ORT user directory][getUserOrtDirectory] used for caching HTTP responses. Defaults to
-     * "cache/http".
-     */
-    private val cachePath: String = "cache/http",
-
-    /**
      * The max age of an HTTP cache entry in seconds. Defaults to 0 which always validates the cached response with the
      * remote server.
      */
     private val cacheMaxAgeInSeconds: Int = 0
 ) : FileStorage {
+    override fun exists(path: String): Boolean {
+        val request = Request.Builder()
+            .headers(headers.toHeaders())
+            .cacheControl(CacheControl.Builder().maxAge(cacheMaxAgeInSeconds, TimeUnit.SECONDS).build())
+            .head()
+            .url(urlForPath(path))
+            .build()
+
+        val response = OkHttpClientHelper.execute(request)
+        return response.code == HttpURLConnection.HTTP_OK
+    }
+
     override fun read(path: String): InputStream {
         val request = Request.Builder()
             .headers(headers.toHeaders())
@@ -69,7 +74,7 @@ class HttpFileStorage(
 
         log.debug { "Reading file from storage: ${request.url}" }
 
-        val response = OkHttpClientHelper.execute(cachePath, request)
+        val response = OkHttpClientHelper.execute(request)
         if (response.code == HttpURLConnection.HTTP_OK) {
             response.body?.let { body ->
                 return body.byteStream()
@@ -93,7 +98,7 @@ class HttpFileStorage(
 
             log.debug { "Writing file to storage: ${request.url}" }
 
-            return OkHttpClientHelper.execute(cachePath, request).use { response ->
+            return OkHttpClientHelper.execute(request).use { response ->
                 if (response.code != HttpURLConnection.HTTP_CREATED && response.code != HttpURLConnection.HTTP_OK) {
                     throw IOException(
                         "Could not store file at '${request.url}': ${response.code} - ${response.message}"

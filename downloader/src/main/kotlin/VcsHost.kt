@@ -20,18 +20,19 @@
 
 package org.ossreviewtoolkit.downloader
 
+import java.net.URI
+import java.net.URISyntaxException
+import java.nio.file.Paths
+
 import org.ossreviewtoolkit.model.VcsInfo
 import org.ossreviewtoolkit.model.VcsType
 import org.ossreviewtoolkit.utils.hasRevisionFragment
 import org.ossreviewtoolkit.utils.normalizeVcsUrl
 
-import java.net.URI
-import java.net.URISyntaxException
-import java.nio.file.Paths
-
 /**
  * An enum to handle VCS-host-specific information.
  */
+@Suppress("TooManyFunctions")
 enum class VcsHost(
     /**
      * The hostname of VCS host.
@@ -47,7 +48,11 @@ enum class VcsHost(
      * The enum constant to handle [Bitbucket][https://bitbucket.org/]-specific information.
      */
     BITBUCKET("bitbucket.org", VcsType.GIT, VcsType.MERCURIAL) {
-        override fun toVcsInfo(projectUrl: URI): VcsInfo {
+        override fun getUserOrOrgInternal(projectUrl: URI) = projectUrlToUserOrOrgAndProject(projectUrl)?.first
+
+        override fun getProjectInternal(projectUrl: URI) = projectUrlToUserOrOrgAndProject(projectUrl)?.second
+
+        override fun toVcsInfoInternal(projectUrl: URI): VcsInfo {
             var url = projectUrl.scheme + "://" + projectUrl.authority
 
             // Append the first two path components that denote the user and project to the base URL.
@@ -104,7 +109,12 @@ enum class VcsHost(
      * The enum constant to handle [GitHub][https://github.com/]-specific information.
      */
     GITHUB("github.com", VcsType.GIT) {
-        override fun toVcsInfo(projectUrl: URI) = gitProjectUrlToVcsInfo(projectUrl)
+        override fun getUserOrOrgInternal(projectUrl: URI) = projectUrlToUserOrOrgAndProject(projectUrl)?.first
+
+        override fun getProjectInternal(projectUrl: URI) =
+            projectUrlToUserOrOrgAndProject(projectUrl)?.second?.removeSuffix(".git")
+
+        override fun toVcsInfoInternal(projectUrl: URI) = gitProjectUrlToVcsInfo(projectUrl)
 
         override fun toPermalinkInternal(vcsInfo: VcsInfo, startLine: Int, endLine: Int) =
             toGitPermalink(URI(vcsInfo.url), vcsInfo.revision, vcsInfo.path, startLine, endLine, "#L", "-L")
@@ -114,14 +124,24 @@ enum class VcsHost(
      * The enum constant to handle [GitLab][https://gitlab.com/]-specific information.
      */
     GITLAB("gitlab.com", VcsType.GIT) {
-        override fun toVcsInfo(projectUrl: URI) = gitProjectUrlToVcsInfo(projectUrl)
+        override fun getUserOrOrgInternal(projectUrl: URI) = projectUrlToUserOrOrgAndProject(projectUrl)?.first
+
+        override fun getProjectInternal(projectUrl: URI) =
+            projectUrlToUserOrOrgAndProject(projectUrl)?.second?.removeSuffix(".git")
+
+        override fun toVcsInfoInternal(projectUrl: URI) = gitProjectUrlToVcsInfo(projectUrl)
 
         override fun toPermalinkInternal(vcsInfo: VcsInfo, startLine: Int, endLine: Int) =
             toGitPermalink(URI(vcsInfo.url), vcsInfo.revision, vcsInfo.path, startLine, endLine, "#L", "-")
     },
 
     SOURCEHUT("sr.ht", VcsType.GIT, VcsType.MERCURIAL) {
-        override fun toVcsInfo(projectUrl: URI): VcsInfo {
+        override fun getUserOrOrgInternal(projectUrl: URI) =
+            projectUrlToUserOrOrgAndProject(projectUrl)?.first?.removePrefix("~")
+
+        override fun getProjectInternal(projectUrl: URI) = projectUrlToUserOrOrgAndProject(projectUrl)?.second
+
+        override fun toVcsInfoInternal(projectUrl: URI): VcsInfo {
             val type = when (projectUrl.host.substringBefore('.')) {
                 "git" -> VcsType.GIT
                 "hg" -> VcsType.MERCURIAL
@@ -196,13 +216,40 @@ enum class VcsHost(
         fun toVcsInfo(projectUrl: String): VcsInfo {
             val vcs = try {
                 URI(projectUrl).let {
-                    values().find { host -> host.isApplicable(it) }?.toVcsInfo(it)
+                    values().find { host -> host.isApplicable(it) }?.toVcsInfoInternal(it)
                 }
             } catch (e: URISyntaxException) {
                 null
             }
 
-            return vcs ?: when {
+            if (vcs != null) return vcs
+
+            // Fall back to generic URL detection for unknown VCS hosts.
+            val svnBranchOrTagPattern = Regex("(.*svn.*)/(branches|tags)/([^/]+)/?(.*)")
+            val svnBranchOrTagMatch = svnBranchOrTagPattern.matchEntire(projectUrl)
+
+            val svnTrunkPattern = Regex("(.*svn.*)/(trunk)/?(.*)")
+            val svnTrunkMatch = svnTrunkPattern.matchEntire(projectUrl)
+
+            return when {
+                svnBranchOrTagMatch != null -> {
+                    VcsInfo(
+                        type = VcsType.SUBVERSION,
+                        url = svnBranchOrTagMatch.groupValues[1],
+                        revision = "${svnBranchOrTagMatch.groupValues[2]}/${svnBranchOrTagMatch.groupValues[3]}",
+                        path = svnBranchOrTagMatch.groupValues[4]
+                    )
+                }
+
+                svnTrunkMatch != null -> {
+                    VcsInfo(
+                        type = VcsType.SUBVERSION,
+                        url = svnTrunkMatch.groupValues[1],
+                        revision = svnTrunkMatch.groupValues[2],
+                        path = svnTrunkMatch.groupValues[3]
+                    )
+                }
+
                 projectUrl.endsWith(".git") -> {
                     VcsInfo(VcsType.GIT, normalizeVcsUrl(projectUrl), "", null, "")
                 }
@@ -219,18 +266,6 @@ enum class VcsHost(
                     VcsInfo(VcsType.GIT, url, revision, null, "")
                 }
 
-                projectUrl.contains("svn") -> {
-                    val branchOrTagPattern = Regex("(.+)/(branches|tags)/([^/]+)/?(.*)")
-                    branchOrTagPattern.matchEntire(projectUrl)?.let { match ->
-                        VcsInfo(
-                            type = VcsType.SUBVERSION,
-                            url = match.groupValues[1],
-                            revision = "${match.groupValues[2]}/${match.groupValues[3]}",
-                            path = match.groupValues[4]
-                        )
-                    } ?: VcsInfo(VcsType.NONE, projectUrl, "")
-                }
-
                 else -> VcsInfo(VcsType.NONE, projectUrl, "")
             }
         }
@@ -242,14 +277,11 @@ enum class VcsHost(
         fun toPermalink(vcsInfo: VcsInfo, startLine: Int = -1, endLine: Int = -1): String? {
             if (!isValidLineRange(startLine, endLine)) return null
             return values().find { host -> host.isApplicable(vcsInfo) }
-                ?.toPermalinkInternal(vcsInfo, startLine, endLine)
+                ?.toPermalinkInternal(vcsInfo.normalize(), startLine, endLine)
         }
-
-        protected fun isValidLineRange(startLine: Int, endLine: Int): Boolean =
-            (startLine == -1 && endLine == -1) || (startLine >= 1 && endLine == -1) || (startLine in 1..endLine)
     }
 
-    private val supportedTypes = supportedTypes.toSet()
+    private val supportedTypes = supportedTypes.asList()
 
     /**
      * Return whether this host is applicable for the [url] URI.
@@ -272,17 +304,43 @@ enum class VcsHost(
     fun isApplicable(vcsInfo: VcsInfo) = vcsInfo.type in supportedTypes && isApplicable(vcsInfo.url)
 
     /**
+     * Return the user or organization name the project belongs to.
+     */
+    fun getUserOrOrganization(projectUrl: String): String? =
+        try {
+            val url = URI(projectUrl)
+            if (isApplicable(url)) getUserOrOrgInternal(url) else null
+        } catch (e: URISyntaxException) {
+            null
+        }
+
+    protected abstract fun getUserOrOrgInternal(projectUrl: URI): String?
+
+    /**
+     * Return the project's name.
+     */
+    fun getProject(projectUrl: String): String? =
+        try {
+            val url = URI(projectUrl)
+            if (isApplicable(url)) getProjectInternal(url) else null
+        } catch (e: URISyntaxException) {
+            null
+        }
+
+    protected abstract fun getProjectInternal(projectUrl: URI): String?
+
+    /**
      * Return all [VcsInfo] that can be extracted from the host-specific [projectUrl].
      */
     fun toVcsInfo(projectUrl: String): VcsInfo? =
         try {
             val url = URI(projectUrl)
-            if (isApplicable(url)) toVcsInfo(url) else null
+            if (isApplicable(url)) toVcsInfoInternal(url) else null
         } catch (e: URISyntaxException) {
             null
         }
 
-    protected abstract fun toVcsInfo(projectUrl: URI): VcsInfo
+    protected abstract fun toVcsInfoInternal(projectUrl: URI): VcsInfo
 
     /**
      * Return the host-specific permanent link to browse the code location described by [vcsInfo] with optional
@@ -299,6 +357,24 @@ enum class VcsHost(
 
 private fun String.isPathToMarkdownFile() =
     endsWith(".md", ignoreCase = true) || endsWith(".markdown", ignoreCase = true)
+
+private fun isValidLineRange(startLine: Int, endLine: Int): Boolean =
+    (startLine == -1 && endLine == -1) || (startLine >= 1 && endLine == -1) || (startLine in 1..endLine)
+
+private fun projectUrlToUserOrOrgAndProject(projectUrl: URI): Pair<String, String>? {
+    val pathIterator = Paths.get(projectUrl.path).iterator()
+
+    if (pathIterator.hasNext()) {
+        val userOrOrg = pathIterator.next()
+
+        if (pathIterator.hasNext()) {
+            val project = pathIterator.next()
+            return Pair(userOrOrg.toString(), project.toString())
+        }
+    }
+
+    return null
+}
 
 private fun gitProjectUrlToVcsInfo(projectUrl: URI): VcsInfo {
     var url = projectUrl.scheme + "://" + projectUrl.authority

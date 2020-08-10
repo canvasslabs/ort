@@ -23,6 +23,12 @@ package org.ossreviewtoolkit.analyzer.managers
 
 import com.fasterxml.jackson.databind.JsonNode
 
+import com.vdurmont.semver4j.Requirement
+
+import java.io.File
+import java.util.SortedSet
+import java.util.Stack
+
 import org.ossreviewtoolkit.analyzer.AbstractPackageManagerFactory
 import org.ossreviewtoolkit.analyzer.PackageManager
 import org.ossreviewtoolkit.downloader.VersionControlSystem
@@ -39,17 +45,11 @@ import org.ossreviewtoolkit.model.config.AnalyzerConfiguration
 import org.ossreviewtoolkit.model.config.RepositoryConfiguration
 import org.ossreviewtoolkit.model.jsonMapper
 import org.ossreviewtoolkit.utils.CommandLineTool
-import org.ossreviewtoolkit.utils.getUserHomeDirectory
+import org.ossreviewtoolkit.utils.Os
+import org.ossreviewtoolkit.utils.ProcessCapture
 import org.ossreviewtoolkit.utils.log
 import org.ossreviewtoolkit.utils.stashDirectories
 import org.ossreviewtoolkit.utils.textValueOrEmpty
-import org.ossreviewtoolkit.utils.ProcessCapture
-
-import com.vdurmont.semver4j.Requirement
-
-import java.io.File
-import java.util.SortedSet
-import java.util.Stack
 
 /**
  * The [Conan](https://conan.io/) package manager for C / C++.
@@ -97,10 +97,8 @@ class Conan(
     /**
      * Primary method for resolving dependencies from [definitionFile].
      */
-    override fun resolveDependencies(definitionFile: File): ProjectAnalyzerResult? {
-        log.info { "Resolving dependencies for: '$definitionFile'" }
-
-        val conanHome = getUserHomeDirectory().resolve(".conan")
+    override fun resolveDependencies(definitionFile: File): List<ProjectAnalyzerResult> {
+        val conanHome = Os.userHomeDirectory.resolve(".conan")
 
         stashDirectories(File(conanHome.resolve("data").path)).use {
             val workingDir = definitionFile.parentFile
@@ -123,21 +121,23 @@ class Conan(
 
             val projectPackage = extractProjectPackage(rootNode, definitionFile, workingDir)
 
-            return ProjectAnalyzerResult(
-                project = Project(
-                    id = projectPackage.id,
-                    definitionFilePath = VersionControlSystem.getPathInfo(definitionFile).path,
-                    declaredLicenses = projectPackage.declaredLicenses,
-                    vcs = projectPackage.vcs,
-                    vcsProcessed = processProjectVcs(
-                        workingDir,
-                        projectPackage.vcs,
-                        listOf(projectPackage.homepageUrl)
+            return listOf(
+                ProjectAnalyzerResult(
+                    project = Project(
+                        id = projectPackage.id,
+                        definitionFilePath = VersionControlSystem.getPathInfo(definitionFile).path,
+                        declaredLicenses = projectPackage.declaredLicenses,
+                        vcs = projectPackage.vcs,
+                        vcsProcessed = processProjectVcs(
+                            workingDir,
+                            projectPackage.vcs,
+                            projectPackage.homepageUrl
+                        ),
+                        homepageUrl = projectPackage.homepageUrl,
+                        scopes = sortedSetOf(dependenciesScope, devDependenciesScope)
                     ),
-                    homepageUrl = projectPackage.homepageUrl,
-                    scopes = sortedSetOf(dependenciesScope, devDependenciesScope)
-                ),
-                packages = packages.map { it.value.toCuratedPackage() }.toSortedSet()
+                    packages = packages.map { it.value.toCuratedPackage() }.toSortedSet()
+                )
             )
         }
     }

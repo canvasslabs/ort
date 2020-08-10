@@ -19,6 +19,8 @@
 
 package org.ossreviewtoolkit.analyzer.managers
 
+import java.io.File
+
 import org.ossreviewtoolkit.analyzer.AbstractPackageManagerFactory
 import org.ossreviewtoolkit.analyzer.PackageManager
 import org.ossreviewtoolkit.downloader.VersionControlSystem
@@ -30,8 +32,6 @@ import org.ossreviewtoolkit.model.VcsType
 import org.ossreviewtoolkit.model.config.AnalyzerConfiguration
 import org.ossreviewtoolkit.model.config.RepositoryConfiguration
 import org.ossreviewtoolkit.utils.log
-
-import java.io.File
 
 /**
  * A fake [PackageManager] for projects that do not use any of the known package managers.
@@ -58,7 +58,7 @@ class Unmanaged(
      *
      * @param definitionFile The directory containing the unmanaged project.
      */
-    override fun resolveDependencies(definitionFile: File): ProjectAnalyzerResult? {
+    override fun resolveDependencies(definitionFile: File): List<ProjectAnalyzerResult> {
         val vcsInfo = VersionControlSystem.getCloneInfo(definitionFile)
 
         val id = when {
@@ -112,6 +112,11 @@ class Unmanaged(
             scopes = sortedSetOf()
         )
 
-        return ProjectAnalyzerResult(project, sortedSetOf())
+        return listOf(
+            ProjectAnalyzerResult(
+                project = project,
+                packages = sortedSetOf()
+            )
+        )
     }
 }

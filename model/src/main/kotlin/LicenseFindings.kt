@@ -19,11 +19,12 @@
 
 package org.ossreviewtoolkit.model
 
-import org.ossreviewtoolkit.model.config.CopyrightGarbage
-import org.ossreviewtoolkit.utils.CopyrightStatementsProcessor
-
 import java.util.SortedMap
 import java.util.SortedSet
+
+import org.ossreviewtoolkit.model.config.CopyrightGarbage
+import org.ossreviewtoolkit.spdx.SpdxSingleLicenseExpression
+import org.ossreviewtoolkit.utils.CopyrightStatementsProcessor
 
 /**
  * A map that associates licenses with their belonging copyrights. This is provided mostly for convenience as creating
@@ -78,16 +79,15 @@ fun Collection<LicenseFindingsMap>.merge() =
  * found.
  */
 data class LicenseFindings(
-    val license: String,
+    val license: SpdxSingleLicenseExpression,
     val locations: SortedSet<TextLocation>,
     val copyrights: SortedSet<CopyrightFindings>
 ) : Comparable<LicenseFindings> {
-    override fun compareTo(other: LicenseFindings) =
-        compareValuesBy(
-            this,
-            other,
-            compareBy(LicenseFindings::license)
+    companion object {
+        private val COMPARATOR = compareBy<LicenseFindings> { it.license.toString() }
                 .thenBy(TextLocation.SORTED_SET_COMPARATOR, LicenseFindings::locations)
                 .thenBy(CopyrightFindings.SORTED_SET_COMPARATOR, LicenseFindings::copyrights)
-        ) { it }
+    }
+
+    override fun compareTo(other: LicenseFindings) = COMPARATOR.compare(this, other)
 }

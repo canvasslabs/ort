@@ -32,6 +32,11 @@ const val ORT_NAME = "ort"
 const val ORT_FULL_NAME = "OSS Review Toolkit"
 
 /**
+ * The name of the environment variable to customize the ORT data directory.
+ */
+const val ORT_DATA_DIR_ENV_NAME = "ORT_DATA_DIR"
+
+/**
  * The name of the ORT configuration file.
  */
 const val ORT_CONFIG_FILENAME = ".ort.yml"
@@ -39,7 +44,7 @@ const val ORT_CONFIG_FILENAME = ".ort.yml"
 private fun List<String>.generateCapitalizationVariants() = flatMap { listOf(it, it.toUpperCase(), it.capitalize()) }
 
 /**
- * A list globs that match default license file names.
+ * A list of globs that match default license file names.
  */
 val LICENSE_FILENAMES = listOf(
     "license*",
@@ -62,28 +67,21 @@ val ROOT_LICENSE_FILENAMES = listOf(
 ).generateCapitalizationVariants()
 
 /**
+ * The directory to store ORT data in, like the configuration, caches and archives.
+ */
+val ortDataDirectory by lazy {
+    Os.env[ORT_DATA_DIR_ENV_NAME]?.takeUnless {
+        it.isEmpty()
+    }?.let {
+        File(it)
+    } ?: Os.userHomeDirectory.resolve(".ort")
+}
+
+/**
  * Return whether the [receiver] (usually an instance of a data class) has any non-null property.
  */
 inline fun <reified T : Any> T.hasNonNullProperty() =
     T::class.memberProperties.asSequence().map { it.get(this) }.any { it != null }
-
-/**
- * Return the set of elements which are contained in at least two of the given collections, or an empty set if all
- * collections are disjoint.
- */
-fun <T> disjoint(c1: Collection<T>, c2: Collection<T>, vararg cN: Collection<T>): Set<T> {
-    val c = listOf(c1, c2, *cN)
-
-    val commonElements = mutableSetOf<T>()
-
-    for (a in c.indices) {
-        for (b in a + 1 until c.size) {
-            commonElements += c[a].intersect(c[b])
-        }
-    }
-
-    return commonElements
-}
 
 /**
  * Filter a list of [names] to include only those that likely belong to the given [version] of an optional [project].
@@ -205,14 +203,19 @@ fun getPathFromEnvironment(executable: String): File? {
 }
 
 /**
- * Return the current user's home directory.
+ * Install both the [OrtAuthenticator] and the [OrtProxySelector] to handle proxy authentication. Return the
+ * [OrtProxySelector] instance for further configuration.
  */
-fun getUserHomeDirectory() = File(System.getProperty("user.home"))
+fun installAuthenticatorAndProxySelector(): OrtProxySelector {
+    OrtAuthenticator.install()
+    return OrtProxySelector.install()
+}
 
 /**
- * Return the directory to store user-specific ORT data in.
+ * Return the concatenated [strings] separated by [separator] whereas blank strings are omitted.
  */
-fun getUserOrtDirectory() = getUserHomeDirectory().resolve(".ort")
+fun joinNonBlank(vararg strings: String, separator: String = " - ") =
+    strings.filter { it.isNotBlank() }.joinToString(separator)
 
 /**
  * Normalize a string representing a [VCS URL][vcsUrl] to a common string form.
@@ -272,8 +275,10 @@ fun normalizeVcsUrl(vcsUrl: String): String {
     if (uri.host != null) {
         when {
             uri.host.endsWith("github.com") || uri.host.endsWith("gitlab.com") -> {
-                // Ensure the path ends in ".git".
-                val path = uri.path.takeIf { Regex("\\.git(/|$)") in it } ?: "${uri.path}.git"
+                // Ensure the path to a repository ends with ".git".
+                val path = uri.path.takeIf { path ->
+                    path.endsWith(".git") || path.count { it == '/' } != 2
+                } ?: "${uri.path}.git"
 
                 return if (uri.scheme == "ssh") {
                     // Ensure the generic "git" user name is specified.

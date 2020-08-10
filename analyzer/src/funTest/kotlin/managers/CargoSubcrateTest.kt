@@ -19,21 +19,18 @@
 
 package org.ossreviewtoolkit.analyzer.managers
 
+import io.kotest.core.spec.style.StringSpec
+import io.kotest.matchers.shouldBe
+
+import java.io.File
+
 import org.ossreviewtoolkit.downloader.VersionControlSystem
-import org.ossreviewtoolkit.model.yamlMapper
+import org.ossreviewtoolkit.utils.Ci
 import org.ossreviewtoolkit.utils.normalizeVcsUrl
 import org.ossreviewtoolkit.utils.test.DEFAULT_ANALYZER_CONFIGURATION
 import org.ossreviewtoolkit.utils.test.DEFAULT_REPOSITORY_CONFIGURATION
 import org.ossreviewtoolkit.utils.test.USER_DIR
 import org.ossreviewtoolkit.utils.test.patchExpectedResult
-
-import io.kotlintest.matchers.beEmpty
-import io.kotlintest.should
-import io.kotlintest.shouldBe
-import io.kotlintest.shouldNotBe
-import io.kotlintest.specs.StringSpec
-
-import java.io.File
 
 class CargoSubcrateTest : StringSpec() {
     private val projectDir = File("src/funTest/assets/projects/synthetic/cargo-subcrate").absoluteFile
@@ -42,7 +39,8 @@ class CargoSubcrateTest : StringSpec() {
     private val vcsRevision = vcsDir.getRevision()
 
     init {
-        "Lib project dependencies are detected correctly" {
+        // Disabled on Azure Windows build because it fails with the pre-installed Rust version 1.42.0.
+        "Lib project dependencies are detected correctly".config(enabled = !Ci.isAzureWindows) {
             val packageFile = File(projectDir, "Cargo.toml")
             val vcsPath = vcsDir.getPathToRoot(projectDir)
             val expectedResult = patchExpectedResult(
@@ -53,11 +51,9 @@ class CargoSubcrateTest : StringSpec() {
                 url = normalizeVcsUrl(vcsUrl)
             )
 
-            val result = createCargo().resolveDependencies(listOf(packageFile))[packageFile]
+            val result = createCargo().resolveSingleProject(packageFile)
 
-            result shouldNotBe null
-            result!!.issues should beEmpty()
-            yamlMapper.writeValueAsString(result) shouldBe expectedResult
+            result.toYaml() shouldBe expectedResult
         }
 
         "Integration sub-project dependencies are detected correctly" {
@@ -72,11 +68,9 @@ class CargoSubcrateTest : StringSpec() {
                 url = normalizeVcsUrl(vcsUrl)
             )
 
-            val result = createCargo().resolveDependencies(listOf(packageFile))[packageFile]
+            val result = createCargo().resolveSingleProject(packageFile)
 
-            result shouldNotBe null
-            result!!.issues should beEmpty()
-            yamlMapper.writeValueAsString(result) shouldBe expectedResult
+            result.toYaml() shouldBe expectedResult
         }
 
         "Client sub-project dependencies are detected correctly" {
@@ -91,11 +85,9 @@ class CargoSubcrateTest : StringSpec() {
                 url = normalizeVcsUrl(vcsUrl)
             )
 
-            val result = createCargo().resolveDependencies(listOf(packageFile))[packageFile]
+            val result = createCargo().resolveSingleProject(packageFile)
 
-            result shouldNotBe null
-            result!!.issues should beEmpty()
-            yamlMapper.writeValueAsString(result) shouldBe expectedResult
+            result.toYaml() shouldBe expectedResult
         }
     }
 

@@ -19,24 +19,38 @@
 
 package org.ossreviewtoolkit.analyzer.curation
 
+import io.kotest.core.spec.style.WordSpec
+import io.kotest.matchers.collections.haveSize
+import io.kotest.matchers.should
+import io.kotest.matchers.shouldBe
+
 import org.ossreviewtoolkit.clearlydefined.ClearlyDefinedService.Server
 import org.ossreviewtoolkit.model.Identifier
 
-import io.kotlintest.matchers.haveSize
-import io.kotlintest.should
-import io.kotlintest.shouldBe
-import io.kotlintest.specs.StringSpec
+class ClearlyDefinedPackageCurationProviderTest : WordSpec({
+    "The production server" should {
+        "return a curation for a Maven package" {
+            val provider = ClearlyDefinedPackageCurationProvider()
 
-class ClearlyDefinedPackageCurationProviderTest : StringSpec() {
-    init {
-        "Provider can read curations from development server" {
+            val identifier = Identifier("Maven:javax.servlet:javax.servlet-api:3.1.0")
+            val curations = provider.getCurationsFor(identifier)
+
+            curations should haveSize(1)
+            curations.first().data.declaredLicenses shouldBe sortedSetOf(
+                "CDDL-1.0 OR GPL-2.0-only WITH Classpath-exception-2.0"
+            )
+        }
+    }
+
+    "The development server" should {
+        "return a curation for an NPM package" {
             val provider = ClearlyDefinedPackageCurationProvider(Server.DEVELOPMENT)
 
-            val identifier = Identifier("NPM", "@nestjs", "platform-express", "6.2.3")
+            val identifier = Identifier("NPM:@nestjs:platform-express:6.2.3")
             val curations = provider.getCurationsFor(identifier)
 
             curations should haveSize(1)
             curations.first().data.declaredLicenses shouldBe sortedSetOf("Apache-1.0")
         }
     }
-}
+})

@@ -20,22 +20,18 @@
 
 package org.ossreviewtoolkit.analyzer.managers
 
-import org.ossreviewtoolkit.downloader.VersionControlSystem
-import org.ossreviewtoolkit.model.yamlMapper
-import org.ossreviewtoolkit.utils.normalizeVcsUrl
-import org.ossreviewtoolkit.utils.test.USER_DIR
-import org.ossreviewtoolkit.utils.test.DEFAULT_ANALYZER_CONFIGURATION
-import org.ossreviewtoolkit.utils.test.DEFAULT_REPOSITORY_CONFIGURATION
-import org.ossreviewtoolkit.utils.test.patchActualResult
-import org.ossreviewtoolkit.utils.test.patchExpectedResult
-
-import io.kotlintest.matchers.beEmpty
-import io.kotlintest.should
-import io.kotlintest.shouldBe
-import io.kotlintest.shouldNotBe
-import io.kotlintest.specs.StringSpec
+import io.kotest.core.spec.style.StringSpec
+import io.kotest.matchers.shouldBe
 
 import java.io.File
+
+import org.ossreviewtoolkit.downloader.VersionControlSystem
+import org.ossreviewtoolkit.utils.normalizeVcsUrl
+import org.ossreviewtoolkit.utils.test.DEFAULT_ANALYZER_CONFIGURATION
+import org.ossreviewtoolkit.utils.test.DEFAULT_REPOSITORY_CONFIGURATION
+import org.ossreviewtoolkit.utils.test.USER_DIR
+import org.ossreviewtoolkit.utils.test.patchActualResult
+import org.ossreviewtoolkit.utils.test.patchExpectedResult
 
 class ConanTest : StringSpec() {
     private val projectsDirTxt = File("src/funTest/assets/projects/synthetic/conan-txt").absoluteFile
@@ -60,11 +56,9 @@ class ConanTest : StringSpec() {
                 url = normalizeVcsUrl(vcsUrlTxt)
             )
 
-            val result = createConan().resolveDependencies(listOf(packageFile))[packageFile]
+            val result = createConan().resolveSingleProject(packageFile)
 
-            result shouldNotBe null
-            result!!.issues should beEmpty()
-            patchActualResult(yamlMapper.writeValueAsString(result)) shouldBe expectedResult
+            patchActualResult(result.toYaml()) shouldBe expectedResult
         }
 
         "Project dependencies are detected correctly for conanfile.py" {
@@ -78,11 +72,9 @@ class ConanTest : StringSpec() {
                 url = normalizeVcsUrl(vcsUrlPy)
             )
 
-            val result = createConan().resolveDependencies(listOf(packageFile))[packageFile]
+            val result = createConan().resolveSingleProject(packageFile)
 
-            result shouldNotBe null
-            result!!.issues should beEmpty()
-            patchActualResult(yamlMapper.writeValueAsString(result)) shouldBe expectedResult
+            patchActualResult(result.toYaml()) shouldBe expectedResult
         }
     }
 

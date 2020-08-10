@@ -21,34 +21,6 @@ package org.ossreviewtoolkit.scanner.scanners
 
 import com.fasterxml.jackson.databind.JsonNode
 
-import org.ossreviewtoolkit.model.CopyrightFinding
-import org.ossreviewtoolkit.model.EMPTY_JSON_NODE
-import org.ossreviewtoolkit.model.LicenseFinding
-import org.ossreviewtoolkit.model.OrtIssue
-import org.ossreviewtoolkit.model.Provenance
-import org.ossreviewtoolkit.model.ScanResult
-import org.ossreviewtoolkit.model.ScanSummary
-import org.ossreviewtoolkit.model.ScannerDetails
-import org.ossreviewtoolkit.model.TextLocation
-import org.ossreviewtoolkit.model.config.ScannerConfiguration
-import org.ossreviewtoolkit.model.jsonMapper
-import org.ossreviewtoolkit.scanner.AbstractScannerFactory
-import org.ossreviewtoolkit.scanner.HTTP_CACHE_PATH
-import org.ossreviewtoolkit.scanner.LocalScanner
-import org.ossreviewtoolkit.scanner.ScanException
-import org.ossreviewtoolkit.scanner.ScanResultsStorage
-import org.ossreviewtoolkit.spdx.NON_LICENSE_FILENAMES
-import org.ossreviewtoolkit.spdx.SpdxLicense
-import org.ossreviewtoolkit.spdx.calculatePackageVerificationCode
-import org.ossreviewtoolkit.utils.ORT_CONFIG_FILENAME
-import org.ossreviewtoolkit.utils.ORT_NAME
-import org.ossreviewtoolkit.utils.Os
-import org.ossreviewtoolkit.utils.OkHttpClientHelper
-import org.ossreviewtoolkit.utils.ProcessCapture
-import org.ossreviewtoolkit.utils.log
-import org.ossreviewtoolkit.utils.textValueOrEmpty
-import org.ossreviewtoolkit.utils.unpack
-
 import java.io.File
 import java.io.IOException
 import java.net.HttpURLConnection
@@ -64,10 +36,37 @@ import okio.sink
 
 import org.apache.logging.log4j.Level
 
+import org.ossreviewtoolkit.model.CopyrightFinding
+import org.ossreviewtoolkit.model.EMPTY_JSON_NODE
+import org.ossreviewtoolkit.model.LicenseFinding
+import org.ossreviewtoolkit.model.OrtIssue
+import org.ossreviewtoolkit.model.Provenance
+import org.ossreviewtoolkit.model.ScanResult
+import org.ossreviewtoolkit.model.ScanSummary
+import org.ossreviewtoolkit.model.ScannerDetails
+import org.ossreviewtoolkit.model.TextLocation
+import org.ossreviewtoolkit.model.config.ScannerConfiguration
+import org.ossreviewtoolkit.model.jsonMapper
+import org.ossreviewtoolkit.scanner.AbstractScannerFactory
+import org.ossreviewtoolkit.scanner.LocalScanner
+import org.ossreviewtoolkit.scanner.ScanException
+import org.ossreviewtoolkit.scanner.ScanResultsStorage
+import org.ossreviewtoolkit.spdx.NON_LICENSE_FILENAMES
+import org.ossreviewtoolkit.spdx.SpdxConstants
+import org.ossreviewtoolkit.spdx.calculatePackageVerificationCode
+import org.ossreviewtoolkit.utils.ORT_CONFIG_FILENAME
+import org.ossreviewtoolkit.utils.ORT_NAME
+import org.ossreviewtoolkit.utils.OkHttpClientHelper
+import org.ossreviewtoolkit.utils.Os
+import org.ossreviewtoolkit.utils.ProcessCapture
+import org.ossreviewtoolkit.utils.log
+import org.ossreviewtoolkit.utils.textValueOrEmpty
+import org.ossreviewtoolkit.utils.unpack
+
 /**
  * A wrapper for [ScanCode](https://github.com/nexB/scancode-toolkit).
  *
- * This scanner can be configured in [ScannerConfiguration.scanner] using the key "ScanCode". It offers the following
+ * This scanner can be configured in [ScannerConfiguration.options] using the key "ScanCode". It offers the following
  * configuration options:
  *
  * * **"commandLine":** Command line options that modify the result. These are added to the [ScannerDetails] when
@@ -265,7 +264,7 @@ class ScanCode(
 
         val request = Request.Builder().get().url(url).build()
 
-        return OkHttpClientHelper.execute(HTTP_CACHE_PATH, request).use { response ->
+        return OkHttpClientHelper.execute(request).use { response ->
             val body = response.body
 
             if (response.code != HttpURLConnection.HTTP_OK || body == null) {
@@ -276,7 +275,7 @@ class ScanCode(
                 log.info { "Retrieved $scannerName from local cache." }
             }
 
-            val scannerArchive = createTempFile("ort", "$scannerName-${url.substringAfterLast("/")}")
+            val scannerArchive = createTempFile(ORT_NAME, "$scannerName-${url.substringAfterLast("/")}")
             scannerArchive.sink().buffer().use { it.writeAll(body.source()) }
 
             val unpackDir = createTempDir(ORT_NAME, "$scannerName-$scannerVersion").apply { deleteOnExit() }
@@ -377,7 +376,7 @@ class ScanCode(
         if (name.isEmpty()) {
             val key = license["key"].textValue()
             name = if (key in UNKNOWN_LICENSE_KEYS) {
-                SpdxLicense.NOASSERTION
+                SpdxConstants.NOASSERTION
             } else {
                 // Starting with version 2.9.8, ScanCode uses "scancode" as a LicenseRef namespace, but only for SPDX
                 // output formats, see https://github.com/nexB/scancode-toolkit/pull/1307.

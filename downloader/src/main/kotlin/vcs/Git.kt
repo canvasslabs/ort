@@ -19,16 +19,6 @@
 
 package org.ossreviewtoolkit.downloader.vcs
 
-import org.ossreviewtoolkit.downloader.WorkingTree
-import org.ossreviewtoolkit.model.VcsInfo
-import org.ossreviewtoolkit.model.VcsType
-import org.ossreviewtoolkit.utils.FileMatcher
-import org.ossreviewtoolkit.utils.Os
-import org.ossreviewtoolkit.utils.collectMessagesAsString
-import org.ossreviewtoolkit.utils.log
-import org.ossreviewtoolkit.utils.safeMkdirs
-import org.ossreviewtoolkit.utils.showStackTrace
-
 import com.jcraft.jsch.JSch
 import com.jcraft.jsch.Session
 import com.jcraft.jsch.agentproxy.AgentProxyException
@@ -40,6 +30,7 @@ import com.vdurmont.semver4j.Semver
 
 import java.io.File
 import java.io.IOException
+import java.util.regex.Pattern
 
 import org.eclipse.jgit.api.Git
 import org.eclipse.jgit.api.LsRemoteCommand
@@ -48,38 +39,54 @@ import org.eclipse.jgit.transport.JschConfigSessionFactory
 import org.eclipse.jgit.transport.OpenSshConfig
 import org.eclipse.jgit.transport.SshSessionFactory
 import org.eclipse.jgit.transport.URIish
-import org.eclipse.jgit.util.FS
+
+import org.ossreviewtoolkit.downloader.VersionControlSystem
+import org.ossreviewtoolkit.downloader.WorkingTree
+import org.ossreviewtoolkit.model.VcsInfo
+import org.ossreviewtoolkit.model.VcsType
+import org.ossreviewtoolkit.utils.CommandLineTool
+import org.ossreviewtoolkit.utils.FileMatcher
+import org.ossreviewtoolkit.utils.Os
+import org.ossreviewtoolkit.utils.collectMessagesAsString
+import org.ossreviewtoolkit.utils.installAuthenticatorAndProxySelector
+import org.ossreviewtoolkit.utils.log
+import org.ossreviewtoolkit.utils.safeMkdirs
+import org.ossreviewtoolkit.utils.showStackTrace
 
 // TODO: Make this configurable.
 const val GIT_HISTORY_DEPTH = 50
 
-class Git : GitBase() {
+class Git : VersionControlSystem(), CommandLineTool {
     companion object {
         init {
-            // Configure JGit to connect to the SSH-Agent if it is available.
-            val sessionFactory = object : JschConfigSessionFactory() {
-                override fun configure(hc: OpenSshConfig.Host, session: Session) {
-                    session.setConfig("StrictHostKeyChecking", "no")
-                }
+            installAuthenticatorAndProxySelector()
 
-                override fun createDefaultJSch(fs: FS): JSch {
-                    val jSch = super.createDefaultJSch(fs)
+            val sessionFactory = object : JschConfigSessionFactory() {
+                @Suppress("EmptyFunctionBlock")
+                override fun configure(hc: OpenSshConfig.Host, session: Session) {}
+
+                override fun configureJSch(jsch: JSch) {
+                    // Accept unknown hosts.
+                    JSch.setConfig("StrictHostKeyChecking", "no")
+
+                    // Limit to "publickey" to avoid "keyboard-interactive" prompts.
+                    JSch.setConfig("PreferredAuthentications", "publickey")
 
                     try {
+                        // By default, JGit configures JSch to use identity files (named "identity", "id_rsa" or
+                        // "id_dsa") from the current user's ".ssh" directory only, also see
+                        // https://www.codeaffine.com/2014/12/09/jgit-authentication/. Additionally configure JSch to
+                        // connect to an SSH-Agent if available.
                         if (SSHAgentConnector.isConnectorAvailable()) {
                             val socketFactory = JNAUSocketFactory()
                             val connector = SSHAgentConnector(socketFactory)
-                            JSch.setConfig("PreferredAuthentications", "publickey")
-                            val identityRepository = RemoteIdentityRepository(connector)
-                            jSch.identityRepository = identityRepository
+                            jsch.identityRepository = RemoteIdentityRepository(connector)
                         }
                     } catch (e: AgentProxyException) {
                         e.showStackTrace()
 
                         log.error { "Could not create SSH Agent connector: ${e.collectMessagesAsString()}" }
                     }
-
-                    return jSch
                 }
             }
 
@@ -87,8 +94,27 @@ class Git : GitBase() {
         }
     }
 
+    private val versionRegex = Pattern.compile("[Gg]it [Vv]ersion (?<version>[\\d.a-z-]+)(\\s.+)?")
+
     override val type = VcsType.GIT
     override val priority = 100
+    override val defaultBranchName = "master"
+    override val latestRevisionNames = listOf("HEAD", "@")
+
+    override fun command(workingDir: File?) = "git"
+
+    override fun getVersion() = getVersion(null)
+
+    override fun transformVersion(output: String) =
+        versionRegex.matcher(output.lineSequence().first()).let {
+            if (it.matches()) {
+                it.group("version")
+            } else {
+                ""
+            }
+        }
+
+    override fun getWorkingTree(vcsDirectory: File): WorkingTree = GitWorkingTree(vcsDirectory, type)
 
     override fun isApplicableUrlInternal(vcsUrl: String): Boolean =
         runCatching {

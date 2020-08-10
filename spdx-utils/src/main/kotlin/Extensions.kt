@@ -19,12 +19,35 @@
 
 package org.ossreviewtoolkit.spdx
 
+import java.io.File
+import java.nio.file.Files
+import java.nio.file.LinkOption
+import java.nio.file.NoSuchFileException
+import java.nio.file.attribute.BasicFileAttributes
 import java.util.EnumSet
+
+import org.ossreviewtoolkit.spdx.SpdxExpression.Strictness
 
 /**
  * Return an [EnumSet] that contains the elements of [this] and [other].
  */
 operator fun <E : Enum<E>> EnumSet<E>.plus(other: EnumSet<E>): EnumSet<E> = EnumSet.copyOf(this).apply { addAll(other) }
+
+/**
+ * Return true if and only if this file is a symbolic link.
+ */
+fun File.isSymbolicLink(): Boolean =
+    try {
+        val isWindows = System.getProperty("os.name")?.contains("Windows", ignoreCase = true) == true
+
+        // Note that we cannot use exists() to check beforehand whether a symbolic link exists to avoid a
+        // NoSuchFileException to be thrown as it returns "false" e.g. for dangling Windows junctions.
+        Files.readAttributes(toPath(), BasicFileAttributes::class.java, LinkOption.NOFOLLOW_LINKS).let {
+            it.isSymbolicLink || (isWindows && it.isOther)
+        }
+    } catch (e: NoSuchFileException) {
+        false
+    }
 
 /**
  * Create an [SpdxExpression] by concatenating [this][SpdxLicense] and [other] using [SpdxOperator.AND].
@@ -49,10 +72,10 @@ infix fun SpdxLicense.or(other: SpdxExpression) =
     SpdxCompoundExpression(toExpression(), SpdxOperator.OR, other)
 
 /**
- * Create an [SpdxExpression] by concatenating [this][SpdxLicense] and [exception] using [SpdxOperator.WITH].
+ * Create an [SpdxExpression] by concatenating [this][SpdxLicense] and [exception] using [SpdxExpression.WITH].
  */
 infix fun SpdxLicense.with(exception: SpdxLicenseException) =
-    SpdxCompoundExpression(toExpression(), SpdxOperator.WITH, exception.toExpression())
+    SpdxLicenseWithExceptionExpression(toExpression(), exception.id)
 
 /**
  * Create an [SpdxLicenseIdExpression] from this [SpdxLicense].
@@ -73,6 +96,8 @@ fun SpdxLicense.toExpression(): SpdxLicenseIdExpression {
 }
 
 /**
- * Create an [SpdxLicenseExceptionExpression] from this [SpdxLicenseException].
+ * Parses the string as an [SpdxExpression] and returns the result.
+ * @throws SpdxException if the string is not a valid representation of an SPDX expression.
  */
-fun SpdxLicenseException.toExpression() = SpdxLicenseExceptionExpression(id)
+fun String.toSpdx(strictness: Strictness = Strictness.ALLOW_ANY): SpdxExpression =
+    SpdxExpression.parse(this, strictness)

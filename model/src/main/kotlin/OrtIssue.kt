@@ -20,25 +20,19 @@
 package org.ossreviewtoolkit.model
 
 import com.fasterxml.jackson.core.JsonGenerator
-import com.fasterxml.jackson.core.JsonParser
-import com.fasterxml.jackson.databind.DeserializationContext
-import com.fasterxml.jackson.databind.JsonNode
 import com.fasterxml.jackson.databind.SerializerProvider
-import com.fasterxml.jackson.databind.annotation.JsonDeserialize
 import com.fasterxml.jackson.databind.annotation.JsonSerialize
-import com.fasterxml.jackson.databind.deser.std.StdDeserializer
 import com.fasterxml.jackson.databind.ser.std.StdSerializer
 
-import org.ossreviewtoolkit.utils.log
-import org.ossreviewtoolkit.utils.normalizeLineBreaks
-
 import java.time.Instant
+
+import org.ossreviewtoolkit.utils.log
+import org.ossreviewtoolkit.utils.logOnce
+import org.ossreviewtoolkit.utils.normalizeLineBreaks
 
 /**
  * An issue that occurred while executing ORT.
  */
-@JsonDeserialize(using = OrtIssueDeserializer::class)
-@JsonSerialize(using = OrtIssueSerializer::class)
 data class OrtIssue(
     /**
      * The timestamp of the issue.
@@ -53,6 +47,7 @@ data class OrtIssue(
     /**
      * The issue's message.
      */
+    @JsonSerialize(using = NormalizeLineBreaksSerializer::class)
     val message: String,
 
     /**
@@ -66,41 +61,20 @@ data class OrtIssue(
     }
 }
 
-class OrtIssueDeserializer : StdDeserializer<OrtIssue>(OrtIssue::class.java) {
-    override fun deserialize(p: JsonParser, ctxt: DeserializationContext): OrtIssue {
-        val node = p.codec.readTree<JsonNode>(p)
-        return if (node.has("severity")) {
-            OrtIssue(
-                timestamp = Instant.parse(node.get("timestamp").textValue()),
-                source = node.get("source").textValue(),
-                message = node.get("message").textValue(),
-                severity = Severity.valueOf(node.get("severity").textValue())
-            )
-        } else {
-            OrtIssue(
-                timestamp = Instant.parse(node.get("timestamp").textValue()),
-                source = node.get("source").textValue(),
-                message = node.get("message").textValue()
-            )
-        }
-    }
-}
-
-class OrtIssueSerializer : StdSerializer<OrtIssue>(OrtIssue::class.java) {
-    override fun serialize(value: OrtIssue, gen: JsonGenerator, provider: SerializerProvider) {
-        gen.writeStartObject()
-        gen.writeObjectField("timestamp", value.timestamp)
-        gen.writeStringField("source", value.source)
-        gen.writeStringField("message", value.message.normalizeLineBreaks())
-        gen.writeStringField("severity", value.severity.name)
-        gen.writeEndObject()
+class NormalizeLineBreaksSerializer : StdSerializer<String>(String::class.java) {
+    override fun serialize(value: String, gen: JsonGenerator, provider: SerializerProvider) {
+        gen.writeString(value.normalizeLineBreaks())
     }
 }
 
 /**
  * Create an [OrtIssue] and [log] the message. The log level is aligned with the [severity].
  */
-fun Any.createAndLogIssue(source: String, message: String, severity: Severity = Severity.ERROR): OrtIssue {
-    log.log(severity.toLog4jLevel(), message)
+inline fun <reified T : Any> T.createAndLogIssue(
+    source: String,
+    message: String,
+    severity: Severity = Severity.ERROR
+): OrtIssue {
+    logOnce(severity.toLog4jLevel()) { message }
     return OrtIssue(source = source, message = message, severity = severity)
 }

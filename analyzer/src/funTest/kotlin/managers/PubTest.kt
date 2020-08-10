@@ -19,22 +19,21 @@
 
 package org.ossreviewtoolkit.analyzer.managers
 
+import io.kotest.core.spec.style.WordSpec
+import io.kotest.matchers.should
+import io.kotest.matchers.shouldBe
+import io.kotest.matchers.string.haveSubstring
+
+import java.io.File
+
 import org.ossreviewtoolkit.downloader.VersionControlSystem
 import org.ossreviewtoolkit.model.config.AnalyzerConfiguration
-import org.ossreviewtoolkit.model.yamlMapper
 import org.ossreviewtoolkit.utils.normalizeVcsUrl
 import org.ossreviewtoolkit.utils.test.DEFAULT_ANALYZER_CONFIGURATION
 import org.ossreviewtoolkit.utils.test.DEFAULT_REPOSITORY_CONFIGURATION
 import org.ossreviewtoolkit.utils.test.USER_DIR
 import org.ossreviewtoolkit.utils.test.patchActualResult
 import org.ossreviewtoolkit.utils.test.patchExpectedResult
-
-import io.kotlintest.matchers.haveSubstring
-import io.kotlintest.shouldBe
-import io.kotlintest.shouldNotBe
-import io.kotlintest.specs.WordSpec
-
-import java.io.File
 
 class PubTest : WordSpec() {
     private val projectsDir = File("src/funTest/assets/projects/synthetic/pub/").absoluteFile
@@ -54,18 +53,18 @@ class PubTest : WordSpec() {
                     val packageFile = File(workingDir, "pubspec.yaml")
                     val expectedResultFile = File(projectsDirExternal, "dart-http-expected-output.yml")
 
-                    val result = createPubForExternal().resolveDependencies(listOf(packageFile))[packageFile]
+                    val result = createPubForExternal().resolveSingleProject(packageFile)
                     val vcsPath = vcsDir.getPathToRoot(workingDir)
                     val expectedResult = patchExpectedResult(
                         expectedResultFile,
-                        custom = Pair("pub-project", "pub-${workingDir.name}"),
+                        custom = mapOf("pub-project" to "pub-${workingDir.name}"),
                         definitionFilePath = "$vcsPath/pubspec.yaml",
                         url = normalizeVcsUrl(vcsUrl),
                         revision = vcsRevision,
                         path = vcsPath
                     )
 
-                    yamlMapper.writeValueAsString(result) shouldBe expectedResult
+                    result.toYaml() shouldBe expectedResult
                 } finally {
                     lockFile.delete()
                 }
@@ -76,18 +75,18 @@ class PubTest : WordSpec() {
                 val packageFile = File(workingDir, "pubspec.yaml")
                 val expectedResultFile = File(projectsDir.parentFile, "pub-expected-output-project-with-flutter.yml")
 
-                val result = createPub().resolveDependencies(listOf(packageFile))[packageFile]
+                val result = createPub().resolveSingleProject(packageFile)
                 val vcsPath = vcsDir.getPathToRoot(workingDir)
                 val expectedResult = patchExpectedResult(
                     expectedResultFile,
-                    custom = Pair("pub-project", "pub-${workingDir.name}"),
+                    custom = mapOf("pub-project" to "pub-${workingDir.name}"),
                     definitionFilePath = "$vcsPath/pubspec.yaml",
                     url = normalizeVcsUrl(vcsUrl),
                     revision = vcsRevision,
                     path = vcsPath
                 )
 
-                patchActualResult(yamlMapper.writeValueAsString(result)) shouldBe expectedResult
+                patchActualResult(result.toYaml()) shouldBe expectedResult
             }
 
             "Resolve dependencies for a project with dependencies without a static version" {
@@ -95,28 +94,27 @@ class PubTest : WordSpec() {
                 val packageFile = File(workingDir, "pubspec.yaml")
                 val expectedResultFile = File(projectsDir.parentFile, "pub-expected-output-any-version.yml")
 
-                val result = createPub().resolveDependencies(listOf(packageFile))[packageFile]
+                val result = createPub().resolveSingleProject(packageFile)
                 val vcsPath = vcsDir.getPathToRoot(workingDir)
                 val expectedResult = patchExpectedResult(
                     expectedResultFile,
-                    custom = Pair("pub-project", "pub-${workingDir.name}"),
+                    custom = mapOf("pub-project" to "pub-${workingDir.name}"),
                     definitionFilePath = "$vcsPath/pubspec.yaml",
                     url = normalizeVcsUrl(vcsUrl),
                     revision = vcsRevision,
                     path = vcsPath
                 )
 
-                yamlMapper.writeValueAsString(result) shouldBe expectedResult
+                result.toYaml() shouldBe expectedResult
             }
 
             "Error is shown when no lockfile is present" {
                 val workingDir = File(projectsDir, "no-lockfile")
                 val packageFile = File(workingDir, "pubspec.yaml")
 
-                val result = createPub().resolveDependencies(listOf(packageFile))[packageFile]
+                val result = createPub().resolveSingleProject(packageFile)
 
-                result shouldNotBe null
-                with(result!!) {
+                with(result) {
                     project.definitionFilePath shouldBe
                             "analyzer/src/funTest/assets/projects/synthetic/pub/no-lockfile/pubspec.yaml"
                     packages.size shouldBe 0

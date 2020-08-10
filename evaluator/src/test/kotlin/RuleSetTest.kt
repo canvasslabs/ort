@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2019 HERE Europe B.V.
+ * Copyright (C) 2017-2020 HERE Europe B.V.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -19,10 +19,13 @@
 
 package org.ossreviewtoolkit.evaluator
 
+import io.kotest.core.spec.style.WordSpec
+import io.kotest.matchers.collections.haveSize
+import io.kotest.matchers.should
+
+import org.ossreviewtoolkit.model.licenses.LicenseView
+
 import org.ossreviewtoolkit.model.utils.SimplePackageConfigurationProvider
-import io.kotlintest.matchers.haveSize
-import io.kotlintest.should
-import io.kotlintest.specs.WordSpec
 
 class RuleSetTest : WordSpec() {
     private val errorMessage = "error message"
@@ -72,7 +75,7 @@ class RuleSetTest : WordSpec() {
                     }
                 }
 
-                ruleSet.violations should haveSize(1)
+                ruleSet.violations should haveSize(4)
             }
         }
 
@@ -118,7 +121,7 @@ class RuleSetTest : WordSpec() {
                     }
                 }
 
-                ruleSet.violations should haveSize(1)
+                ruleSet.violations should haveSize(4)
             }
         }
     }

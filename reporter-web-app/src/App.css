@@ -71,8 +71,8 @@ tr.ant-table-expanded-row, tr.ant-table-expanded-row:hover {
     font-weight: 300;
     font-size: 14px;
     padding: 0em 0.5em 0.5em 0.5em;
-    margin: 0.6em;
-    min-height: 600px;
+    margin: 0.5em;
+    min-height: 96vh;
 }
 
 /* Control button in top right of main Tabs menu */
@@ -183,11 +183,15 @@ tr.ant-table-expanded-row, tr.ant-table-expanded-row:hover {
 
 /* === Styling for TableView  === */
 
-/* Styling for 'Clear filters' button in TableView */
-.ort-table-operations button {
+/* Styling for 'Clear filters' and 'Show / Hide Columns' buttons in TableView */
+.ort-table-buttons .ant-btn-group {
     float: right;
-    margin: 16px 0px 16px 0px;
+    margin-bottom: 5px;
     z-index: 999;
+}
+
+.ort-table-toggle-columns .ant-dropdown-menu-item-selected {
+    background-color: transparent;
 }
 
 /* === Styling for TreeView === */

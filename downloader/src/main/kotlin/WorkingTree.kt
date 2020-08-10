@@ -19,12 +19,12 @@
 
 package org.ossreviewtoolkit.downloader
 
+import java.io.File
+import java.io.IOException
+
 import org.ossreviewtoolkit.model.VcsInfo
 import org.ossreviewtoolkit.model.VcsType
 import org.ossreviewtoolkit.utils.filterVersionNames
-
-import java.io.File
-import java.io.IOException
 
 /**
  * A class representing a local VCS working tree. The passed [workingDir] does not necessarily need to be the
@@ -34,7 +34,9 @@ abstract class WorkingTree(val workingDir: File, val vcsType: VcsType) {
 
     /**
      * Conveniently return all VCS information about how this working tree was created, so it could be easily
-     * recreated from that information.
+     * recreated from that information. However, note that the returned path just contains the relative path of
+     * [workingDir] to [getRootPath]. It is not related to the path argument that was used for downloading, and at the
+     * example of Git, it does not reflect the (single) path that was cloned in a sparse checkout.
      */
     open fun getInfo() = VcsInfo(vcsType, getRemoteUrl(), getRevision(), path = getPathToRoot(workingDir))
 
@@ -86,6 +88,8 @@ abstract class WorkingTree(val workingDir: File, val vcsType: VcsType) {
      * @throws IOException If no or multiple matching revisions are found.
      */
     fun guessRevisionName(project: String, version: String): String {
+        if (version.isBlank()) throw IOException("Cannot guess a revision name from a blank version.")
+
         val versionNames = filterVersionNames(version, listRemoteTags(), project)
         return when {
             versionNames.isEmpty() ->

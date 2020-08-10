@@ -22,6 +22,12 @@ package org.ossreviewtoolkit.scanner.storages
 import com.fasterxml.jackson.core.JsonProcessingException
 import com.fasterxml.jackson.module.kotlin.readValue
 
+import com.vdurmont.semver4j.Semver
+
+import java.io.IOException
+import java.sql.Connection
+import java.sql.SQLException
+
 import org.ossreviewtoolkit.model.Failure
 import org.ossreviewtoolkit.model.Identifier
 import org.ossreviewtoolkit.model.Package
@@ -35,12 +41,6 @@ import org.ossreviewtoolkit.scanner.ScanResultsStorage
 import org.ossreviewtoolkit.utils.collectMessagesAsString
 import org.ossreviewtoolkit.utils.log
 import org.ossreviewtoolkit.utils.showStackTrace
-
-import com.vdurmont.semver4j.Semver
-
-import java.io.IOException
-import java.sql.Connection
-import java.sql.SQLException
 
 /**
  * The Postgres storage back-end.
@@ -62,10 +62,19 @@ class PostgresStorage(
      * Setup the database.
      */
     fun setupDatabase() {
+        val statement = connection.createStatement()
+        val resultSet = statement.executeQuery("SHOW client_encoding")
+        if (resultSet.next()) {
+            val clientEncoding = resultSet.getString(1)
+            if (clientEncoding != "UTF8") {
+                log.warn { "The database's client_encoding is '$clientEncoding' but should be 'UTF8'." }
+            }
+        }
+
         if (!tableExists()) {
-            log.info { "Creating table '$table'." }
+            log.info { "Trying to create table '$table'." }
             if (!createTable()) {
-                throw IOException("Could not create table.")
+                throw IOException("Failed to create table '$table'.")
             }
             log.info { "Successfully created table '$table'." }
         }
@@ -74,17 +83,22 @@ class PostgresStorage(
     private fun tableExists(): Boolean {
         val statement = connection.createStatement()
         val resultSet = statement.executeQuery("SELECT to_regclass('$schema.$table')")
-        resultSet.next()
-        return resultSet.getString(1) == table
+        return resultSet.next() && resultSet.getString(1).let { result ->
+            // At least PostgreSQL 9.6 reports the result including the schema prefix.
+            result == table || result == "$schema.$table"
+        }
     }
 
     private fun createTable(): Boolean {
-        val query = """
-            CREATE SEQUENCE $schema.${table}_id_seq;
+        val statement = connection.createStatement()
 
+        statement.execute("CREATE SEQUENCE $schema.${table}_id_seq")
+
+        statement.execute(
+            """
             CREATE TABLE $schema.$table
             (
-                id integer NOT NULL DEFAULT nextval('${table}_id_seq'::regclass),
+                id integer NOT NULL DEFAULT nextval('$schema.${table}_id_seq'::regclass),
                 identifier text COLLATE pg_catalog."default" NOT NULL,
                 scan_result jsonb NOT NULL,
                 CONSTRAINT ${table}_pkey PRIMARY KEY (id)
@@ -92,13 +106,21 @@ class PostgresStorage(
             WITH (
                 OIDS = FALSE
             )
-            TABLESPACE pg_default;
+            TABLESPACE pg_default
+            """.trimIndent()
+        )
 
+        statement.execute(
+            """
             CREATE INDEX identifier
                 ON $schema.$table USING btree
                 (identifier COLLATE pg_catalog."default")
-                TABLESPACE pg_default;
+                TABLESPACE pg_default
+            """.trimIndent()
+        )
 
+        statement.execute(
+            """
             CREATE INDEX identifier_and_scanner_version
                 ON $schema.$table USING btree
                 (
@@ -107,18 +129,14 @@ class PostgresStorage(
                     substring(scan_result->'scanner'->>'version' from '([0-9]+\.[0-9]+)\.?.*'),
                     (scan_result->'scanner'->>'configuration')
                 )
-                TABLESPACE pg_default;
-        """.trimIndent()
-
-        val statement = connection.createStatement()
-        statement.execute(query)
+                TABLESPACE pg_default
+            """.trimIndent()
+        )
 
         return tableExists()
     }
 
     override fun readFromStorage(id: Identifier): Result<ScanResultContainer> {
-        log.info { "Reading scan results for ${id.toCoordinates()} from storage." }
-
         val query = "SELECT scan_result FROM $schema.$table WHERE identifier = ?"
 
         @Suppress("TooGenericExceptionCaught")
@@ -134,8 +152,6 @@ class PostgresStorage(
                 val scanResult = jsonMapper.readValue<ScanResult>(resultSet.getString(1).unescapeNull())
                 scanResults.add(scanResult)
             }
-
-            log.info { "Found ${scanResults.size} scan results for ${id.toCoordinates()}." }
 
             Success(ScanResultContainer(id, scanResults))
         } catch (e: Exception) {
@@ -155,8 +171,6 @@ class PostgresStorage(
     }
 
     override fun readFromStorage(pkg: Package, scannerDetails: ScannerDetails): Result<ScanResultContainer> {
-        log.info { "Reading scan results for ${pkg.id.toCoordinates()} and scanner $scannerDetails from storage." }
-
         val version = Semver(scannerDetails.version)
 
         val query = """
@@ -190,11 +204,6 @@ class PostgresStorage(
             scanResults.retainAll { it.provenance.matches(pkg) }
             // The scanner compatibility is already checked in the query, but filter here again to be on the safe side.
             scanResults.retainAll { scannerDetails.isCompatible(it.scanner) }
-
-            log.info {
-                "Found ${scanResults.size} matching scan results for ${pkg.id.toCoordinates()} and scanner " +
-                        "$scannerDetails."
-            }
 
             Success(ScanResultContainer(pkg.id, scanResults))
         } catch (e: Exception) {
@@ -230,7 +239,7 @@ class PostgresStorage(
             e.showStackTrace()
 
             val message = "Could not store scan result for '${id.toCoordinates()}': ${e.collectMessagesAsString()}"
-            log.info { message }
+            log.warn { message }
 
             return Failure(message)
         }

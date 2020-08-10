@@ -73,7 +73,7 @@ const PackageLicenses = (props) => {
                         label="Declared (non-SPDX)"
                         key="ort-package-declared-non-spdx-licenses"
                     >
-                        {webAppPackage.declaredLicensesUnmapped}
+                        {Array.from(webAppPackage.declaredLicensesUnmapped).join(', ')}
                     </Item>
                 )
             }
@@ -84,7 +84,31 @@ const PackageLicenses = (props) => {
                         label="Detected"
                         key="ort-package-detected-licenses"
                     >
-                        {Array.from(webAppPackage.detectedLicenses).join(', ')}
+                        {
+                            !webAppPackage.hasDetectedExcludedLicenses()
+                                ? Array.from(webAppPackage.detectedLicenses).join(', ')
+                                : Array.from(webAppPackage.detectedLicenses)
+                                    .reduce((acc, license) => {
+                                        const { detectedExcludedLicenses } = webAppPackage;
+                                        if (!detectedExcludedLicenses.has(license)) {
+                                            acc.push(license);
+                                        }
+
+                                        return acc;
+                                    }, [])
+                                    .join(', ')
+                        }
+                    </Item>
+                )
+            }
+            {
+                webAppPackage.hasDetectedExcludedLicenses()
+                && (
+                    <Item
+                        label="Detected Excluded"
+                        key="ort-package-detected-excluded-licenses"
+                    >
+                        {Array.from(webAppPackage.detectedExcludedLicenses).join(', ')}
                     </Item>
                 )
             }

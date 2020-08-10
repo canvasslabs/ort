@@ -21,8 +21,15 @@
 
 package org.ossreviewtoolkit.helper.common
 
+import java.io.File
+import java.io.IOException
+
+import okhttp3.Request
+
+import okio.buffer
+import okio.sink
+
 import org.ossreviewtoolkit.analyzer.Analyzer
-import org.ossreviewtoolkit.analyzer.HTTP_CACHE_PATH
 import org.ossreviewtoolkit.analyzer.PackageManager
 import org.ossreviewtoolkit.downloader.Downloader
 import org.ossreviewtoolkit.model.Identifier
@@ -32,6 +39,7 @@ import org.ossreviewtoolkit.model.Package
 import org.ossreviewtoolkit.model.Project
 import org.ossreviewtoolkit.model.Provenance
 import org.ossreviewtoolkit.model.RemoteArtifact
+import org.ossreviewtoolkit.model.Repository
 import org.ossreviewtoolkit.model.RuleViolation
 import org.ossreviewtoolkit.model.Severity
 import org.ossreviewtoolkit.model.TextLocation
@@ -46,22 +54,20 @@ import org.ossreviewtoolkit.model.config.RepositoryConfiguration
 import org.ossreviewtoolkit.model.config.Resolutions
 import org.ossreviewtoolkit.model.config.RuleViolationResolution
 import org.ossreviewtoolkit.model.config.ScopeExclude
+import org.ossreviewtoolkit.model.readValue
 import org.ossreviewtoolkit.model.utils.FindingCurationMatcher
+import org.ossreviewtoolkit.model.utils.PackageConfigurationProvider
+import org.ossreviewtoolkit.model.utils.SimplePackageConfigurationProvider
 import org.ossreviewtoolkit.model.utils.collectLicenseFindings
 import org.ossreviewtoolkit.model.yamlMapper
+import org.ossreviewtoolkit.spdx.SpdxExpression
+import org.ossreviewtoolkit.spdx.SpdxSingleLicenseExpression
 import org.ossreviewtoolkit.utils.CopyrightStatementsProcessor
-import org.ossreviewtoolkit.utils.safeMkdirs
+import org.ossreviewtoolkit.utils.ORT_NAME
 import org.ossreviewtoolkit.utils.OkHttpClientHelper
-import org.ossreviewtoolkit.utils.expandTilde
+import org.ossreviewtoolkit.utils.isSymbolicLink
+import org.ossreviewtoolkit.utils.safeMkdirs
 import org.ossreviewtoolkit.utils.stripCredentialsFromUrl
-
-import java.io.File
-import java.io.IOException
-
-import okhttp3.Request
-
-import okio.buffer
-import okio.sink
 
 const val ORTH_NAME = "orth"
 
@@ -87,7 +93,7 @@ internal fun download(url: String): File {
         .url(url)
         .build()
 
-    OkHttpClientHelper.execute(HTTP_CACHE_PATH, request).use { response ->
+    OkHttpClientHelper.execute(request).use { response ->
         val body = response.body
         if (!response.isSuccessful || body == null) {
             throw IOException(response.message)
@@ -95,7 +101,7 @@ internal fun download(url: String): File {
 
         // Use the filename from the request for the last redirect.
         val tempFileName = response.request.url.pathSegments.last()
-        return createTempFile("ort", tempFileName).also { tempFile ->
+        return createTempFile(ORT_NAME, tempFileName).also { tempFile ->
             tempFile.sink().buffer().use { it.writeAll(body.source()) }
             tempFile.deleteOnExit()
         }
@@ -107,16 +113,10 @@ internal fun download(url: String): File {
  */
 internal fun findFilesRecursive(directory: File): List<String> {
     require(directory.isDirectory)
-
-    val result = mutableListOf<String>()
-
-    directory.walk().forEach { file ->
-        if (!file.isDirectory) {
-            result.add(file.relativeTo(directory).path)
-        }
-    }
-
-    return result
+    return directory.walk()
+        .onEnter { !it.isSymbolicLink() }
+        .filter { !it.isSymbolicLink() && it.isFile }
+        .mapTo(mutableListOf()) { it.relativeTo(directory).path }
 }
 
 /**
@@ -194,7 +194,7 @@ internal fun OrtResult.fetchScannedSources(id: Identifier): File {
         }
     }
 
-    return Downloader().download(pkg, tempDir).downloadDirectory
+    return Downloader.download(pkg, tempDir).downloadDirectory
 }
 
 /**
@@ -209,7 +209,7 @@ internal data class ProcessedCopyrightStatement(
     /**
      * The license associated with the copyright statement.
      */
-    val licenseId: String,
+    val license: SpdxExpression,
 
     /**
      * The processed copyright statement.
@@ -233,12 +233,14 @@ internal data class ProcessedCopyrightStatement(
  */
 internal fun OrtResult.processAllCopyrightStatements(
     omitExcluded: Boolean = true,
-    copyrightGarbage: Set<String> = emptySet()
+    copyrightGarbage: Set<String> = emptySet(),
+    packageConfigurationProvider: PackageConfigurationProvider = SimplePackageConfigurationProvider()
 ): List<ProcessedCopyrightStatement> {
     val result = mutableListOf<ProcessedCopyrightStatement>()
+
     val processor = CopyrightStatementsProcessor()
 
-    collectLicenseFindings(omitExcluded = omitExcluded).forEach { (id, findings) ->
+    collectLicenseFindings(packageConfigurationProvider, omitExcluded = omitExcluded).forEach { (id, findings) ->
         findings.forEach innerForEach@{ (licenseFindings, pathExcludes) ->
             if (omitExcluded && pathExcludes.isNotEmpty()) return@innerForEach
 
@@ -250,7 +252,7 @@ internal fun OrtResult.processAllCopyrightStatements(
                 result.add(
                     ProcessedCopyrightStatement(
                         packageId = id,
-                        licenseId = licenseFindings.license,
+                        license = licenseFindings.license,
                         statement = it.key,
                         rawStatements = it.value.toSet()
                     )
@@ -261,7 +263,7 @@ internal fun OrtResult.processAllCopyrightStatements(
                 result.add(
                     ProcessedCopyrightStatement(
                         packageId = id,
-                        licenseId = licenseFindings.license,
+                        license = licenseFindings.license,
                         statement = it,
                         rawStatements = setOf(it)
                     )
@@ -279,23 +281,48 @@ internal fun OrtResult.processAllCopyrightStatements(
  */
 internal fun OrtResult.getLicenseFindingsById(
     id: Identifier,
-    applyCurations: Boolean = true
-): Map<String, Set<TextLocation>> =
-    scanner?.results?.scanResults
-        ?.filter { it.id == id }
-        .orEmpty()
-        .flatMapTo(mutableSetOf()) { container ->
-            container.results.flatMap { it.summary.licenseFindings }
+    packageConfigurationProvider: PackageConfigurationProvider,
+    applyCurations: Boolean = true,
+    decomposeLicenseExpressions: Boolean = true
+): Map<Provenance, Map<SpdxSingleLicenseExpression, Set<TextLocation>>> {
+    val result = mutableMapOf<Provenance, MutableMap<SpdxSingleLicenseExpression, MutableSet<TextLocation>>>()
+
+    fun getLicenseFindingsCurations(provenance: Provenance): List<LicenseFindingCuration> =
+        if (isProject(id)) {
+            getLicenseFindingsCurations(id)
+        } else {
+            packageConfigurationProvider.getPackageConfiguration(id, provenance)?.licenseFindingCurations.orEmpty()
         }
-        .let { licenseFindings ->
-            if (applyCurations) {
-                FindingCurationMatcher().applyAll(licenseFindings, getLicenseFindingsCurations(id))
-            } else {
-                licenseFindings
+
+    scanner?.results?.scanResults.orEmpty().filter { it.id == id }.forEach { scanResultContainer ->
+        scanResultContainer.results.forEach { scanResult ->
+            val findingsForProvenance = result.getOrPut(scanResult.provenance) { mutableMapOf() }
+
+            scanResult.summary.licenseFindings.let { findings ->
+                if (applyCurations) {
+                    FindingCurationMatcher().applyAll(findings, getLicenseFindingsCurations(scanResult.provenance))
+                        .mapNotNull { it.curatedFinding }.distinct()
+                } else {
+                    findings
+                }
+            }.let { findings ->
+                if (decomposeLicenseExpressions) {
+                    findings.flatMap { finding ->
+                        finding.license.decompose().map { finding.copy(license = it) }
+                    }
+                } else {
+                    findings
+                }
+            }.forEach { finding ->
+                finding.license.decompose().forEach {
+                    findingsForProvenance.getOrPut(it) { mutableSetOf() }.add(finding.location)
+                }
             }
         }
-        .groupBy({ it.license }, { it.location })
-        .mapValues { (_, locations) -> locations.toSet() }
+    }
+
+    return result
+}
 
 /**
  * Return all license finding curations from this [OrtResult] represented as [RepositoryPathExcludes].
@@ -307,7 +334,7 @@ internal fun OrtResult.getRepositoryLicenseFindingCurations(): RepositoryLicense
     repository.nestedRepositories.forEach { (path, vcs) ->
         val pathExcludesForRepository = result.getOrPut(vcs.url) { mutableListOf() }
         curations.forEach { curation ->
-            if (curation.path.startsWith(path)) {
+            if (curation.path.startsWith("$path/")) {
                 pathExcludesForRepository.add(
                     curation.copy(
                         path = curation.path.substring(path.length).removePrefix("/")
@@ -321,15 +348,15 @@ internal fun OrtResult.getRepositoryLicenseFindingCurations(): RepositoryLicense
 }
 
 /**
- * Return all license [Identifiers]s which triggered at least one [RuleViolation] with a [severity]
- * greater or equal to the given [minSeverity] associated with the rule names of all corresponding violated rules.
+ * Return all license [Identifier]s which triggered at least one [RuleViolation] with a [severity] contained in the
+ * given [severity] collection, associated with the rule names of all corresponding violated rules.
  */
 internal fun OrtResult.getViolatedRulesByLicense(
     id: Identifier,
-    minSeverity: Severity
-): Map<String, List<String>> =
+    severity: Collection<Severity> = enumValues<Severity>().asList()
+): Map<SpdxSingleLicenseExpression, List<String>> =
     getRuleViolations()
-        .filter { it.pkg == id && it.severity.ordinal <= minSeverity.ordinal && it.license != null }
+        .filter { it.pkg == id && it.severity in severity && it.license != null }
         .groupBy { it.license!! }
         .mapValues { (_, ruleViolations) -> ruleViolations.map { it.rule } }
 
@@ -390,7 +417,7 @@ internal fun OrtResult.getRepositoryPathExcludes(): RepositoryPathExcludes {
     repository.nestedRepositories.forEach { (path, vcs) ->
         val pathExcludesForRepository = result.getOrPut(vcs.url) { mutableListOf() }
         pathExcludes.forEach { pathExclude ->
-            if (pathExclude.pattern.startsWith(path) && !isDefinitionsFile(pathExclude)) {
+            if (pathExclude.pattern.startsWith("$path/") && !isDefinitionsFile(pathExclude)) {
                 pathExcludesForRepository.add(
                     pathExclude.copy(
                         pattern = pathExclude.pattern.substring(path.length).removePrefix("/")
@@ -414,6 +441,15 @@ internal fun OrtResult.getUnresolvedRuleViolations(): List<RuleViolation> {
         !resolutions.any { it.matches(violation) }
     }
 }
+
+/**
+ * Return a copy of this [OrtResult] with the [Repository.config] with the content of the given
+ * [respositoryConfigurationFile].
+ */
+fun OrtResult.replaceConfig(respositoryConfigurationFile: File?): OrtResult =
+    respositoryConfigurationFile?.let {
+        replaceConfig(it.readValue())
+    } ?: this
 
 /**
  * Return a copy with the [IssueResolution]s replaced by the given [issueResolutions].
@@ -493,8 +529,7 @@ internal fun RepositoryConfiguration.sortScopeExcludes(): RepositoryConfiguratio
  * Serialize a [RepositoryConfiguration] as YAML to the given target [File].
  */
 internal fun RepositoryConfiguration.writeAsYaml(targetFile: File) {
-    targetFile.expandTilde().parentFile.safeMkdirs()
-
+    targetFile.absoluteFile.parentFile.safeMkdirs()
     yamlMapper.writeValue(targetFile, this)
 }
 
@@ -623,8 +658,8 @@ private data class LicenseFindingCurationHashKey(
     val path: String,
     val startLines: List<Int> = emptyList(),
     val lineCount: Int? = null,
-    val detectedLicense: String?,
-    val concludedLicense: String
+    val detectedLicense: SpdxExpression?,
+    val concludedLicense: SpdxExpression
 )
 
 private fun LicenseFindingCuration.hashKey() =

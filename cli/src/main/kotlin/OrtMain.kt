@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2019 HERE Europe B.V.
+ * Copyright (C) 2017-2020 HERE Europe B.V.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -24,23 +24,14 @@ import com.github.ajalt.clikt.core.context
 import com.github.ajalt.clikt.core.subcommands
 import com.github.ajalt.clikt.output.CliktHelpFormatter
 import com.github.ajalt.clikt.output.HelpFormatter
+import com.github.ajalt.clikt.parameters.options.associate
 import com.github.ajalt.clikt.parameters.options.convert
 import com.github.ajalt.clikt.parameters.options.default
 import com.github.ajalt.clikt.parameters.options.flag
-import com.github.ajalt.clikt.parameters.options.multiple
 import com.github.ajalt.clikt.parameters.options.option
-import com.github.ajalt.clikt.parameters.options.pair
 import com.github.ajalt.clikt.parameters.options.switch
 import com.github.ajalt.clikt.parameters.options.versionOption
 import com.github.ajalt.clikt.parameters.types.file
-
-import org.ossreviewtoolkit.commands.*
-import org.ossreviewtoolkit.model.Environment
-import org.ossreviewtoolkit.model.config.OrtConfiguration
-import org.ossreviewtoolkit.utils.ORT_NAME
-import org.ossreviewtoolkit.utils.expandTilde
-import org.ossreviewtoolkit.utils.getUserOrtDirectory
-import org.ossreviewtoolkit.utils.printStackTrace
 
 import java.io.File
 
@@ -49,10 +40,15 @@ import kotlin.system.exitProcess
 import org.apache.logging.log4j.Level
 import org.apache.logging.log4j.core.config.Configurator
 
-/**
- * The name of the environment variable to customize the ORT user home.
- */
-const val ORT_USER_HOME_ENV = "ORT_USER_HOME"
+import org.ossreviewtoolkit.commands.*
+import org.ossreviewtoolkit.model.Environment
+import org.ossreviewtoolkit.model.config.OrtConfiguration
+import org.ossreviewtoolkit.utils.ORT_DATA_DIR_ENV_NAME
+import org.ossreviewtoolkit.utils.ORT_NAME
+import org.ossreviewtoolkit.utils.Os
+import org.ossreviewtoolkit.utils.expandTilde
+import org.ossreviewtoolkit.utils.ortDataDirectory
+import org.ossreviewtoolkit.utils.printStackTrace
 
 /**
  * Helper class for mutually exclusive command line options of different types.
@@ -64,8 +60,9 @@ sealed class GroupTypes {
 
 class OrtMain : CliktCommand(name = ORT_NAME, epilog = "* denotes required options.") {
     private val configFile by option("--config", "-c", help = "The path to a configuration file.")
-        .file(mustExist = true, canBeFile = true, canBeDir = false, mustBeWritable = false, mustBeReadable = true)
         .convert { it.expandTilde() }
+        .file(mustExist = true, canBeFile = true, canBeDir = false, mustBeWritable = false, mustBeReadable = true)
+        .default(ortDataDirectory.resolve("config/ort.conf"))
 
     private val logLevel by option(help = "Set the verbosity level of log output.").switch(
         "--info" to Level.INFO,
@@ -74,7 +71,11 @@ class OrtMain : CliktCommand(name = ORT_NAME, epilog = "* denotes required optio
 
     private val stacktrace by option(help = "Print out the stacktrace for all exceptions.").flag()
 
-    private val configArguments by option("-P", help = "Allows to override configuration parameters.").pair().multiple()
+    private val configArguments by option(
+        "-P",
+        help = "Override a key-value pair in the configuration file. For example: " +
+                "-P scanner.postgresStorage.schema=testSchema"
+    ).associate()
 
     private val env = Environment()
 
@@ -106,7 +107,8 @@ class OrtMain : CliktCommand(name = ORT_NAME, epilog = "* denotes required optio
             EvaluatorCommand(),
             ReporterCommand(),
             RequirementsCommand(),
-            ScannerCommand()
+            ScannerCommand(),
+            UploadResultCommand()
         )
 
         versionOption(
@@ -124,13 +126,18 @@ class OrtMain : CliktCommand(name = ORT_NAME, epilog = "* denotes required optio
         printStackTrace = stacktrace
 
         // Make the OrtConfiguration available to subcommands.
-        currentContext.findOrSetObject { OrtConfiguration.load(configArguments.toMap(), configFile) }
+        currentContext.findOrSetObject {
+            OrtConfiguration.load(
+                configArguments,
+                configFile
+            )
+        }
 
         println(getVersionHeader(env.ortVersion))
     }
 
     private fun getVersionHeader(version: String): String {
-        val variables = mutableListOf("$ORT_USER_HOME_ENV = ${getUserOrtDirectory()}")
+        val variables = mutableListOf("$ORT_DATA_DIR_ENV_NAME = $ortDataDirectory")
         env.variables.entries.mapTo(variables) { (key, value) -> "$key = $value" }
 
         val commandName = currentContext.invokedSubcommand?.commandName
@@ -160,30 +167,10 @@ class OrtMain : CliktCommand(name = ORT_NAME, epilog = "* denotes required optio
 }
 
 /**
- * Check if the "user.home" property is set to a sane value and otherwise set it to the value of the ORT_USER_HOME
- * environment variable, if set, or to the value of an (OS-specific) environment variable for the user home
- * directory. This works around the issue that esp. in certain Docker scenarios "user.home" is set to "?", see
- * https://bugs.openjdk.java.net/browse/JDK-8193433 for some background information.
- */
-fun fixupUserHomeProperty() {
-    val userHome = System.getProperty("user.home")
-    val checkedUserHome = sequenceOf(
-        userHome,
-        System.getenv(ORT_USER_HOME_ENV),
-        System.getenv("HOME"),
-        System.getenv("USERPROFILE")
-    ).first {
-        !it.isNullOrBlank() && it != "?"
-    }
-
-    if (checkedUserHome != userHome) System.setProperty("user.home", checkedUserHome)
-}
-
-/**
  * The entry point for the application with [args] being the list of arguments.
  */
 fun main(args: Array<String>) {
-    fixupUserHomeProperty()
+    Os.fixupUserHomeProperty()
     OrtMain().main(args)
     exitProcess(0)
 }

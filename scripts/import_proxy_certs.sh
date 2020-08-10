@@ -24,28 +24,43 @@ fi
 
 CONNECT_SERVER="jcenter.bintray.com:443"
 
-FILE="proxy.crt"
+TEMP_DIR="$(mktemp -d)"
+FILE="$TEMP_DIR/proxy.crt"
 FILE_PREFIX="proxy-"
 
 REGEX_BEGIN="/^-----BEGIN CERTIFICATE-----$/"
 REGEX_END="/^-----END CERTIFICATE-----$"
 
+# Strip a leading protocol as "openssl s_client" expects none.
+PROXY=${https_proxy#*//}
+# Strip a trailing slash as "openssl s_client" expects none.
+PROXY=${PROXY%%/}
+
+# Strip authentication info as "openssl s_client" cannot handle any.
+PROXY_NO_AUTH=${PROXY#*@}
+
+if [ "$PROXY_NO_AUTH" != "$PROXY" ]; then
+    echo "This script cannot handle proxies that require authentication."
+    exit
+fi
+
 # Pick a server to connect to that is used during the Gradle build, and which reports the proxy's certificate instead of
 # its own.
-echo "Getting the proxy's certificates..."
+echo "Getting the certificates for proxy $PROXY_NO_AUTH..."
 
-# Strip the protocol.
-PROXY=${https_proxy#*//}
-# Strip authentication info.
-PROXY=${PROXY#*@}
-
-openssl s_client -showcerts -proxy $PROXY -connect $CONNECT_SERVER | \
+openssl s_client -showcerts -proxy $PROXY_NO_AUTH -connect $CONNECT_SERVER | \
     sed -n "$REGEX_BEGIN,$REGEX_END/p" > $FILE
+
+if [ ! -f "$FILE" ]; then
+    echo "Failed getting the certificates, no output file was created."
+    exit
+fi
 
 # Split the potentially multiple certificates into multiple files to avoid only the first certificate being imported.
 echo "Splitting proxy certificates to separate files..."
 csplit -f $FILE_PREFIX -b "%02d.crt" -z $FILE "$REGEX_BEGIN" "{*}"
 
+# Import the proxy certificates into the JVM keystore.
 KEYTOOL=$(realpath $(command -v keytool))
 
 for KEYSTORE_CANDIDATE in "$(realpath -m $(dirname $KEYTOOL)/../lib/security/cacerts)" "$(realpath -m $(dirname $KEYTOOL)/../jre/lib/security/cacerts)"; do
@@ -55,20 +70,21 @@ for KEYSTORE_CANDIDATE in "$(realpath -m $(dirname $KEYTOOL)/../lib/security/cac
     fi
 done
 
-if [ -z "$KEYSTORE" ]; then
-    echo "No cacert keystore found, quitting."
-    exit
+if [ -n "$KEYSTORE" ]; then
+    for CRT_FILE in $FILE_PREFIX*; do
+        echo "Adding the following proxy certificate from '$CRT_FILE' to the JRE's certificate store at '$KEYSTORE':"
+        cat $CRT_FILE
+
+        ALIAS=$(basename $CRT_FILE .crt)
+        $KEYTOOL -importcert -noprompt -trustcacerts -alias $ALIAS -file $CRT_FILE -keystore $KEYSTORE -storepass changeit
+    done
+else
+    echo "No JVM keystore found, skipping the import."
 fi
-
-for CRT_FILE in $FILE_PREFIX*; do
-    echo "Adding the following proxy certificate from '$CRT_FILE' to the JRE's certificate store at '$KEYSTORE':"
-    cat $CRT_FILE
-
-    ALIAS=$(basename $CRT_FILE .crt)
-    $KEYTOOL -importcert -noprompt -trustcacerts -alias $ALIAS -file $CRT_FILE -keystore $KEYSTORE -storepass changeit
-done
 
 # Also add the proxy certificates to the system certificates, e.g. for curl to work.
 echo "Adding proxy certificates to the system certificates..."
 cp $FILE_PREFIX* /usr/local/share/ca-certificates/
 update-ca-certificates
+
+rm -fr $TEMP_DIR

@@ -19,31 +19,40 @@
 
 package org.ossreviewtoolkit.utils
 
-import org.ossreviewtoolkit.spdx.enumSetOf
-import org.ossreviewtoolkit.spdx.SpdxExpression
-import org.ossreviewtoolkit.spdx.SpdxDeclaredLicenseMapping
-import org.ossreviewtoolkit.spdx.SpdxLicense
-import org.ossreviewtoolkit.spdx.SpdxLicenseAliasMapping
-import org.ossreviewtoolkit.spdx.SpdxLicenseIdExpression
+import io.kotest.assertions.throwables.shouldNotThrow
+import io.kotest.core.spec.style.StringSpec
+import io.kotest.inspectors.forAll
+import io.kotest.matchers.collections.beEmpty
+import io.kotest.matchers.collections.containExactly
+import io.kotest.matchers.maps.beEmpty as beEmptyMap
+import io.kotest.matchers.nulls.shouldNotBeNull
+import io.kotest.matchers.should
+import io.kotest.matchers.shouldBe
+import io.kotest.matchers.shouldNotBe
 
-import io.kotlintest.shouldBe
-import io.kotlintest.shouldNotBe
-import io.kotlintest.specs.StringSpec
+import org.ossreviewtoolkit.spdx.SpdxDeclaredLicenseMapping
+import org.ossreviewtoolkit.spdx.SpdxException
+import org.ossreviewtoolkit.spdx.SpdxExpression
+import org.ossreviewtoolkit.spdx.SpdxLicense
+import org.ossreviewtoolkit.spdx.SpdxLicenseIdExpression
+import org.ossreviewtoolkit.spdx.SpdxSimpleLicenseMapping
+import org.ossreviewtoolkit.spdx.toExpression
+import org.ossreviewtoolkit.utils.test.containExactly as containExactlyEntries
 
 class DeclaredLicenseProcessorTest : StringSpec() {
     /**
      * A collection of declared license strings found in open source packages.
      */
-    private val declaredLicenses = SpdxLicenseAliasMapping.mapping.keys + SpdxDeclaredLicenseMapping.mapping.keys
+    private val declaredLicenses = SpdxSimpleLicenseMapping.mapping.keys + SpdxDeclaredLicenseMapping.mapping.keys
 
     init {
         "Declared licenses can be processed" {
-            declaredLicenses.forEach { declaredLicense ->
+            declaredLicenses.forAll { declaredLicense ->
                 val processedLicense = DeclaredLicenseProcessor.process(declaredLicense)
 
                 // Include the declared license in the comparison to see where a failure comes from.
                 "$processedLicense from $declaredLicense" shouldNotBe "null from $declaredLicense"
-                processedLicense!!.validate(SpdxExpression.Strictness.ALLOW_DEPRECATED)
+                processedLicense!!.validate(SpdxExpression.Strictness.ALLOW_CURRENT)
             }
         }
 
@@ -53,18 +62,20 @@ class DeclaredLicenseProcessorTest : StringSpec() {
             val processedLicenses = DeclaredLicenseProcessor.process(declaredLicenses)
 
             processedLicenses.spdxExpression shouldBe SpdxLicenseIdExpression("Apache-2.0")
-            processedLicenses.unmapped shouldBe emptyList()
+            processedLicenses.mapped should containExactlyEntries(
+                "Apache2" to SpdxLicense.APACHE_2_0.toExpression() as SpdxExpression,
+                "Apache-2" to SpdxLicense.APACHE_2_0.toExpression() as SpdxExpression
+            )
+            processedLicenses.unmapped should beEmpty()
         }
 
         "Licenses are not mapped to deprecated SPDX licenses" {
-            declaredLicenses.forEach { declaredLicense ->
+            declaredLicenses.forAll { declaredLicense ->
                 val processedLicense = DeclaredLicenseProcessor.process(declaredLicense)
 
-                // Include the declared license in the comparison to see where a failure comes from.
-                "$processedLicense from $declaredLicense" shouldNotBe "null from $declaredLicense"
-                processedLicense!!.spdxLicenses().forEach {
-                    // Include the license ID in the comparison to make it easier to find the wrong mapping.
-                    "$it ${it.deprecated}" shouldBe "$it false"
+                processedLicense.shouldNotBeNull()
+                shouldNotThrow<SpdxException> {
+                    processedLicense.validate(SpdxExpression.Strictness.ALLOW_CURRENT)
                 }
             }
         }
@@ -74,16 +85,25 @@ class DeclaredLicenseProcessorTest : StringSpec() {
                 "https://choosealicense.com/licenses/apache-2.0.txt"
             )
 
-            processedLicense shouldNotBe null
-            processedLicense!!.spdxLicenses() shouldBe enumSetOf(SpdxLicense.APACHE_2_0)
+            processedLicense shouldBe SpdxLicenseIdExpression("Apache-2.0")
         }
 
         "Preprocessing licenses does not make mapping redundant" {
             val processableLicenses = SpdxDeclaredLicenseMapping.mapping.keys.filter { declaredLicense ->
-                SpdxLicenseAliasMapping.map(DeclaredLicenseProcessor.preprocess(declaredLicense)) != null
+                SpdxSimpleLicenseMapping.map(DeclaredLicenseProcessor.preprocess(declaredLicense)) != null
             }
 
-            processableLicenses shouldBe emptyList()
+            processableLicenses should beEmpty()
+        }
+
+        "SPDX expression only contains valid licenses" {
+            val declaredLicenses = listOf("Apache-2.0", "invalid")
+
+            val processedLicenses = DeclaredLicenseProcessor.process(declaredLicenses)
+
+            processedLicenses.spdxExpression shouldBe SpdxLicenseIdExpression("Apache-2.0")
+            processedLicenses.mapped should beEmptyMap()
+            processedLicenses.unmapped should containExactly("invalid")
         }
     }
 }

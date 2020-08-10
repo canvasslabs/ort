@@ -22,21 +22,26 @@ package org.ossreviewtoolkit.reporter.reporters
 import org.ossreviewtoolkit.model.clean
 import org.ossreviewtoolkit.model.merge
 import org.ossreviewtoolkit.reporter.ReporterInput
+import org.ossreviewtoolkit.reporter.reporters.AbstractNoticeReporter.NoticeReportModel
 import org.ossreviewtoolkit.utils.log
 
 /**
  * Creates a summary notice file containing all licenses for all non-excluded projects and packages. Each license
  * appears only once and all copyrights associated to this license are listed next to it.
+ *
+ * This reporter supports the following options:
+ * - *preProcessingScript*: The path to a Kotlin script to pre-process the [NoticeReportModel] before generating the
+ *   notice file.
  */
 class NoticeSummaryReporter : AbstractNoticeReporter() {
     override val reporterName = "NoticeSummary"
-    override val defaultFilename = "NOTICE_SUMMARY"
+    override val noticeFilename = "NOTICE_SUMMARY"
 
     override fun createProcessor(input: ReporterInput): NoticeProcessor = NoticeSummaryProcessor(input)
 }
 
 class NoticeSummaryProcessor(input: ReporterInput) : AbstractNoticeReporter.NoticeProcessor(input) {
-    override fun process(model: AbstractNoticeReporter.NoticeReportModel): List<() -> String> =
+    override fun process(model: NoticeReportModel): List<() -> String> =
         mutableListOf<() -> String>().apply {
             add { model.headers.joinToString(AbstractNoticeReporter.NOTICE_SEPARATOR) }
 
@@ -72,11 +77,11 @@ class NoticeSummaryProcessor(input: ReporterInput) : AbstractNoticeReporter.Noti
             if (copyrights.isNotEmpty()) add { "\n" }
 
             add(licenseTextReader)
-        } ?: log.warn {
+        } ?: this@NoticeSummaryProcessor.log.warn {
             "No license text found for license '$license', it will be omitted from the report."
         }
     }
 
-    private fun mergeFindings(model: AbstractNoticeReporter.NoticeReportModel) =
+    private fun mergeFindings(model: NoticeReportModel) =
         model.findings.values.merge().clean(input.copyrightGarbage)
 }

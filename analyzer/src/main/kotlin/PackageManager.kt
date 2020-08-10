@@ -19,22 +19,7 @@
 
 package org.ossreviewtoolkit.analyzer
 
-import org.ossreviewtoolkit.downloader.VersionControlSystem
-import org.ossreviewtoolkit.downloader.VcsHost
-import org.ossreviewtoolkit.model.Identifier
-import org.ossreviewtoolkit.model.Project
-import org.ossreviewtoolkit.model.ProjectAnalyzerResult
-import org.ossreviewtoolkit.model.VcsInfo
-import org.ossreviewtoolkit.model.config.AnalyzerConfiguration
-import org.ossreviewtoolkit.model.config.RepositoryConfiguration
-import org.ossreviewtoolkit.model.createAndLogIssue
-import org.ossreviewtoolkit.utils.collectMessagesAsString
-import org.ossreviewtoolkit.utils.log
-import org.ossreviewtoolkit.utils.normalizeVcsUrl
-import org.ossreviewtoolkit.utils.showStackTrace
-
 import java.io.File
-import java.io.FileFilter
 import java.nio.file.FileSystems
 import java.nio.file.FileVisitResult
 import java.nio.file.Files
@@ -43,10 +28,26 @@ import java.nio.file.SimpleFileVisitor
 import java.nio.file.attribute.BasicFileAttributes
 import java.util.ServiceLoader
 
-import kotlin.system.measureTimeMillis
+import kotlin.time.measureTime
+
+import org.ossreviewtoolkit.downloader.VcsHost
+import org.ossreviewtoolkit.downloader.VersionControlSystem
+import org.ossreviewtoolkit.model.Identifier
+import org.ossreviewtoolkit.model.Project
+import org.ossreviewtoolkit.model.ProjectAnalyzerResult
+import org.ossreviewtoolkit.model.VcsInfo
+import org.ossreviewtoolkit.model.VcsType
+import org.ossreviewtoolkit.model.config.AnalyzerConfiguration
+import org.ossreviewtoolkit.model.config.RepositoryConfiguration
+import org.ossreviewtoolkit.model.createAndLogIssue
+import org.ossreviewtoolkit.utils.collectMessagesAsString
+import org.ossreviewtoolkit.utils.isSymbolicLink
+import org.ossreviewtoolkit.utils.log
+import org.ossreviewtoolkit.utils.normalizeVcsUrl
+import org.ossreviewtoolkit.utils.showStackTrace
 
 typealias ManagedProjectFiles = Map<PackageManagerFactory, List<File>>
-typealias ResolutionResult = MutableMap<File, ProjectAnalyzerResult>
+typealias ResolutionResult = MutableMap<File, List<ProjectAnalyzerResult>>
 
 /**
  * A class representing a package manager that handles software dependencies.
@@ -107,12 +108,20 @@ abstract class PackageManager(
             Files.walkFileTree(directory.toPath(), object : SimpleFileVisitor<Path>() {
                 override fun preVisitDirectory(dir: Path, attributes: BasicFileAttributes): FileVisitResult {
                     if (IGNORED_DIRECTORY_MATCHERS.any { it.matches(dir) }) {
-                        log.info { "Not analyzing directory '$dir' as it is hard-coded to be ignored." }
+                        PackageManager.log.info { "Not analyzing directory '$dir' as it is hard-coded to be ignored." }
                         return FileVisitResult.SKIP_SUBTREE
                     }
 
                     val dirAsFile = dir.toFile()
-                    val filesInDir = dirAsFile.listFiles(FileFilter { it.isFile })
+
+                    // Note that although FileVisitOption.FOLLOW_LINKS is not set, this would still follow junctions on
+                    // Windows, so do a better check here.
+                    if (dirAsFile.isSymbolicLink()) {
+                        PackageManager.log.info { "Not following symbolic link to directory '$dir'." }
+                        return FileVisitResult.SKIP_SUBTREE
+                    }
+
+                    val filesInDir = dirAsFile.walk().maxDepth(1).filter { it.isFile }.toList()
 
                     packageManagers.forEach { manager ->
                         // Create a list of lists of matching files per glob.
@@ -145,22 +154,20 @@ abstract class PackageManager(
          * URLs.
          *
          * @param vcsFromPackage The [VcsInfo] of a [Package].
-         * @param fallbackUrls The list of alternative URLs to to use as fallback for determining the [VcsInfo]. The
-         *                     first element of the list that is recognized as a VCS URL is used.
+         * @param fallbackUrls The alternative URLs to to use as fallback for determining the [VcsInfo]. The first
+         *                     element that is recognized as a VCS URL is used.
          */
-        fun processPackageVcs(vcsFromPackage: VcsInfo, fallbackUrls: List<String> = emptyList()): VcsInfo {
-            val normalizedVcsFromPackage = vcsFromPackage.normalize()
+        fun processPackageVcs(vcsFromPackage: VcsInfo, vararg fallbackUrls: String): VcsInfo {
+            // Merge the VCS information from the package with information derived from its normalized URL only.
+            val normalizedVcsFromPackage = vcsFromPackage.normalize().let { VcsHost.toVcsInfo(it.url).merge(it) }
 
-            val normalizedUrl = normalizedVcsFromPackage.url.takeIf { it.isNotEmpty() }
-                ?: fallbackUrls
-                    .asSequence()
-                    .map { normalizeVcsUrl(it) }
-                    .filterNot { VersionControlSystem.forUrl(it) == null }
-                    .firstOrNull()
-                    .orEmpty()
+            // Add the VCS information derived from the normalized fallback URLs to the list.
+            val availableVcsInfo = fallbackUrls.mapTo(mutableListOf(normalizedVcsFromPackage)) {
+                VcsHost.toVcsInfo(normalizeVcsUrl(it))
+            }
 
-            val vcsFromUrl = VcsHost.toVcsInfo(normalizedUrl)
-            return vcsFromUrl.merge(normalizedVcsFromPackage)
+            // Use the first VCS information with a valid type, or the normalized VCS information from the package.
+            return availableVcsInfo.find { it.type != VcsType.NONE } ?: normalizedVcsFromPackage
         }
 
         /**
@@ -172,16 +179,16 @@ abstract class PackageManager(
          *
          * @param projectDir The working tree directory of the [Project].
          * @param vcsFromProject The project's [VcsInfo], if any.
-         * @param fallbackUrls The list of alternative URLs to to use as fallback for determining the [VcsInfo]. The
-         *                     first element of the list that is recognized as a VCS URL is used.
+         * @param fallbackUrls The alternative URLs to to use as fallback for determining the [VcsInfo]. The first
+         *                     element that is recognized as a VCS URL is used.
          */
         fun processProjectVcs(
             projectDir: File,
             vcsFromProject: VcsInfo = VcsInfo.EMPTY,
-            fallbackUrls: List<String> = emptyList()
+            vararg fallbackUrls: String
         ): VcsInfo {
             val vcsFromWorkingTree = VersionControlSystem.getPathInfo(projectDir).normalize()
-            return vcsFromWorkingTree.merge(processPackageVcs(vcsFromProject, fallbackUrls))
+            return vcsFromWorkingTree.merge(processPackageVcs(vcsFromProject, *fallbackUrls))
         }
     }
 
@@ -196,6 +203,11 @@ abstract class PackageManager(
     protected open fun beforeResolution(definitionFiles: List<File>) {}
 
     /**
+     * Optional step to run after dependency resolution, like cleaning up temporary files.
+     */
+    protected open fun afterResolution(definitionFiles: List<File>) {}
+
+    /**
      * Return a tree of resolved dependencies (not necessarily declared dependencies, in case conflicts were resolved)
      * for all [definitionFiles] which were found by searching the [analysisRoot] directory. By convention, the
      * [definitionFiles] must be absolute.
@@ -207,19 +219,17 @@ abstract class PackageManager(
             }
         }
 
-        val result = mutableMapOf<File, ProjectAnalyzerResult>()
+        val result = mutableMapOf<File, List<ProjectAnalyzerResult>>()
 
         beforeResolution(definitionFiles)
 
         definitionFiles.forEach { definitionFile ->
             log.info { "Resolving $managerName dependencies for '$definitionFile'..." }
 
-            val elapsed = measureTimeMillis {
+            val duration = measureTime {
                 @Suppress("TooGenericExceptionCaught")
                 try {
-                    resolveDependencies(definitionFile)?.let {
-                        result[definitionFile] = it
-                    }
+                    result[definitionFile] = resolveDependencies(definitionFile)
                 } catch (e: Exception) {
                     e.showStackTrace()
 
@@ -240,12 +250,12 @@ abstract class PackageManager(
                         )
                     )
 
-                    result[definitionFile] = ProjectAnalyzerResult(errorProject, sortedSetOf(), errors)
+                    result[definitionFile] = listOf(ProjectAnalyzerResult(errorProject, sortedSetOf(), errors))
                 }
             }
 
             log.info {
-                "Resolving $managerName dependencies for '${definitionFile.name}' took ${elapsed / 1000}s."
+                "Resolving $managerName dependencies for '${definitionFile.name}' took ${duration.inSeconds}s."
             }
         }
 
@@ -255,14 +265,10 @@ abstract class PackageManager(
     }
 
     /**
-     * Optional step to run after dependency resolution, like cleaning up temporary files.
+     * Resolve dependencies for a single absolute [definitionFile] and return a list of [ProjectAnalyzerResult]s, with
+     * one result for each project found in the definition file.
      */
-    protected open fun afterResolution(definitionFiles: List<File>) {}
-
-    /**
-     * Resolve dependencies for a single absolute [definitionFile] and return a [ProjectAnalyzerResult].
-     */
-    abstract fun resolveDependencies(definitionFile: File): ProjectAnalyzerResult?
+    abstract fun resolveDependencies(definitionFile: File): List<ProjectAnalyzerResult>
 
     protected fun requireLockfile(workingDir: File, condition: () -> Boolean) {
         require(analyzerConfig.allowDynamicVersions || condition()) {

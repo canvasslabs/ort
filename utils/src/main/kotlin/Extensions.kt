@@ -51,20 +51,29 @@ import java.util.TreeSet
 fun ByteArray.toHexString(): String = joinToString("") { String.format("%02x", it) }
 
 /**
- * Return the absolute file with a leading "~" in a Unix path expanded to the current user's home directory.
+ * If the SHELL environment variable is set, return the absolute file with a leading "~" expanded to the current user's
+ * home directory, otherwise return just the absolute file.
  */
-fun File.expandTilde(): File =
-    if (System.getenv("SHELL") != null) {
-        File(path.replace(Regex("^~"), Regex.escapeReplacement(System.getProperty("user.home"))))
-    } else {
-        this
-    }.absoluteFile
+fun File.expandTilde(): File = File(path.expandTilde()).absoluteFile
 
 /**
  * Return the hexadecimal digest of the given hash [algorithm] for this [File].
  */
 fun File.hash(algorithm: String = "SHA-1"): String =
-    MessageDigest.getInstance(algorithm).digest(readBytes()).toHexString()
+    inputStream().use { inputStream ->
+        // 4MB has been chosen rather arbitrary hoping that it provides a good enough performance while not consuming
+        // a lot of memory at the same time, also considering that this function could potentially be run on multiple
+        // threads in parallel.
+        val buffer = ByteArray(4 * 1024 * 1024)
+        val digest = MessageDigest.getInstance(algorithm)
+
+        var length: Int
+        while (inputStream.read(buffer).also { length = it } > 0) {
+            digest.update(buffer, 0, length)
+        }
+
+        digest.digest().toHexString()
+    }
 
 /**
  * Return true if and only if this file is a symbolic link.
@@ -101,16 +110,11 @@ fun File.safeCopyRecursively(target: File, overwrite: Boolean = false) {
         if (overwrite) add(StandardCopyOption.REPLACE_EXISTING)
     }.toTypedArray()
 
-    // This call to walkFileTree() implicitly uses EnumSet.noneOf(FileVisitOption.class), i.e.
-    // FileVisitOption.FOLLOW_LINKS is not used, so symbolic links are not followed.
     Files.walkFileTree(sourcePath, object : SimpleFileVisitor<Path>() {
         override fun preVisitDirectory(dir: Path, attrs: BasicFileAttributes): FileVisitResult {
-            val isUnixLink = !Os.isWindows && attrs.isSymbolicLink
-            val isWindowsLink = Os.isWindows && attrs.isOther
-            if (isUnixLink || isWindowsLink) {
-                // Do not follow symbolic links or junctions.
-                return FileVisitResult.SKIP_SUBTREE
-            }
+            // Note that although FileVisitOption.FOLLOW_LINKS is not set, this would still follow junctions on Windows,
+            // so do a better check here.
+            if (dir.toFile().isSymbolicLink()) return FileVisitResult.SKIP_SUBTREE
 
             val targetDir = targetPath.resolve(sourcePath.relativize(dir))
             targetDir.toFile().safeMkdirs()
@@ -231,6 +235,17 @@ inline fun <K, V, W> Map<K, V>.zipWithDefault(other: Map<K, V>, default: V, oper
 fun String.encodeOrUnknown() = fileSystemEncode().takeUnless { it.isEmpty() } ?: "unknown"
 
 /**
+ * If the SHELL environment variable is set, return the string with a leading "~" expanded to the current user's home
+ * directory, otherwise return the string unchanged.
+ */
+fun String.expandTilde(): String =
+    if (Os.env["SHELL"] != null) {
+        replace(Regex("^~"), Regex.escapeReplacement(System.getProperty("user.home")))
+    } else {
+        this
+    }
+
+/**
  * Return the string encoded for safe use as a file name. Also limit the length to 255 characters which is the maximum
  * length in most modern filesystems, see
  * [comparison of file system limits](https://en.wikipedia.org/wiki/Comparison_of_file_systems#Limits).
@@ -241,6 +256,11 @@ fun String.fileSystemEncode() =
         // these afterwards.
         .replace(Regex("(^\\.|\\.$)"), "%2E")
         .take(255)
+
+/**
+ * Return true if the string represents a true value, otherwise return false.
+ */
+fun String?.isTrue() = this?.toBoolean() ?: false
 
 /**
  * Return the [percent-encoded](https://en.wikipedia.org/wiki/Percent-encoding) string.

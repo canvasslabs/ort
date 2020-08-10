@@ -19,24 +19,31 @@
 
 package org.ossreviewtoolkit.model
 
+import org.ossreviewtoolkit.model.config.LicenseFindingCuration
+import org.ossreviewtoolkit.spdx.SpdxExpression
+import org.ossreviewtoolkit.spdx.toSpdx
+
 /**
- * A class representing a single license finding.
+ * A class representing a license finding. License findings can point to single licenses or to complex
+ * [SpdxExpression]s, depending on the capabilities of the used license scanner. [LicenseFindingCuration]s can also be
+ * used to create findings with complex expressions.
  */
 data class LicenseFinding(
     /**
-     * The SPDX license identifier corresponding to the license found.
+     * The found SPDX expression.
      */
-    val license: String,
+    val license: SpdxExpression,
 
     /**
      * The text location where the license was found.
      */
     val location: TextLocation
 ) : Comparable<LicenseFinding> {
-    override fun compareTo(other: LicenseFinding) =
-        compareValuesBy(
-            this,
-            other,
-            compareBy(LicenseFinding::license).thenBy(LicenseFinding::location)
-        ) { it }
+    companion object {
+        private val COMPARATOR = compareBy<LicenseFinding> { it.license.toString() }.thenBy(LicenseFinding::location)
+    }
+
+    constructor(license: String, location: TextLocation) : this(license.toSpdx(), location)
+
+    override fun compareTo(other: LicenseFinding) = COMPARATOR.compare(this, other)
 }

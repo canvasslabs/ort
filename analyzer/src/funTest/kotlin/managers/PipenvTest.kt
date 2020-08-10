@@ -19,18 +19,17 @@
 
 package org.ossreviewtoolkit.analyzer.managers
 
+import io.kotest.core.spec.style.WordSpec
+import io.kotest.matchers.shouldBe
+
+import java.io.File
+
 import org.ossreviewtoolkit.downloader.VersionControlSystem
-import org.ossreviewtoolkit.model.yamlMapper
 import org.ossreviewtoolkit.utils.normalizeVcsUrl
 import org.ossreviewtoolkit.utils.test.DEFAULT_ANALYZER_CONFIGURATION
 import org.ossreviewtoolkit.utils.test.DEFAULT_REPOSITORY_CONFIGURATION
 import org.ossreviewtoolkit.utils.test.USER_DIR
 import org.ossreviewtoolkit.utils.test.patchExpectedResult
-
-import io.kotlintest.shouldBe
-import io.kotlintest.specs.WordSpec
-
-import java.io.File
 
 class PipenvTest : WordSpec() {
     private val projectsDir = File("src/funTest/assets/projects").absoluteFile
@@ -51,19 +50,19 @@ class PipenvTest : WordSpec() {
                     path = vcsPath
                 )
 
-                val result = createPipenv().resolveDependencies(listOf(definitionFile))[definitionFile]
+                val result = createPipenv().resolveSingleProject(definitionFile)
 
-                yamlMapper.writeValueAsString(result) shouldBe expectedResult
+                result.toYaml() shouldBe expectedResult
             }
         }
 
         "Python 3" should {
-            "resolve dependencies correctly for python-django" {
-                val definitionFile = File(projectsDir, "synthetic/python3-django-pipenv/Pipfile.lock")
+            "resolve dependencies correctly for a Django project" {
+                val definitionFile = File(projectsDir, "synthetic/pipenv-python3/Pipfile.lock")
                 val vcsPath = vcsDir.getPathToRoot(definitionFile.parentFile)
 
-                val result = createPipenv().resolveDependencies(listOf(definitionFile))[definitionFile]
-                val expectedResultFile = File(projectsDir, "synthetic/python3-django-pipenv-expected-output.yml")
+                val result = createPipenv().resolveSingleProject(definitionFile)
+                val expectedResultFile = File(projectsDir, "synthetic/pipenv-python3-expected-output.yml")
                 val expectedResult = patchExpectedResult(
                     expectedResultFile,
                     url = normalizeVcsUrl(vcsUrl),
@@ -71,7 +70,7 @@ class PipenvTest : WordSpec() {
                     path = vcsPath
                 )
 
-                yamlMapper.writeValueAsString(result) shouldBe expectedResult
+                result.toYaml() shouldBe expectedResult
             }
         }
     }

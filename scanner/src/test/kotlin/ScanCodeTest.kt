@@ -19,21 +19,21 @@
 
 package org.ossreviewtoolkit.scanner
 
+import io.kotest.core.spec.style.WordSpec
+import io.kotest.matchers.collections.containExactlyInAnyOrder
+import io.kotest.matchers.collections.haveSize
+import io.kotest.matchers.should
+import io.kotest.matchers.shouldBe
+import io.kotest.matchers.string.shouldMatch
+
+import java.io.File
+import java.time.Instant
+
 import org.ossreviewtoolkit.model.CopyrightFinding
 import org.ossreviewtoolkit.model.LicenseFinding
 import org.ossreviewtoolkit.model.TextLocation
 import org.ossreviewtoolkit.model.config.ScannerConfiguration
 import org.ossreviewtoolkit.scanner.scanners.ScanCode
-
-import io.kotlintest.matchers.collections.shouldContainExactlyInAnyOrder
-import io.kotlintest.matchers.haveSize
-import io.kotlintest.matchers.match
-import io.kotlintest.should
-import io.kotlintest.shouldBe
-import io.kotlintest.specs.WordSpec
-
-import java.io.File
-import java.time.Instant
 
 @Suppress("LargeClass")
 class ScanCodeTest : WordSpec({
@@ -43,6 +43,10 @@ class ScanCodeTest : WordSpec({
         "be correctly summarized" {
             val resultFile = File("src/test/assets/mime-types-2.1.18_scancode-2.9.7.json")
             val result = scanner.getRawResult(resultFile)
+
+            // The "scanPath" argument should point to the path that was scanned, but as the scanned files are
+            // not available here anymore, instead pass the "resultFile" to test the calculation of the package
+            // verification code on an arbitrary file.
             val summary = scanner.generateSummary(Instant.now(), Instant.now(), resultFile, result)
 
             summary.fileCount shouldBe 10
@@ -54,6 +58,10 @@ class ScanCodeTest : WordSpec({
         "be correctly summarized" {
             val resultFile = File("src/test/assets/mime-types-2.1.18_scancode-3.0.2.json")
             val result = scanner.getRawResult(resultFile)
+
+            // The "scanPath" argument should point to the path that was scanned, but as the scanned files are
+            // not available here anymore, instead pass the "resultFile" to test the calculation of the package
+            // verification code on an arbitrary file.
             val summary = scanner.generateSummary(Instant.now(), Instant.now(), resultFile, result)
 
             summary.fileCount shouldBe 10
@@ -65,7 +73,12 @@ class ScanCodeTest : WordSpec({
         "return true for scan results with only timeout errors" {
             val resultFile = File("src/test/assets/esprima-2.7.3_scancode-2.2.1.post277.4d68f9377.json")
             val result = scanner.getRawResult(resultFile)
+
+            // The "scanPath" argument should point to the path that was scanned, but as the scanned files are
+            // not available here anymore, instead pass the "resultFile" to test the calculation of the package
+            // verification code on an arbitrary file.
             val summary = scanner.generateSummary(Instant.now(), Instant.now(), resultFile, result)
+
             val issues = summary.issues.toMutableList()
 
             ScanCode.mapTimeoutErrors(issues) shouldBe true
@@ -101,6 +114,10 @@ class ScanCodeTest : WordSpec({
         "return false for scan results without errors" {
             val resultFile = File("src/test/assets/esprima-2.7.3_scancode-2.2.1.json")
             val result = scanner.getRawResult(resultFile)
+
+            // The "scanPath" argument should point to the path that was scanned, but as the scanned files are
+            // not available here anymore, instead pass the "resultFile" to test the calculation of the package
+            // verification code on an arbitrary file.
             val summary = scanner.generateSummary(Instant.now(), Instant.now(), resultFile, result)
 
             ScanCode.mapTimeoutErrors(summary.issues.toMutableList()) shouldBe false
@@ -111,7 +128,12 @@ class ScanCodeTest : WordSpec({
         "return true for scan results with only memory errors" {
             val resultFile = File("src/test/assets/very-long-json-lines_scancode-2.2.1.post277.4d68f9377.json")
             val result = scanner.getRawResult(resultFile)
+
+            // The "scanPath" argument should point to the path that was scanned, but as the scanned files are
+            // not available here anymore, instead pass the "resultFile" to test the calculation of the package
+            // verification code on an arbitrary file.
             val summary = scanner.generateSummary(Instant.now(), Instant.now(), resultFile, result)
+
             val issues = summary.issues.toMutableList()
 
             ScanCode.mapUnknownIssues(issues) shouldBe true
@@ -123,7 +145,12 @@ class ScanCodeTest : WordSpec({
         "return false for scan results with other unknown errors" {
             val resultFile = File("src/test/assets/kotlin-annotation-processing-gradle-1.2.21_scancode.json")
             val result = scanner.getRawResult(resultFile)
+
+            // The "scanPath" argument should point to the path that was scanned, but as the scanned files are
+            // not available here anymore, instead pass the "resultFile" to test the calculation of the package
+            // verification code on an arbitrary file.
             val summary = scanner.generateSummary(Instant.now(), Instant.now(), resultFile, result)
+
             val issues = summary.issues.toMutableList()
 
             ScanCode.mapUnknownIssues(issues) shouldBe false
@@ -136,6 +163,10 @@ class ScanCodeTest : WordSpec({
         "return false for scan results without errors" {
             val resultFile = File("src/test/assets/esprima-2.7.3_scancode-2.2.1.json")
             val result = scanner.getRawResult(resultFile)
+
+            // The "scanPath" argument should point to the path that was scanned, but as the scanned files are
+            // not available here anymore, instead pass the "resultFile" to test the calculation of the package
+            // verification code on an arbitrary file.
             val summary = scanner.generateSummary(Instant.now(), Instant.now(), resultFile, result)
 
             ScanCode.mapUnknownIssues(summary.issues.toMutableList()) shouldBe false
@@ -143,9 +174,17 @@ class ScanCodeTest : WordSpec({
     }
 
     "generateSummary()" should {
-        // TODO: minimize this test case.
         "properly summarize the license findings for ScanCode 2.2.1" {
-            val expectedLicenseFindings = listOf(
+            // TODO: minimize this test case.
+            val resultFile = File("src/test/assets/esprima-2.7.3_scancode-2.2.1.json")
+            val result = scanner.getRawResult(resultFile)
+
+            // The "scanPath" argument should point to the path that was scanned, but as the scanned files are
+            // not available here anymore, instead pass the "resultFile" to test the calculation of the package
+            // verification code on an arbitrary file.
+            val summary = scanner.generateSummary(Instant.now(), Instant.now(), resultFile, result)
+
+            summary.licenseFindings should containExactlyInAnyOrder(
                 LicenseFinding(
                     license = "BSD-2-Clause",
                     location = TextLocation(path = "LICENSE.BSD", startLine = 3, endLine = 21)
@@ -515,17 +554,19 @@ class ScanCodeTest : WordSpec({
                     location = TextLocation(path = "test/3rdparty/underscore-1.5.2.js", startLine = 4, endLine = 4)
                 )
             )
-
-            val resultFile = File("src/test/assets/esprima-2.7.3_scancode-2.2.1.json")
-            val result = scanner.getRawResult(resultFile)
-            val summary = scanner.generateSummary(Instant.now(), Instant.now(), resultFile, result)
-
-            summary.licenseFindings shouldContainExactlyInAnyOrder expectedLicenseFindings
         }
 
         "properly summarize the copyright findings for ScanCode 2.2.1" {
             // TODO: minimize this test case
-            val expectedCopyrightFindings = listOf(
+            val resultFile = File("src/test/assets/esprima-2.7.3_scancode-2.2.1.json")
+            val result = scanner.getRawResult(resultFile)
+
+            // The "scanPath" argument should point to the path that was scanned, but as the scanned files are
+            // not available here anymore, instead pass the "resultFile" to test the calculation of the package
+            // verification code on an arbitrary file.
+            val summary = scanner.generateSummary(Instant.now(), Instant.now(), resultFile, result)
+
+            summary.copyrightFindings should containExactlyInAnyOrder(
                 CopyrightFinding(
                     statement = "(c) 2007-2008 Steven Levithan",
                     location = TextLocation(path = "test/3rdparty/mootools-1.4.5.js", startLine = 1881, endLine = 1883)
@@ -701,12 +742,6 @@ class ScanCodeTest : WordSpec({
                     location = TextLocation(path = "test/3rdparty/benchmark.js", startLine = 2, endLine = 6)
                 )
             )
-
-            val resultFile = File("src/test/assets/esprima-2.7.3_scancode-2.2.1.json")
-            val result = scanner.getRawResult(resultFile)
-            val summary = scanner.generateSummary(Instant.now(), Instant.now(), resultFile, result)
-
-            summary.copyrightFindings shouldContainExactlyInAnyOrder expectedCopyrightFindings
         }
 
         "properly summarize license findings for ScanCode 2.9.7" {
@@ -714,12 +749,15 @@ class ScanCodeTest : WordSpec({
             val result = scanner.getRawResult(resultFile)
 
             val actualFindings = scanner
+                // The "scanPath" argument should point to the path that was scanned, but as the scanned files are
+                // not available here anymore, instead pass the "resultFile" to test the calculation of the package
+                // verification code on an arbitrary file.
                 .generateSummary(Instant.now(), Instant.now(), resultFile, result)
                 .licenseFindings
 
             actualFindings.distinctBy { it.license } should haveSize(1)
             actualFindings should haveSize(517)
-            actualFindings.toList().subList(0, 10).map { it.location } shouldContainExactlyInAnyOrder listOf(
+            actualFindings.toList().subList(0, 10).map { it.location } should containExactlyInAnyOrder(
                 TextLocation("com/amazonaws/AbortedException.java", 4, 13),
                 TextLocation("com/amazonaws/AmazonClientException.java", 4, 13),
                 TextLocation("com/amazonaws/AmazonServiceException.java", 4, 13),
@@ -738,10 +776,13 @@ class ScanCodeTest : WordSpec({
             val result = scanner.getRawResult(resultFile)
 
             val actualFindings = scanner
+                // The "scanPath" argument should point to the path that was scanned, but as the scanned files are
+                // not available here anymore, instead pass the "resultFile" to test the calculation of the package
+                // verification code on an arbitrary file.
                 .generateSummary(Instant.now(), Instant.now(), resultFile, result)
                 .copyrightFindings
 
-            actualFindings.map { it.statement }.distinct() shouldContainExactlyInAnyOrder listOf(
+            actualFindings.map { it.statement }.distinct() should containExactlyInAnyOrder(
                 "Copyright (c) 2016 Amazon.com, Inc.",
                 "Copyright (c) 2016. Amazon.com, Inc.",
                 "Copyright 2010-2017 Amazon.com, Inc.",
@@ -788,12 +829,10 @@ class ScanCodeTest : WordSpec({
 
     "commandLineOptions" should {
         "contain the default values if the scanner configuration is empty" {
-            scanner.commandLineOptions.joinToString(" ") should
-                    match(
-                        "--copyright --license --ignore \\*.ort.yml --info --strip-root --timeout 300 " +
-                                "--ignore HERE_NOTICE --ignore META-INF/DEPENDENCIES --processes \\d+ --license-diag " +
-                                "--verbose"
-                    )
+            scanner.commandLineOptions.joinToString(" ") shouldMatch
+                    "--copyright --license --ignore \\*.ort.yml --info --strip-root --timeout 300 " +
+                            "--ignore HERE_NOTICE --ignore META-INF/DEPENDENCIES --processes \\d+ --license-diag " +
+                            "--verbose"
         }
 
         "contain the values from the scanner configuration" {

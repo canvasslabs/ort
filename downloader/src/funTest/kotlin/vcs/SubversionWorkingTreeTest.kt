@@ -19,18 +19,21 @@
 
 package org.ossreviewtoolkit.downloader.vcs
 
-import org.ossreviewtoolkit.model.VcsType
-import org.ossreviewtoolkit.utils.ORT_NAME
-import org.ossreviewtoolkit.utils.getUserOrtDirectory
-import org.ossreviewtoolkit.utils.safeDeleteRecursively
-import org.ossreviewtoolkit.utils.unpack
-
-import io.kotlintest.Spec
-import io.kotlintest.shouldBe
-import io.kotlintest.shouldNotBe
-import io.kotlintest.specs.StringSpec
+import io.kotest.core.spec.Spec
+import io.kotest.core.spec.style.StringSpec
+import io.kotest.matchers.maps.beEmpty
+import io.kotest.matchers.should
+import io.kotest.matchers.shouldBe
+import io.kotest.matchers.shouldNotBe
 
 import java.io.File
+
+import org.ossreviewtoolkit.model.VcsInfo
+import org.ossreviewtoolkit.model.VcsType
+import org.ossreviewtoolkit.utils.ORT_NAME
+import org.ossreviewtoolkit.utils.ortDataDirectory
+import org.ossreviewtoolkit.utils.safeDeleteRecursively
+import org.ossreviewtoolkit.utils.unpack
 
 class SubversionWorkingTreeTest : StringSpec() {
     private val svn = Subversion()
@@ -60,21 +63,26 @@ class SubversionWorkingTreeTest : StringSpec() {
         }
 
         "Subversion detects non-working-trees" {
-            svn.getWorkingTree(getUserOrtDirectory()).isValid() shouldBe false
+            svn.getWorkingTree(ortDataDirectory).isValid() shouldBe false
         }
 
         "Subversion correctly detects URLs to remote repositories" {
-            svn.isApplicableUrl("http://svn.code.sf.net/p/grepwin/code/") shouldBe true
+            svn.isApplicableUrl("https://svn.code.sf.net/p/grepwin/code/") shouldBe true
             svn.isApplicableUrl("https://bitbucket.org/facebook/lz4revlog") shouldBe false
         }
 
         "Detected Subversion working tree information is correct" {
             val workingTree = svn.getWorkingTree(zipContentDir)
 
-            workingTree.vcsType shouldBe VcsType.SUBVERSION
             workingTree.isValid() shouldBe true
-            workingTree.getRemoteUrl() shouldBe "https://svn.code.sf.net/p/docutils/code/trunk/docutils"
-            workingTree.getRevision() shouldBe "8207"
+            workingTree.getInfo() shouldBe VcsInfo(
+                type = VcsType.SUBVERSION,
+                url = "https://svn.code.sf.net/p/docutils/code/trunk/docutils",
+                revision = "8207",
+                resolvedRevision = null,
+                path = ""
+            )
+            workingTree.getNested() should beEmpty()
             workingTree.getRootPath() shouldBe zipContentDir
             workingTree.getPathToRoot(File(zipContentDir, "docutils")) shouldBe "docutils"
         }

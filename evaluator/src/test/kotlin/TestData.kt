@@ -41,20 +41,21 @@ import org.ossreviewtoolkit.model.config.PathExclude
 import org.ossreviewtoolkit.model.config.PathExcludeReason
 import org.ossreviewtoolkit.model.config.RepositoryConfiguration
 import org.ossreviewtoolkit.model.config.ScannerConfiguration
-import org.ossreviewtoolkit.spdx.SpdxExpression
+import org.ossreviewtoolkit.spdx.SpdxLicenseReferenceExpression
+import org.ossreviewtoolkit.spdx.toSpdx
 import org.ossreviewtoolkit.utils.DeclaredLicenseProcessor
 
-val concludedLicense = SpdxExpression.parse("LicenseRef-a AND LicenseRef-b")
-val declaredLicenses = sortedSetOf("license-a", "license-b")
+val concludedLicense = "LicenseRef-a AND LicenseRef-b".toSpdx()
+val declaredLicenses = sortedSetOf("Apache-2.0", "MIT")
 val declaredLicensesProcessed = DeclaredLicenseProcessor.process(declaredLicenses)
-val detectedLicenses = listOf("LicenseRef-a", "LicenseRef-b")
-
-val declaredSpdxLicenses = sortedSetOf("Apache-2.0")
-val declaredSpdxLicensesProcessed = DeclaredLicenseProcessor.process(declaredSpdxLicenses)
+val detectedLicenses = listOf(
+    SpdxLicenseReferenceExpression("LicenseRef-a"),
+    SpdxLicenseReferenceExpression("LicenseRef-b")
+)
 
 val licenseFindings = listOf(
-    LicenseFindings("LicenseRef-a", sortedSetOf(), sortedSetOf()),
-    LicenseFindings("LicenseRef-b", sortedSetOf(), sortedSetOf())
+    LicenseFindings(SpdxLicenseReferenceExpression("LicenseRef-a"), sortedSetOf(), sortedSetOf()),
+    LicenseFindings(SpdxLicenseReferenceExpression("LicenseRef-b"), sortedSetOf(), sortedSetOf())
 )
 
 val packageExcluded = Package.EMPTY.copy(
@@ -91,12 +92,6 @@ val packageWithConcludedAndDeclaredLicense = Package.EMPTY.copy(
     declaredLicensesProcessed = declaredLicensesProcessed
 )
 
-val packageWithSpdxLicense = Package.EMPTY.copy(
-    id = Identifier("Maven:org.ossreviewtoolkit:package-with-spdx-licenses:1.0"),
-    declaredLicenses = declaredSpdxLicenses,
-    declaredLicensesProcessed = declaredSpdxLicensesProcessed
-)
-
 val allPackages = listOf(
     packageExcluded,
     packageDynamicallyLinked,
@@ -104,8 +99,7 @@ val allPackages = listOf(
     packageWithoutLicense,
     packageWithOnlyConcludedLicense,
     packageWithOnlyDeclaredLicense,
-    packageWithConcludedAndDeclaredLicense,
-    packageWithSpdxLicense
+    packageWithConcludedAndDeclaredLicense
 )
 
 val scopeExcluded = Scope(
@@ -132,8 +126,7 @@ val scopeIncluded = Scope(
         packageWithOnlyDeclaredLicense.toReference(),
         packageWithConcludedAndDeclaredLicense.toReference(),
         packageRefDynamicallyLinked,
-        packageRefStaticallyLinked,
-        packageWithSpdxLicense.toReference()
+        packageRefStaticallyLinked
     )
 )
 
@@ -171,7 +164,7 @@ val ortResult = OrtResult(
                 projectExcluded,
                 projectIncluded
             ),
-            packages = allPackages.mapTo(sortedSetOf()) { CuratedPackage(it, emptyList()) }
+            packages = allPackages.mapTo(sortedSetOf()) { CuratedPackage(it) }
         )
     ),
     scanner = ScannerRun(

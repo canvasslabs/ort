@@ -21,10 +21,15 @@ package org.ossreviewtoolkit.analyzer.managers
 
 import com.fasterxml.jackson.databind.JsonNode
 
+import com.moandjiezana.toml.Toml
+
+import java.io.File
+
 import org.ossreviewtoolkit.analyzer.AbstractPackageManagerFactory
 import org.ossreviewtoolkit.analyzer.PackageManager
-import org.ossreviewtoolkit.downloader.VersionControlSystem
 import org.ossreviewtoolkit.downloader.VcsHost
+import org.ossreviewtoolkit.downloader.VersionControlSystem
+import org.ossreviewtoolkit.model.Hash
 import org.ossreviewtoolkit.model.Identifier
 import org.ossreviewtoolkit.model.Package
 import org.ossreviewtoolkit.model.PackageLinkage
@@ -32,7 +37,6 @@ import org.ossreviewtoolkit.model.PackageReference
 import org.ossreviewtoolkit.model.Project
 import org.ossreviewtoolkit.model.ProjectAnalyzerResult
 import org.ossreviewtoolkit.model.RemoteArtifact
-import org.ossreviewtoolkit.model.Hash
 import org.ossreviewtoolkit.model.Scope
 import org.ossreviewtoolkit.model.config.AnalyzerConfiguration
 import org.ossreviewtoolkit.model.config.RepositoryConfiguration
@@ -40,10 +44,6 @@ import org.ossreviewtoolkit.model.jsonMapper
 import org.ossreviewtoolkit.utils.CommandLineTool
 import org.ossreviewtoolkit.utils.log
 import org.ossreviewtoolkit.utils.textValueOrEmpty
-
-import com.moandjiezana.toml.Toml
-
-import java.io.File
 
 /**
  * The [Cargo](https://doc.rust-lang.org/cargo/) package manager for Rust.
@@ -226,14 +226,12 @@ class Cargo(
         return null
     }
 
-    override fun resolveDependencies(definitionFile: File): ProjectAnalyzerResult? {
-        log.info { "Resolving dependencies for: '$definitionFile'" }
-
+    override fun resolveDependencies(definitionFile: File): List<ProjectAnalyzerResult> {
         // Get the project name and version. If one of them is missing return null, because this is a workspace
         // definition file that does not contain a project.
         val pkgDefinition = Toml().read(definitionFile)
-        val projectName = pkgDefinition.getString("package.name") ?: return null
-        val projectVersion = pkgDefinition.getString("package.version") ?: return null
+        val projectName = pkgDefinition.getString("package.name") ?: return emptyList()
+        val projectVersion = pkgDefinition.getString("package.version") ?: return emptyList()
 
         val workingDir = definitionFile.parentFile
         val metadataJson = runMetadata(workingDir)
@@ -282,7 +280,7 @@ class Cargo(
             definitionFilePath = VersionControlSystem.getPathInfo(definitionFile).path,
             declaredLicenses = projectPkg.declaredLicenses,
             vcs = projectPkg.vcs,
-            vcsProcessed = processProjectVcs(workingDir, projectPkg.vcs, listOf(homepageUrl)),
+            vcsProcessed = processProjectVcs(workingDir, projectPkg.vcs, homepageUrl),
             homepageUrl = homepageUrl,
             scopes = sortedSetOf(dependenciesScope, devDependenciesScope, buildDependenciesScope)
         )
@@ -292,6 +290,11 @@ class Cargo(
             .map { it.value.toCuratedPackage() }
             .toSortedSet()
 
-        return ProjectAnalyzerResult(project, nonProjectPackages)
+        return listOf(
+            ProjectAnalyzerResult(
+                project = project,
+                packages = nonProjectPackages
+            )
+        )
     }
 }

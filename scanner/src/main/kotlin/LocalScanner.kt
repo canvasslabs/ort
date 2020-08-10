@@ -21,43 +21,6 @@ package org.ossreviewtoolkit.scanner
 
 import com.fasterxml.jackson.databind.JsonNode
 
-import org.ossreviewtoolkit.downloader.DownloadException
-import org.ossreviewtoolkit.downloader.Downloader
-import org.ossreviewtoolkit.downloader.VersionControlSystem
-import org.ossreviewtoolkit.model.EMPTY_JSON_NODE
-import org.ossreviewtoolkit.model.Environment
-import org.ossreviewtoolkit.model.Failure
-import org.ossreviewtoolkit.model.Identifier
-import org.ossreviewtoolkit.model.OrtIssue
-import org.ossreviewtoolkit.model.OrtResult
-import org.ossreviewtoolkit.model.Package
-import org.ossreviewtoolkit.model.Provenance
-import org.ossreviewtoolkit.model.Repository
-import org.ossreviewtoolkit.model.ScanRecord
-import org.ossreviewtoolkit.model.ScanResult
-import org.ossreviewtoolkit.model.ScanResultContainer
-import org.ossreviewtoolkit.model.ScanSummary
-import org.ossreviewtoolkit.model.ScannerDetails
-import org.ossreviewtoolkit.model.ScannerRun
-import org.ossreviewtoolkit.model.Severity
-import org.ossreviewtoolkit.model.Success
-import org.ossreviewtoolkit.model.config.ScannerConfiguration
-import org.ossreviewtoolkit.model.createAndLogIssue
-import org.ossreviewtoolkit.model.mapper
-import org.ossreviewtoolkit.utils.CommandLineTool
-import org.ossreviewtoolkit.utils.LICENSE_FILENAMES
-import org.ossreviewtoolkit.utils.NamedThreadFactory
-import org.ossreviewtoolkit.utils.Os
-import org.ossreviewtoolkit.utils.collectMessagesAsString
-import org.ossreviewtoolkit.utils.fileSystemEncode
-import org.ossreviewtoolkit.utils.getPathFromEnvironment
-import org.ossreviewtoolkit.utils.getUserOrtDirectory
-import org.ossreviewtoolkit.utils.log
-import org.ossreviewtoolkit.utils.safeMkdirs
-import org.ossreviewtoolkit.utils.showStackTrace
-import org.ossreviewtoolkit.utils.storage.FileArchiver
-import org.ossreviewtoolkit.utils.storage.LocalFileStorage
-
 import com.vdurmont.semver4j.Requirement
 
 import java.io.File
@@ -70,16 +33,56 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.withContext
 
+import org.ossreviewtoolkit.downloader.DownloadException
+import org.ossreviewtoolkit.downloader.Downloader
+import org.ossreviewtoolkit.downloader.VersionControlSystem
+import org.ossreviewtoolkit.model.EMPTY_JSON_NODE
+import org.ossreviewtoolkit.model.Environment
+import org.ossreviewtoolkit.model.Failure
+import org.ossreviewtoolkit.model.Identifier
+import org.ossreviewtoolkit.model.OrtIssue
+import org.ossreviewtoolkit.model.OrtResult
+import org.ossreviewtoolkit.model.Package
+import org.ossreviewtoolkit.model.Provenance
+import org.ossreviewtoolkit.model.RemoteArtifact
+import org.ossreviewtoolkit.model.Repository
+import org.ossreviewtoolkit.model.ScanRecord
+import org.ossreviewtoolkit.model.ScanResult
+import org.ossreviewtoolkit.model.ScanResultContainer
+import org.ossreviewtoolkit.model.ScanSummary
+import org.ossreviewtoolkit.model.ScannerDetails
+import org.ossreviewtoolkit.model.ScannerRun
+import org.ossreviewtoolkit.model.Severity
+import org.ossreviewtoolkit.model.Success
+import org.ossreviewtoolkit.model.VcsInfo
+import org.ossreviewtoolkit.model.config.ScannerConfiguration
+import org.ossreviewtoolkit.model.createAndLogIssue
+import org.ossreviewtoolkit.model.mapper
+import org.ossreviewtoolkit.scanner.storages.PostgresStorage
+import org.ossreviewtoolkit.utils.CommandLineTool
+import org.ossreviewtoolkit.utils.LICENSE_FILENAMES
+import org.ossreviewtoolkit.utils.NamedThreadFactory
+import org.ossreviewtoolkit.utils.Os
+import org.ossreviewtoolkit.utils.collectMessagesAsString
+import org.ossreviewtoolkit.utils.fileSystemEncode
+import org.ossreviewtoolkit.utils.getPathFromEnvironment
+import org.ossreviewtoolkit.utils.log
+import org.ossreviewtoolkit.utils.ortDataDirectory
+import org.ossreviewtoolkit.utils.safeMkdirs
+import org.ossreviewtoolkit.utils.showStackTrace
+import org.ossreviewtoolkit.utils.storage.FileArchiver
+import org.ossreviewtoolkit.utils.storage.LocalFileStorage
+
 /**
  * Implementation of [Scanner] for scanners that operate locally. Packages passed to [scanPackages] are processed in
  * serial order. Scan results can be stored in a [ScanResultsStorage].
  */
 abstract class LocalScanner(name: String, config: ScannerConfiguration) : Scanner(name, config), CommandLineTool {
     companion object {
-        val DEFAULT_ARCHIVE_DIR by lazy { getUserOrtDirectory().resolve("scanner/archive") }
+        val DEFAULT_ARCHIVE_DIR by lazy { ortDataDirectory.resolve("scanner/archive") }
     }
 
-    val archiver by lazy {
+    private val archiver by lazy {
         config.archive?.createFileArchiver() ?: FileArchiver(
             LICENSE_FILENAMES,
             LocalFileStorage(DEFAULT_ARCHIVE_DIR)
@@ -94,7 +97,7 @@ abstract class LocalScanner(name: String, config: ScannerConfiguration) : Scanne
     /**
      * The directory the scanner was bootstrapped to, if so.
      */
-    protected val scannerDir by lazy {
+    private val scannerDir by lazy {
         val scannerExe = command()
 
         getPathFromEnvironment(scannerExe)?.parentFile?.takeIf {
@@ -171,32 +174,35 @@ abstract class LocalScanner(name: String, config: ScannerConfiguration) : Scanne
 
                     async {
                         val result = try {
-                            log.info { "Queueing scan of '${pkg.id.toCoordinates()}' $packageIndex." }
-
                             val storedResults = withContext(storageDispatcher) {
                                 log.info {
-                                    "Trying to read stored scan results for ${pkg.id.toCoordinates()} in thread " +
-                                            "'${Thread.currentThread().name}' $packageIndex."
+                                    "Looking for stored scan results for ${pkg.id.toCoordinates()} and " +
+                                            "$scannerDetails $packageIndex."
                                 }
 
                                 readFromStorage(scannerDetails, pkg, outputDirectory)
                             }
 
                             if (storedResults.isNotEmpty()) {
-                                log.info { "Using stored scan result(s) for ${pkg.id.toCoordinates()} $packageIndex." }
+                                log.info {
+                                    "Found ${storedResults.size} stored scan result(s) for ${pkg.id.toCoordinates()} " +
+                                            "and $scannerDetails, not scanning the package again $packageIndex."
+                                }
 
                                 storedResults
                             } else {
                                 withContext(scanDispatcher) {
                                     log.info {
-                                        "No stored results found, scanning package ${pkg.id.toCoordinates()} in " +
-                                                "thread '${Thread.currentThread().name}' $packageIndex."
+                                        "No stored result found for ${pkg.id.toCoordinates()} and $scannerDetails, " +
+                                                "scanning package in thread '${Thread.currentThread().name}' " +
+                                                "$packageIndex."
                                     }
 
                                     listOf(
                                         scanPackage(scannerDetails, pkg, outputDirectory, downloadDirectory).also {
                                             log.info {
-                                                "Finished scanning ${pkg.id.toCoordinates()} $packageIndex."
+                                                "Finished scanning ${pkg.id.toCoordinates()} in thread " +
+                                                        "'${Thread.currentThread().name}' $packageIndex."
                                             }
                                         }
                                     )
@@ -261,7 +267,7 @@ abstract class LocalScanner(name: String, config: ScannerConfiguration) : Scanne
         val resultsFile = getResultsFile(scannerDetails, pkg, outputDirectory)
 
         val scanResults = when (val storageResult = ScanResultsStorage.storage.read(pkg, scannerDetails)) {
-            is Success -> storageResult.result.results
+            is Success -> storageResult.result.deduplicateScanResults().results
             is Failure -> emptyList()
         }
 
@@ -290,7 +296,7 @@ abstract class LocalScanner(name: String, config: ScannerConfiguration) : Scanne
         val resultsFile = getResultsFile(scannerDetails, pkg, outputDirectory)
 
         val downloadResult = try {
-            Downloader().download(pkg, downloadDirectory)
+            Downloader.download(pkg, File(downloadDirectory, pkg.id.toPath()))
         } catch (e: DownloadException) {
             e.showStackTrace()
 
@@ -451,4 +457,40 @@ abstract class LocalScanner(name: String, config: ScannerConfiguration) : Scanne
 
         return relativePathToScannedFile.invariantSeparatorsPath
     }
+}
+
+/**
+ * Work around to prevent that duplicate [ScanResult]s from the [ScanResultsStorage] do get duplicated in the
+ * [OrtResult] produced by this scanner.
+ *
+ * The time interval between a failing look-up of the cache entry and the resulting scan with the following store
+ * operation can be relatively large. Thus this [LocalScanner] is prone to adding duplicate scan results if scans
+ * are run in parallel. In particular the [PostgresStorage] allows adding duplicate tuples
+ * (identifier, provenance, scanner details) which probably should be made unique.
+ *
+ * TODO:
+ *
+ * 1. Minimize the time between the failing look-up and the corresponding store operation mentioned.
+ * 2. Make the tuples (identifier, provenance, scanner details) unique (dis-regarding provenance.downloadTime), at
+ * least in [PostgresStroage].
+ */
+private fun ScanResultContainer.deduplicateScanResults(): ScanResultContainer {
+    // Use vcsInfo and sourceArtifact instead of provenance in order to ignore the download time and original VCS info.
+    data class Key(
+        val id: Identifier,
+        val vcsInfo: VcsInfo?,
+        val sourceArtifact: RemoteArtifact?,
+        val scannerDetails: ScannerDetails
+    )
+
+    fun ScanResult.key() = Key(id, provenance.vcsInfo, provenance.sourceArtifact, scanner)
+
+    val deduplicatedResults = results.distinctBy { it.key() }
+
+    val duplicates = results.size - deduplicatedResults.size
+    if (duplicates > 0) {
+        log.info { "Removed $duplicates duplicates out of ${results.size} scan results." }
+    }
+
+    return copy(results = deduplicatedResults)
 }

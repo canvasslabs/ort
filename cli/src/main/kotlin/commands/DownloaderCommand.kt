@@ -20,7 +20,7 @@
 package org.ossreviewtoolkit.commands
 
 import com.github.ajalt.clikt.core.CliktCommand
-import com.github.ajalt.clikt.core.UsageError
+import com.github.ajalt.clikt.core.ProgramResult
 import com.github.ajalt.clikt.parameters.groups.mutuallyExclusiveOptions
 import com.github.ajalt.clikt.parameters.groups.required
 import com.github.ajalt.clikt.parameters.groups.single
@@ -33,12 +33,15 @@ import com.github.ajalt.clikt.parameters.options.split
 import com.github.ajalt.clikt.parameters.types.enum
 import com.github.ajalt.clikt.parameters.types.file
 
+import java.io.File
+
 import org.ossreviewtoolkit.GroupTypes
 import org.ossreviewtoolkit.GroupTypes.FileType
 import org.ossreviewtoolkit.GroupTypes.StringType
 import org.ossreviewtoolkit.downloader.DownloadException
 import org.ossreviewtoolkit.downloader.Downloader
 import org.ossreviewtoolkit.downloader.VersionControlSystem
+import org.ossreviewtoolkit.downloader.consolidateProjectPackagesByVcs
 import org.ossreviewtoolkit.model.Identifier
 import org.ossreviewtoolkit.model.OrtResult
 import org.ossreviewtoolkit.model.Package
@@ -55,15 +58,14 @@ import org.ossreviewtoolkit.utils.packZip
 import org.ossreviewtoolkit.utils.safeDeleteRecursively
 import org.ossreviewtoolkit.utils.showStackTrace
 
-import java.io.File
-
 class DownloaderCommand : CliktCommand(name = "download", help = "Fetch source code from a remote location.") {
     private val input by mutuallyExclusiveOptions<GroupTypes>(
         option(
             "--ort-file", "-i",
             help = "An ORT result file with an analyzer result to use. Must not be used together with '--project-url'."
-        ).file(mustExist = true, canBeFile = true, canBeDir = false, mustBeWritable = false, mustBeReadable = true)
-            .convert { FileType(it.expandTilde()) },
+        ).convert { it.expandTilde() }
+            .file(mustExist = true, canBeFile = true, canBeDir = false, mustBeWritable = false, mustBeReadable = true)
+            .convert { FileType(it) },
         option(
             "--project-url",
             help = "A VCS or archive URL of a project to download. Must not be used together with '--ort-file'."
@@ -73,34 +75,38 @@ class DownloaderCommand : CliktCommand(name = "download", help = "Fetch source c
     private val projectNameOption by option(
         "--project-name",
         help = "The speaking name of the project to download. For use together with '--project-url'. Will be ignored " +
-                "if '--ort-file' is also specified."
+                "if '--ort-file' is also specified. (default: the last part of the project URL)"
     )
 
     private val vcsTypeOption by option(
         "--vcs-type",
-        help = "The VCS type if '--project-url' points to a VCS. Will be ignored if '--ort-file' is also specified."
+        help = "The VCS type if '--project-url' points to a VCS. Will be ignored if '--ort-file' is also specified. " +
+                "(default: the VCS type detected by querying the project URL)"
     )
 
     private val vcsRevisionOption by option(
         "--vcs-revision",
-        help = "The VCS revision if '--project-url' points to a VCS. Will be ignored if '--ort-file' is also specified."
+        help = "The VCS revision if '--project-url' points to a VCS. Will be ignored if '--ort-file' is also " +
+                "specified. (default: the VCS's default revision)"
     )
 
     private val vcsPath by option(
         "--vcs-path",
-        help = "The VCS path if '--project-url' points to a VCS. Will be ignored if '--ort-file' is also specified."
+        help = "The VCS path if '--project-url' points to a VCS. Will be ignored if '--ort-file' is also specified. " +
+                "(default: the empty root path)"
     ).default("")
 
     private val outputDir by option(
         "--output-dir", "-o",
         help = "The output directory to download the source code to."
-    ).file(mustExist = false, canBeFile = false, canBeDir = true, mustBeWritable = false, mustBeReadable = false)
-        .convert { it.expandTilde() }
+    ).convert { it.expandTilde() }
+        .file(mustExist = false, canBeFile = false, canBeDir = true, mustBeWritable = false, mustBeReadable = false)
         .required()
 
     private val archive by option(
         "--archive",
-        help = "Archive the downloaded source code as ZIP files to the output directory."
+        help = "Archive the downloaded source code as ZIP files to the output directory. Will be ignored if " +
+                "'--project-url' is also specified."
     ).flag()
 
     private val entities by option(
@@ -109,16 +115,16 @@ class DownloaderCommand : CliktCommand(name = "download", help = "Fetch source c
                 "data entities are downloaded."
     ).enum<Downloader.DataEntity>().split(",").default(enumValues<Downloader.DataEntity>().asList())
 
-    private val allowMovingRevisionsOption by option(
+    private val allowMovingRevisions by option(
         "--allow-moving-revisions",
-        help = "Allow the download of moving revisions (like e.g. HEAD or master in Git). By default these revision " +
-                "are forbidden because they are not pointing to a stable revision of the source code."
+        help = "Allow the download of moving revisions (like e.g. HEAD or master in Git). By default these revisions " +
+                "are forbidden because they are not pointing to a fixed revision of the source code."
     ).flag()
 
     override fun run() {
-        var allowMovingRevisions = allowMovingRevisionsOption
+        val failureMessages = mutableListOf<String>()
 
-        val packages = when (input) {
+        when (input) {
             is FileType -> {
                 val absoluteOrtFile = (input as FileType).file.normalize()
                 val analyzerResult = absoluteOrtFile.readValue<OrtResult>().analyzer?.result
@@ -127,13 +133,29 @@ class DownloaderCommand : CliktCommand(name = "download", help = "Fetch source c
                     "The provided ORT result file '$absoluteOrtFile' does not contain an analyzer result."
                 }
 
-                mutableListOf<Package>().apply {
-                    if (Downloader.DataEntity.PROJECT in entities) {
-                        addAll(Downloader.consolidateProjectPackagesByVcs(analyzerResult.projects).keys)
+                val packages = mutableListOf<Package>().apply {
+                    if (Downloader.DataEntity.PROJECTS in entities) {
+                        addAll(consolidateProjectPackagesByVcs(analyzerResult.projects).keys)
                     }
 
                     if (Downloader.DataEntity.PACKAGES in entities) {
                         addAll(analyzerResult.packages.map { curatedPackage -> curatedPackage.pkg })
+                    }
+                }
+
+                packages.forEach { pkg ->
+                    try {
+                        val downloadDir = File(outputDir, pkg.id.toPath())
+                        Downloader.download(pkg, downloadDir, allowMovingRevisions)
+                        if (archive) archive(pkg, downloadDir, outputDir)
+                    } catch (e: DownloadException) {
+                        e.showStackTrace()
+
+                        val failureMessage = "Could not download '${pkg.id.toCoordinates()}': " +
+                                e.collectMessagesAsString()
+                        failureMessages += failureMessage
+
+                        log.error { failureMessage }
                     }
                 }
             }
@@ -161,59 +183,52 @@ class DownloaderCommand : CliktCommand(name = "download", help = "Fetch source c
                     Package.EMPTY.copy(id = dummyId, vcs = vcsInfo, vcsProcessed = vcsInfo.normalize())
                 }
 
-                // Always allow moving revisions when directly downloading a single project only. This is for
-                // convenience as often the latest revision (referred to by some VCS-specific symbolic name) of a
-                // project needs to be downloaded.
-                allowMovingRevisions = true
+                try {
+                    // Always allow moving revisions when directly downloading a single project only. This is for
+                    // convenience as often the latest revision (referred to by some VCS-specific symbolic name) of a
+                    // project needs to be downloaded.
+                    Downloader.download(dummyPackage, outputDir, allowMovingRevisions = true)
+                } catch (e: DownloadException) {
+                    e.showStackTrace()
 
-                listOf(dummyPackage)
-            }
-        }
+                    val failureMessage = "Could not download '${dummyPackage.id.toCoordinates()}': " +
+                            e.collectMessagesAsString()
+                    failureMessages += failureMessage
 
-        val errorMessages = mutableListOf<String>()
-        packages.forEach { pkg ->
-            try {
-                val result = Downloader().download(pkg, outputDir, allowMovingRevisions)
-
-                if (archive) {
-                    val zipFile = File(
-                        outputDir,
-                        "${pkg.id.type.encodeOrUnknown()}-${pkg.id.namespace.encodeOrUnknown()}-" +
-                                "${pkg.id.name.encodeOrUnknown()}-${pkg.id.version.encodeOrUnknown()}.zip"
-                    )
-
-                    log.info {
-                        "Archiving directory '${result.downloadDirectory.absolutePath}' to " +
-                                "'${zipFile.absolutePath}'."
-                    }
-
-                    try {
-                        result.downloadDirectory.packZip(
-                            zipFile,
-                            "${pkg.id.name.encodeOrUnknown()}/${pkg.id.version.encodeOrUnknown()}/"
-                        )
-                    } catch (e: IllegalArgumentException) {
-                        e.showStackTrace()
-
-                        log.error { "Could not archive '${pkg.id.toCoordinates()}': ${e.collectMessagesAsString()}" }
-                    } finally {
-                        val relativePath = outputDir.toPath().relativize(result.downloadDirectory.toPath()).first()
-                        File(outputDir, relativePath.toString()).safeDeleteRecursively()
-                    }
+                    log.error { failureMessage }
                 }
-            } catch (e: DownloadException) {
-                e.showStackTrace()
-
-                val errorMessage = "Could not download '${pkg.id.toCoordinates()}': ${e.collectMessagesAsString()}"
-                errorMessages += errorMessage
-
-                log.error { errorMessage }
             }
         }
 
-        if (errorMessages.isNotEmpty()) {
-            log.error { "Error Summary:\n\n${errorMessages.joinToString("\n\n")}" }
-            throw UsageError("${errorMessages.size} error(s) occurred.", statusCode = 2)
+        if (failureMessages.isNotEmpty()) {
+            log.error { "Failure summary:\n\n${failureMessages.joinToString("\n\n")}" }
+            throw ProgramResult(2)
+        }
+    }
+
+    private fun archive(pkg: Package, inputDir: File, outputDir: File) {
+        val zipFile = File(
+            outputDir,
+            "${pkg.id.type.encodeOrUnknown()}-${pkg.id.namespace.encodeOrUnknown()}-" +
+                    "${pkg.id.name.encodeOrUnknown()}-${pkg.id.version.encodeOrUnknown()}.zip"
+        )
+
+        log.info {
+            "Archiving directory '${inputDir.absolutePath}' to '${zipFile.absolutePath}'."
+        }
+
+        try {
+            inputDir.packZip(
+                zipFile,
+                "${pkg.id.name.encodeOrUnknown()}/${pkg.id.version.encodeOrUnknown()}/"
+            )
+        } catch (e: IllegalArgumentException) {
+            e.showStackTrace()
+
+            log.error { "Could not archive '${pkg.id.toCoordinates()}': ${e.collectMessagesAsString()}" }
+        } finally {
+            val relativePath = outputDir.toPath().relativize(inputDir.toPath()).first()
+            File(outputDir, relativePath.toString()).safeDeleteRecursively()
         }
     }
 }

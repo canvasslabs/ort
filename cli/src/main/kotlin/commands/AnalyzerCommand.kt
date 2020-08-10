@@ -21,7 +21,9 @@ package org.ossreviewtoolkit.commands
 
 import com.github.ajalt.clikt.core.BadParameterValue
 import com.github.ajalt.clikt.core.CliktCommand
+import com.github.ajalt.clikt.core.ProgramResult
 import com.github.ajalt.clikt.core.UsageError
+import com.github.ajalt.clikt.parameters.options.associate
 import com.github.ajalt.clikt.parameters.options.convert
 import com.github.ajalt.clikt.parameters.options.default
 import com.github.ajalt.clikt.parameters.options.flag
@@ -31,48 +33,50 @@ import com.github.ajalt.clikt.parameters.options.split
 import com.github.ajalt.clikt.parameters.types.enum
 import com.github.ajalt.clikt.parameters.types.file
 
+import java.io.File
+
 import org.ossreviewtoolkit.analyzer.Analyzer
 import org.ossreviewtoolkit.analyzer.PackageManager
 import org.ossreviewtoolkit.analyzer.curation.ClearlyDefinedPackageCurationProvider
 import org.ossreviewtoolkit.analyzer.curation.FallbackPackageCurationProvider
 import org.ossreviewtoolkit.analyzer.curation.FilePackageCurationProvider
-import org.ossreviewtoolkit.model.OutputFormat
+import org.ossreviewtoolkit.model.FileFormat
 import org.ossreviewtoolkit.model.config.AnalyzerConfiguration
 import org.ossreviewtoolkit.model.mapper
+import org.ossreviewtoolkit.model.utils.mergeLabels
 import org.ossreviewtoolkit.utils.expandTilde
+import org.ossreviewtoolkit.utils.ortDataDirectory
 import org.ossreviewtoolkit.utils.safeMkdirs
 
-import java.io.File
-
 class AnalyzerCommand : CliktCommand(name = "analyze", help = "Determine dependencies of a software project.") {
-    private val packageManagersOption by option(
+    private val allPackageManagersByName = PackageManager.ALL.associateBy { it.managerName.toUpperCase() }
+
+    private val packageManagers by option(
         "--package-managers", "-m",
         help = "The list of package managers to activate."
-    ).convert { packageManagerName ->
-        // Map upper-cased package manager names to their instances.
-        val packageManagers = PackageManager.ALL.associateBy { it.managerName.toUpperCase() }
-        packageManagers[packageManagerName.toUpperCase()]
-            ?: throw BadParameterValue("Package managers must be contained in ${packageManagers.keys}.")
+    ).convert { name ->
+        allPackageManagersByName[name.toUpperCase()]
+            ?: throw BadParameterValue("Package managers must be one or more of ${allPackageManagersByName.keys}.")
     }.split(",").default(PackageManager.ALL)
 
     private val inputDir by option(
         "--input-dir", "-i",
         help = "The project directory to analyze."
-    ).file(mustExist = true, canBeFile = false, canBeDir = true, mustBeWritable = false, mustBeReadable = true)
-        .convert { it.expandTilde() }
+    ).convert { it.expandTilde() }
+        .file(mustExist = true, canBeFile = false, canBeDir = true, mustBeWritable = false, mustBeReadable = true)
         .required()
 
     private val outputDir by option(
         "--output-dir", "-o",
         help = "The directory to write the analyzer result as ORT result file(s) to, in the specified output format(s)."
-    ).file(mustExist = false, canBeFile = false, canBeDir = true, mustBeWritable = false, mustBeReadable = false)
-        .convert { it.expandTilde() }
+    ).convert { it.expandTilde() }
+        .file(mustExist = false, canBeFile = false, canBeDir = true, mustBeWritable = false, mustBeReadable = false)
         .required()
 
     private val outputFormats by option(
         "--output-formats", "-f",
         help = "The list of output formats to be used for the ORT result file(s)."
-    ).enum<OutputFormat>().split(",").default(listOf(OutputFormat.YAML))
+    ).enum<FileFormat>().split(",").default(listOf(FileFormat.YAML))
 
     private val ignoreToolVersions by option(
         "--ignore-tool-versions",
@@ -88,8 +92,8 @@ class AnalyzerCommand : CliktCommand(name = "analyze", help = "Determine depende
     private val packageCurationsFile by option(
         "--package-curations-file",
         help = "A file containing package curation data."
-    ).file(mustExist = true, canBeFile = true, canBeDir = false, mustBeWritable = false, mustBeReadable = true)
-        .convert { it.expandTilde() }
+    ).convert { it.expandTilde() }
+        .file(mustExist = true, canBeFile = true, canBeDir = false, mustBeWritable = false, mustBeReadable = true)
 
     private val useClearlyDefinedCurations by option(
         "--clearly-defined-curations",
@@ -100,8 +104,13 @@ class AnalyzerCommand : CliktCommand(name = "analyze", help = "Determine depende
         "--repository-configuration-file",
         help = "A file containing the repository configuration. If set the .ort.yml file from the repository will be " +
                 "ignored."
-    ).file(mustExist = true, canBeFile = true, canBeDir = false, mustBeWritable = false, mustBeReadable = true)
-        .convert { it.expandTilde() }
+    ).convert { it.expandTilde() }
+        .file(mustExist = true, canBeFile = true, canBeDir = false, mustBeWritable = false, mustBeReadable = true)
+
+    private val labels by option(
+        "--label", "-l",
+        help = "Add a label to the ORT result. Can be used multiple times. For example: --label distribution=external"
+    ).associate()
 
     override fun run() {
         val absoluteOutputDir = outputDir.normalize()
@@ -112,13 +121,13 @@ class AnalyzerCommand : CliktCommand(name = "analyze", help = "Determine depende
 
         val existingOutputFiles = outputFiles.filter { it.exists() }
         if (existingOutputFiles.isNotEmpty()) {
-            throw UsageError("None of the output files $existingOutputFiles must exist yet.", statusCode = 2)
+            throw UsageError("None of the output files $existingOutputFiles must exist yet.")
         }
 
-        val packageManagers = packageManagersOption.distinct()
+        val distinctPackageManagers = packageManagers.distinct()
 
         println("The following package managers are activated:")
-        println("\t" + packageManagers.joinToString(", "))
+        println("\t" + distinctPackageManagers.joinToString(", "))
 
         val absoluteInputDir = inputDir.normalize()
         println("Analyzing project path:\n\t$absoluteInputDir")
@@ -126,16 +135,18 @@ class AnalyzerCommand : CliktCommand(name = "analyze", help = "Determine depende
         val analyzerConfig = AnalyzerConfiguration(ignoreToolVersions, allowDynamicVersions)
         val analyzer = Analyzer(analyzerConfig)
 
+        val globalPackageCurationsFile = ortDataDirectory.resolve("config/curations.yml")
         val curationProvider = FallbackPackageCurationProvider(
             listOfNotNull(
                 packageCurationsFile?.let { FilePackageCurationProvider(it) },
+                globalPackageCurationsFile.takeIf { it.isFile }?.let { FilePackageCurationProvider(it) },
                 ClearlyDefinedPackageCurationProvider().takeIf { useClearlyDefinedCurations }
             )
         )
 
         val ortResult = analyzer.analyze(
-            absoluteInputDir, packageManagers, curationProvider, repositoryConfigurationFile
-        )
+            absoluteInputDir, distinctPackageManagers, curationProvider, repositoryConfigurationFile
+        ).mergeLabels(labels)
 
         println("Found ${ortResult.getProjects().size} project(s) in total.")
 
@@ -144,6 +155,18 @@ class AnalyzerCommand : CliktCommand(name = "analyze", help = "Determine depende
         outputFiles.forEach { file ->
             println("Writing analyzer result to '$file'.")
             file.mapper().writerWithDefaultPrettyPrinter().writeValue(file, ortResult)
+        }
+
+        val analyzerResult = ortResult.analyzer?.result
+
+        if (analyzerResult == null) {
+            println("There was an error creating the analyzer result.")
+            throw ProgramResult(1)
+        }
+
+        if (analyzerResult.hasIssues) {
+            println("The analyzer result contains issues.")
+            throw ProgramResult(2)
         }
     }
 }

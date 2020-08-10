@@ -33,6 +33,15 @@ dependencies {
     implementation(project(":utils"))
 
     implementation("com.jcraft:jsch.agentproxy.jsch:$jSchAgentProxyVersion")
+
+    // Force the generated Maven POM to use the same version of "jsch" Gradle resolves the version conflict to.
+    implementation("com.jcraft:jsch") {
+        version {
+            strictly("0.1.55")
+        }
+    }
+
     implementation("org.eclipse.jgit:org.eclipse.jgit:$jgitVersion")
+    implementation("org.eclipse.jgit:org.eclipse.jgit.ssh.jsch:$jgitVersion")
     implementation("org.tmatesoft.svnkit:svnkit:$svnkitVersion")
 }

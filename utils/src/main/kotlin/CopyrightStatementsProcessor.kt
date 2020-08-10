@@ -19,6 +19,9 @@
 
 package org.ossreviewtoolkit.utils
 
+import java.util.SortedMap
+import java.util.SortedSet
+
 private data class Parts(
     val prefix: String,
     val years: Set<Int>,
@@ -64,6 +67,7 @@ private fun Collection<Parts>.groupByPrefixAndOwner(): List<Parts> {
 class CopyrightStatementsProcessor {
     companion object {
         private const val YEAR_PLACEHOLDER = "<ORT_YEAR_PLACEHOLDER_TRO>"
+
         private val KNOWN_PREFIX_REGEX = listOf(
             "^(\\(c\\))",
             "^(\\(c\\) [C|c]opyright)",
@@ -80,6 +84,12 @@ class CopyrightStatementsProcessor {
             "^([P|p]ortions \\(c\\))",
             "^([P|p]ortions [C|c]opyright \\(c\\))"
         ).map { it.toRegex() }
+
+        private val PARTS_COMPARATOR = compareBy<Parts>(
+            { it.owner },
+            { prettyPrintYears(it.years) },
+            { it.prefix }
+        )
 
         private fun prettyPrintYears(years: Collection<Int>) =
             getYearRanges(years).joinToString(separator = ", ") { (fromYear, toYear) ->
@@ -105,17 +115,26 @@ class CopyrightStatementsProcessor {
     }
 
     data class Result(
-        val processedStatements: LinkedHashMap<String, List<String>>,
-        val unprocessedStatements: List<String>
+        /**
+         * The copyright statements that were processed by the [CopyrightStatementsProcessor], mapped to the original
+         * copyright statements. An original statement can be identical to the processed statement if the processor did
+         * process but not modify it.
+         */
+        val processedStatements: SortedMap<String, SortedSet<String>>,
+
+        /**
+         * The copyright statements that were ignored by the [CopyrightStatementsProcessor].
+         */
+        val unprocessedStatements: SortedSet<String>
     ) {
         fun getAllStatements(): Set<String> = (unprocessedStatements + processedStatements.keys).toSet()
     }
 
-    fun process(copyrightStatments: Collection<String>): Result {
-        val unprocessedStatements = mutableListOf<String>()
+    fun process(copyrightStatements: Collection<String>): Result {
+        val unprocessedStatements = sortedSetOf<String>()
         val processableStatements = mutableListOf<Parts>()
 
-        copyrightStatments.forEach {
+        copyrightStatements.forEach {
             val parts = determineParts(it)
             if (parts != null) {
                 processableStatements += parts
@@ -124,15 +143,9 @@ class CopyrightStatementsProcessor {
             }
         }
 
-        val mergedParts = processableStatements.groupByPrefixAndOwner().sortedWith(
-            compareBy(
-                { it.owner },
-                { prettyPrintYears(it.years) },
-                { it.prefix }
-            )
-        )
+        val mergedParts = processableStatements.groupByPrefixAndOwner().sortedWith(PARTS_COMPARATOR)
 
-        val processedStatements = linkedMapOf<String, List<String>>()
+        val processedStatements = sortedMapOf<String, SortedSet<String>>()
         mergedParts.forEach {
             if (it.owner.isNotEmpty()) {
                 val statement = buildString {
@@ -144,13 +157,13 @@ class CopyrightStatementsProcessor {
                     append(" ")
                     append(it.owner)
                 }
-                processedStatements[statement] = it.originalStatements.sorted()
+                processedStatements[statement] = it.originalStatements.toSortedSet()
             }
         }
 
         return Result(
-            unprocessedStatements = unprocessedStatements.toList().sorted(),
-            processedStatements = processedStatements
+            processedStatements = processedStatements,
+            unprocessedStatements = unprocessedStatements
         )
     }
 
@@ -184,7 +197,7 @@ class CopyrightStatementsProcessor {
     }
 
     private fun stripYears(copyrightStatement: String): Pair<String, Set<Int>> =
-        replaceYears(copyrightStatement, YEAR_PLACEHOLDER).let {
+        replaceYears(copyrightStatement).let {
             it.copy(first = it.first.replace(YEAR_PLACEHOLDER, ""))
         }
 
@@ -193,13 +206,13 @@ class CopyrightStatementsProcessor {
      * with a placeholder. While replacement is not necessary for implementing the needed functionality
      * it is helpful for debugging.
      */
-    private fun replaceYears(copyrightStatement: String, placeholder: String): Pair<String, Set<Int>> {
+    private fun replaceYears(copyrightStatement: String): Pair<String, Set<Int>> {
         val resultYears = mutableSetOf<Int>()
 
         // Fix up strings containing e.g.: 'copyright u'2013'
         var currentStatement = copyrightStatement.replace("(.*\\b)u'(\\d{4}\\b)".toRegex(), "$1$2")
 
-        val replaceRangeResult = replaceAllYearRanges(currentStatement, placeholder)
+        val replaceRangeResult = replaceAllYearRanges(currentStatement)
         currentStatement = replaceRangeResult.first
         resultYears += replaceRangeResult.second
 
@@ -209,7 +222,7 @@ class CopyrightStatementsProcessor {
 
         while (matchResult != null) {
             currentStatement = currentStatement.removeRange(matchResult.groups[2]!!.range)
-            currentStatement = currentStatement.replaceRange(matchResult.groups[1]!!.range, "$placeholder ")
+            currentStatement = currentStatement.replaceRange(matchResult.groups[1]!!.range, "$YEAR_PLACEHOLDER ")
             resultYears += matchResult.groups[1]!!.value.toInt()
 
             matchResult = commaSeparatedYearsRegex.find(currentStatement)
@@ -220,22 +233,22 @@ class CopyrightStatementsProcessor {
         matchResult = singleYearsRegex.find(currentStatement)
 
         while (matchResult != null) {
-            currentStatement = currentStatement.replaceRange(matchResult.groups[1]!!.range, placeholder)
+            currentStatement = currentStatement.replaceRange(matchResult.groups[1]!!.range, YEAR_PLACEHOLDER)
             resultYears += matchResult.groups[1]!!.value.toInt()
 
             matchResult = singleYearsRegex.find(currentStatement)
         }
 
-        currentStatement = currentStatement.replace("$placeholder $placeholder", placeholder)
+        currentStatement = currentStatement.replace("$YEAR_PLACEHOLDER $YEAR_PLACEHOLDER", YEAR_PLACEHOLDER)
         return Pair(currentStatement, resultYears)
     }
 
-    private fun replaceAllYearRanges(copyrightStatement: String, placeholder: String): Pair<String, Set<Int>> {
+    private fun replaceAllYearRanges(copyrightStatement: String): Pair<String, Set<Int>> {
         val years = mutableSetOf<Int>()
         var currentStatement = copyrightStatement
 
         while (true) {
-            val replaceResult = replaceYearRange(currentStatement, placeholder)
+            val replaceResult = replaceYearRange(currentStatement)
             if (replaceResult.second.isEmpty()) {
                 return Pair(currentStatement, years)
             }
@@ -244,7 +257,7 @@ class CopyrightStatementsProcessor {
         }
     }
 
-    private fun replaceYearRange(copyrightStatement: String, placeholder: String): Pair<String, Set<Int>> {
+    private fun replaceYearRange(copyrightStatement: String): Pair<String, Set<Int>> {
         val yearRangeRegex = "(?=.*)\\b([\\d]{4})([ ]*[-][ ]*)([\\d]{4}|[\\d]{2}|[\\d])\\b".toRegex()
 
         yearRangeRegex.findAll(copyrightStatement).forEach { matchResult ->
@@ -265,7 +278,7 @@ class CopyrightStatementsProcessor {
                     copyrightStatement
                         .removeRange(toGroup.range)
                         .removeRange(separatorGroup.range)
-                        .replaceRange(fromGroup.range, placeholder),
+                        .replaceRange(fromGroup.range, YEAR_PLACEHOLDER),
                     (fromYear..toYear).toSet()
                 )
             }

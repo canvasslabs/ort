@@ -20,6 +20,10 @@
 
 package org.ossreviewtoolkit.scanner
 
+import java.lang.IllegalArgumentException
+import java.sql.DriverManager
+import java.util.Properties
+
 import org.ossreviewtoolkit.model.AccessStatistics
 import org.ossreviewtoolkit.model.Failure
 import org.ossreviewtoolkit.model.Identifier
@@ -34,15 +38,11 @@ import org.ossreviewtoolkit.model.config.PostgresStorageConfiguration
 import org.ossreviewtoolkit.model.config.ScannerConfiguration
 import org.ossreviewtoolkit.scanner.storages.*
 import org.ossreviewtoolkit.utils.ORT_FULL_NAME
-import org.ossreviewtoolkit.utils.getUserOrtDirectory
 import org.ossreviewtoolkit.utils.log
+import org.ossreviewtoolkit.utils.ortDataDirectory
 import org.ossreviewtoolkit.utils.storage.HttpFileStorage
 import org.ossreviewtoolkit.utils.storage.LocalFileStorage
 import org.ossreviewtoolkit.utils.storage.XZCompressedLocalFileStorage
-
-import java.lang.IllegalArgumentException
-import java.sql.DriverManager
-import java.util.Properties
 
 /**
  * The abstract class that storage backends for scan results need to implement.
@@ -82,7 +82,7 @@ abstract class ScanResultsStorage {
         }
 
         private fun configureDefaultStorage() {
-            val localFileStorage = XZCompressedLocalFileStorage(getUserOrtDirectory().resolve("$TOOL_NAME/results"))
+            val localFileStorage = XZCompressedLocalFileStorage(ortDataDirectory.resolve("$TOOL_NAME/results"))
             val fileBasedStorage = FileBasedStorage(localFileStorage)
             storage = fileBasedStorage
         }

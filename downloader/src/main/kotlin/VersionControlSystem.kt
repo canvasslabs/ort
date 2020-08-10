@@ -19,6 +19,12 @@
 
 package org.ossreviewtoolkit.downloader
 
+import com.vdurmont.semver4j.Semver
+
+import java.io.File
+import java.io.IOException
+import java.util.ServiceLoader
+
 import org.ossreviewtoolkit.model.Package
 import org.ossreviewtoolkit.model.VcsInfo
 import org.ossreviewtoolkit.model.VcsType
@@ -26,12 +32,6 @@ import org.ossreviewtoolkit.utils.CommandLineTool
 import org.ossreviewtoolkit.utils.collectMessagesAsString
 import org.ossreviewtoolkit.utils.log
 import org.ossreviewtoolkit.utils.showStackTrace
-
-import com.vdurmont.semver4j.Semver
-
-import java.io.File
-import java.io.IOException
-import java.util.ServiceLoader
 
 abstract class VersionControlSystem {
     companion object {
@@ -195,8 +195,6 @@ abstract class VersionControlSystem {
         allowMovingRevisions: Boolean = false,
         recursive: Boolean = true
     ): WorkingTree {
-        log.info { "Using $type version ${getVersion()}." }
-
         val workingTree = try {
             initWorkingTree(targetDir, pkg.vcsProcessed)
         } catch (e: IOException) {
@@ -207,16 +205,16 @@ abstract class VersionControlSystem {
         // commit, but the repository still has a tag for the package version (pointing to a different commit). In order
         // to allow to fall back to the guessed revision based on the version in such cases, use a prioritized list of
         // revision candidates instead of a single revision.
-        val revisionCandidates = mutableListOf<String>()
+        val revisionCandidates = mutableSetOf<String>()
 
         try {
             pkg.vcsProcessed.revision.also {
                 if (it.isNotBlank() && (isFixedRevision(workingTree, it) || allowMovingRevisions)) {
-                    log.info {
-                        "Adding $type revision '$it' (taken from package meta-data) as a candidate."
+                    if (revisionCandidates.add(it)) {
+                        log.info {
+                            "Adding $type revision '$it' (taken from package meta-data) as a candidate."
+                        }
                     }
-
-                    revisionCandidates += it
                 }
             }
         } catch (e: IOException) {
@@ -229,11 +227,11 @@ abstract class VersionControlSystem {
 
         try {
             workingTree.guessRevisionName(pkg.id.name, pkg.id.version).also {
-                log.info {
-                    "Adding $type revision '$it' (guessed from version '${pkg.id.version}') as a candidate."
+                if (revisionCandidates.add(it)) {
+                    log.info {
+                        "Adding $type revision '$it' (guessed from version '${pkg.id.version}') as a candidate."
+                    }
                 }
-
-                revisionCandidates += it
             }
         } catch (e: IOException) {
             e.showStackTrace()

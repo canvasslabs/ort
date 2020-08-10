@@ -19,6 +19,15 @@
 
 package org.ossreviewtoolkit.downloader
 
+import io.kotest.core.spec.style.StringSpec
+import io.kotest.core.test.TestCase
+import io.kotest.core.test.TestResult
+import io.kotest.matchers.nulls.shouldBeNull
+import io.kotest.matchers.nulls.shouldNotBeNull
+import io.kotest.matchers.shouldBe
+
+import java.io.File
+
 import org.ossreviewtoolkit.model.Hash
 import org.ossreviewtoolkit.model.Identifier
 import org.ossreviewtoolkit.model.Package
@@ -28,14 +37,7 @@ import org.ossreviewtoolkit.model.VcsType
 import org.ossreviewtoolkit.utils.ORT_NAME
 import org.ossreviewtoolkit.utils.normalizeVcsUrl
 import org.ossreviewtoolkit.utils.safeDeleteRecursively
-
-import io.kotlintest.TestCase
-import io.kotlintest.TestResult
-import io.kotlintest.shouldBe
-import io.kotlintest.shouldNotBe
-import io.kotlintest.specs.StringSpec
-
-import java.io.File
+import org.ossreviewtoolkit.utils.test.shouldNotBeNull
 
 class BabelTest : StringSpec() {
     private lateinit var outputDir: File
@@ -77,11 +79,10 @@ class BabelTest : StringSpec() {
                 vcsProcessed = vcsMerged
             )
 
-            val downloadResult = Downloader().download(pkg, outputDir)
+            val downloadResult = Downloader.download(pkg, outputDir)
 
-            downloadResult.sourceArtifact shouldBe null
-            downloadResult.vcsInfo shouldNotBe null
-            with(downloadResult.vcsInfo!!) {
+            downloadResult.sourceArtifact.shouldBeNull()
+            downloadResult.vcsInfo shouldNotBeNull {
                 type shouldBe pkg.vcsProcessed.type
                 url shouldBe pkg.vcsProcessed.url
                 revision shouldBe "master"
@@ -91,13 +92,13 @@ class BabelTest : StringSpec() {
 
             val workingTree = VersionControlSystem.forDirectory(downloadResult.downloadDirectory)
 
-            workingTree shouldNotBe null
-            workingTree!!.isValid() shouldBe true
+            workingTree.shouldNotBeNull()
+            workingTree.isValid() shouldBe true
             workingTree.getRevision() shouldBe "cee4cde53e4f452d89229986b9368ecdb41e00da"
 
             val babelCliDir = File(downloadResult.downloadDirectory, "packages/babel-cli")
             babelCliDir.isDirectory shouldBe true
-            babelCliDir.walkTopDown().count() shouldBe 242
+            babelCliDir.walk().count() shouldBe 242
         }
     }
 }

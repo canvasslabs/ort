@@ -19,46 +19,40 @@
 
 package org.ossreviewtoolkit.utils
 
-import io.kotlintest.shouldBe
-import io.kotlintest.shouldNotBe
-import io.kotlintest.specs.WordSpec
+import io.kotest.core.spec.style.WordSpec
+import io.kotest.inspectors.forAll
+import io.kotest.matchers.collections.beEmpty
+import io.kotest.matchers.nulls.shouldBeNull
+import io.kotest.matchers.nulls.shouldNotBeNull
+import io.kotest.matchers.should
+import io.kotest.matchers.shouldBe
 
 import java.io.File
 import java.nio.file.Paths
 
 class UtilsTest : WordSpec({
-    "disjoint" should {
-        "return an empty set for collections that have no common elements" {
-            disjoint(setOf(1), setOf(2), setOf(3)) shouldBe emptySet()
-        }
-
-        "return the set of common elements for collections that have common elements" {
-            disjoint(setOf(1, 2), setOf(2, 3), setOf(3, 4)) shouldBe setOf(2, 3)
-        }
-    }
-
     "filterVersionNames" should {
         "return an empty list for a blank version" {
             val names = listOf("dummy")
 
-            filterVersionNames("", names) shouldBe emptyList()
-            filterVersionNames(" ", names) shouldBe emptyList()
+            filterVersionNames("", names) should beEmpty()
+            filterVersionNames(" ", names) should beEmpty()
         }
 
         "return an empty list for empty names" {
             val names = listOf("")
 
-            filterVersionNames("", names) shouldBe emptyList()
-            filterVersionNames(" ", names) shouldBe emptyList()
-            filterVersionNames("1.0", names) shouldBe emptyList()
+            filterVersionNames("", names) should beEmpty()
+            filterVersionNames(" ", names) should beEmpty()
+            filterVersionNames("1.0", names) should beEmpty()
         }
 
         "return an empty list for blank names" {
             val names = listOf(" ")
 
-            filterVersionNames("", names) shouldBe emptyList()
-            filterVersionNames(" ", names) shouldBe emptyList()
-            filterVersionNames("1.0", names) shouldBe emptyList()
+            filterVersionNames("", names) should beEmpty()
+            filterVersionNames(" ", names) should beEmpty()
+            filterVersionNames("1.0", names) should beEmpty()
         }
 
         "find names separated by underscores" {
@@ -215,12 +209,12 @@ class UtilsTest : WordSpec({
 
     "getCommonFileParent" should {
         "return null for an empty list" {
-            getCommonFileParent(emptyList()) shouldBe null
+            getCommonFileParent(emptyList()).shouldBeNull()
         }
 
         "return null for files that have no directory in common".config(enabled = Os.isWindows) {
             // On non-Windows, all files have the root directory in common.
-            getCommonFileParent(listOf(File("C:/foo"), File("D:/bar"))) shouldBe null
+            getCommonFileParent(listOf(File("C:/foo"), File("D:/bar"))).shouldBeNull()
         }
 
         "return the absolute common directory for relative files" {
@@ -236,23 +230,23 @@ class UtilsTest : WordSpec({
         "find system executables on Windows".config(enabled = Os.isWindows) {
             val winverPath = File(Os.env["SYSTEMROOT"], "system32/winver.exe")
 
-            getPathFromEnvironment("winver") shouldNotBe null
+            getPathFromEnvironment("winver").shouldNotBeNull()
             getPathFromEnvironment("winver") shouldBe winverPath
 
-            getPathFromEnvironment("winver.exe") shouldNotBe null
+            getPathFromEnvironment("winver.exe").shouldNotBeNull()
             getPathFromEnvironment("winver.exe") shouldBe winverPath
 
-            getPathFromEnvironment("") shouldBe null
-            getPathFromEnvironment("*") shouldBe null
-            getPathFromEnvironment("nul") shouldBe null
+            getPathFromEnvironment("").shouldBeNull()
+            getPathFromEnvironment("*").shouldBeNull()
+            getPathFromEnvironment("nul").shouldBeNull()
         }
 
         "find system executables on non-Windows".config(enabled = !Os.isWindows) {
-            getPathFromEnvironment("sh") shouldNotBe null
+            getPathFromEnvironment("sh").shouldNotBeNull()
             getPathFromEnvironment("sh") shouldBe File("/bin/sh")
 
-            getPathFromEnvironment("") shouldBe null
-            getPathFromEnvironment("/") shouldBe null
+            getPathFromEnvironment("").shouldBeNull()
+            getPathFromEnvironment("/").shouldBeNull()
         }
     }
 
@@ -271,7 +265,7 @@ class UtilsTest : WordSpec({
                         to "https://github.com/DefinitelyTyped/DefinitelyTyped.git"
             )
 
-            packages.forEach { (actualUrl, expectedUrl) ->
+            packages.entries.forAll { (actualUrl, expectedUrl) ->
                 normalizeVcsUrl(actualUrl) shouldBe expectedUrl
             }
         }
@@ -286,7 +280,7 @@ class UtilsTest : WordSpec({
                         to "ssh://user@gerrit.server.com:29418/parent/project"
             )
 
-            packages.forEach { (actualUrl, expectedUrl) ->
+            packages.entries.forAll { (actualUrl, expectedUrl) ->
                 normalizeVcsUrl(actualUrl) shouldBe expectedUrl
             }
         }
@@ -297,7 +291,7 @@ class UtilsTest : WordSpec({
                         to "https://github.com/leanovate/play-mockws.git"
             )
 
-            packages.forEach { (actualUrl, expectedUrl) ->
+            packages.entries.forAll { (actualUrl, expectedUrl) ->
                 normalizeVcsUrl(actualUrl) shouldBe expectedUrl
             }
         }
@@ -310,7 +304,7 @@ class UtilsTest : WordSpec({
                         to "https://github.com/isaacs/inherits.git"
             )
 
-            packages.forEach { (actualUrl, expectedUrl) ->
+            packages.entries.forAll { (actualUrl, expectedUrl) ->
                 normalizeVcsUrl(actualUrl) shouldBe expectedUrl
             }
         }
@@ -323,7 +317,7 @@ class UtilsTest : WordSpec({
                         to "ssh://git@github.com/heremaps/here-aaa-java-sdk.git"
             )
 
-            packages.forEach { (actualUrl, expectedUrl) ->
+            packages.entries.forAll { (actualUrl, expectedUrl) ->
                 normalizeVcsUrl(actualUrl) shouldBe expectedUrl
             }
         }
@@ -336,7 +330,7 @@ class UtilsTest : WordSpec({
                         to "https://github.com/isaacs/inherits.git"
             )
 
-            packages.forEach { (actualUrl, expectedUrl) ->
+            packages.entries.forAll { (actualUrl, expectedUrl) ->
                 normalizeVcsUrl(actualUrl) shouldBe expectedUrl
             }
         }
@@ -364,7 +358,7 @@ class UtilsTest : WordSpec({
                         to "file://${userRoot}absolute/path/to/local/dir"
             )
 
-            packages.forEach { (actualUrl, expectedUrl) ->
+            packages.entries.forAll { (actualUrl, expectedUrl) ->
                 normalizeVcsUrl(actualUrl) shouldBe expectedUrl
             }
         }
@@ -377,7 +371,7 @@ class UtilsTest : WordSpec({
                         to "https://github.com/netty/netty.git/netty-buffer"
             )
 
-            packages.forEach { (actualUrl, expectedUrl) ->
+            packages.entries.forAll { (actualUrl, expectedUrl) ->
                 normalizeVcsUrl(actualUrl) shouldBe expectedUrl
             }
         }
@@ -388,7 +382,7 @@ class UtilsTest : WordSpec({
                         to "svn+ssh://svn.code.sf.net/p/stddecimal/code/trunk"
             )
 
-            packages.forEach { (actualUrl, expectedUrl) ->
+            packages.entries.forAll { (actualUrl, expectedUrl) ->
                 normalizeVcsUrl(actualUrl) shouldBe expectedUrl
             }
         }
@@ -401,7 +395,7 @@ class UtilsTest : WordSpec({
                         to "https://github.com/hacksparrow/node-easyimage.git"
             )
 
-            packages.forEach { (actualUrl, expectedUrl) ->
+            packages.entries.forAll { (actualUrl, expectedUrl) ->
                 normalizeVcsUrl(actualUrl) shouldBe expectedUrl
             }
         }

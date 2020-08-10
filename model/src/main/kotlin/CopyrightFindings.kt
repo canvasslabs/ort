@@ -19,9 +19,9 @@
 
 package org.ossreviewtoolkit.model
 
-import org.ossreviewtoolkit.utils.SortedSetComparator
-
 import java.util.SortedSet
+
+import org.ossreviewtoolkit.utils.SortedSetComparator
 
 // TODO: This class currently co-exists with the singular form class [CopyrightFinding] which can be confusing.
 // The singular classes [CopyrightFinding] and [LicenseFinding] are the model of the scanner module while the plural
@@ -38,13 +38,9 @@ data class CopyrightFindings(
 ) : Comparable<CopyrightFindings> {
     companion object {
         val SORTED_SET_COMPARATOR = SortedSetComparator<CopyrightFindings>()
+        private val COMPARATOR = compareBy(CopyrightFindings::statement)
+                .thenBy(TextLocation.SORTED_SET_COMPARATOR, CopyrightFindings::locations)
     }
 
-    override fun compareTo(other: CopyrightFindings) =
-        compareValuesBy(
-            this,
-            other,
-            compareBy(CopyrightFindings::statement)
-                .thenBy(TextLocation.SORTED_SET_COMPARATOR, CopyrightFindings::locations)
-        ) { it }
+    override fun compareTo(other: CopyrightFindings) = COMPARATOR.compare(this, other)
 }

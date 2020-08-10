@@ -19,13 +19,13 @@
 
 package org.ossreviewtoolkit.spdx
 
-import io.kotlintest.matchers.endWith
-import io.kotlintest.matchers.startWith
-import io.kotlintest.matchers.string.include
-import io.kotlintest.should
-import io.kotlintest.shouldBe
-import io.kotlintest.shouldNotBe
-import io.kotlintest.specs.WordSpec
+import io.kotest.core.spec.style.WordSpec
+import io.kotest.matchers.nulls.shouldNotBeNull
+import io.kotest.matchers.should
+import io.kotest.matchers.shouldBe
+import io.kotest.matchers.string.endWith
+import io.kotest.matchers.string.include
+import io.kotest.matchers.string.startWith
 
 class SpdxLicenseTest : WordSpec({
     "The license lookup" should {
@@ -41,8 +41,8 @@ class SpdxLicenseTest : WordSpec({
     "The license text" should {
         "be correct for 'or later' GPL ids" {
             val gpl10OrLater = SpdxLicense.forId("GPL-1.0+")
-            gpl10OrLater shouldNotBe null
-            val gpl10OrLaterText = gpl10OrLater!!.text.replace("\n", " ").trimEnd()
+            gpl10OrLater.shouldNotBeNull()
+            val gpl10OrLaterText = gpl10OrLater.text.replace("\n", " ").trimEnd()
             gpl10OrLaterText should startWith(
                 "This program is free software; you can redistribute it and/or modify it " +
                         "under the terms of the GNU General Public License"
@@ -51,8 +51,8 @@ class SpdxLicenseTest : WordSpec({
             gpl10OrLaterText should endWith("That's all there is to it!")
 
             val gpl20OrLater = SpdxLicense.forId("GPL-2.0-or-later")
-            gpl20OrLater shouldNotBe null
-            val gpl20OrLaterText = gpl20OrLater!!.text.replace("\n", " ").trimEnd()
+            gpl20OrLater.shouldNotBeNull()
+            val gpl20OrLaterText = gpl20OrLater.text.replace("\n", " ").trimEnd()
             gpl20OrLaterText should startWith(
                 "This program is free software; you can redistribute it and/or modify it " +
                         "under the terms of the GNU General Public License"
@@ -66,8 +66,8 @@ class SpdxLicenseTest : WordSpec({
 
         "be correct for 'or later' non-GPL ids" {
             val gfdl11OrLater = SpdxLicense.forId("GFDL-1.1-or-later")
-            gfdl11OrLater shouldNotBe null
-            gfdl11OrLater!!.text shouldBe javaClass.getResource("/licenses/GFDL-1.1-or-later").readText()
+            gfdl11OrLater.shouldNotBeNull()
+            gfdl11OrLater.text shouldBe javaClass.getResource("/licenses/GFDL-1.1-or-later").readText()
         }
     }
 })

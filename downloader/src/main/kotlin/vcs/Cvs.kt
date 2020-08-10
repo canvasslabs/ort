@@ -19,6 +19,10 @@
 
 package org.ossreviewtoolkit.downloader.vcs
 
+import java.io.File
+import java.security.MessageDigest
+import java.util.regex.Pattern
+
 import org.ossreviewtoolkit.downloader.VersionControlSystem
 import org.ossreviewtoolkit.downloader.WorkingTree
 import org.ossreviewtoolkit.model.VcsInfo
@@ -28,10 +32,6 @@ import org.ossreviewtoolkit.utils.ProcessCapture
 import org.ossreviewtoolkit.utils.safeDeleteRecursively
 import org.ossreviewtoolkit.utils.searchUpwardsForSubdirectory
 import org.ossreviewtoolkit.utils.toHexString
-
-import java.io.File
-import java.security.MessageDigest
-import java.util.regex.Pattern
 
 typealias CvsFileRevisions = List<Pair<String, String>>
 
@@ -44,7 +44,7 @@ class Cvs : VersionControlSystem(), CommandLineTool {
 
     override fun command(workingDir: File?) = "cvs"
 
-    override fun getVersion() = super.getVersion(null)
+    override fun getVersion() = getVersion(null)
 
     override fun transformVersion(output: String) =
         versionRegex.matcher(output.lineSequence().first()).let {
@@ -138,9 +138,9 @@ class Cvs : VersionControlSystem(), CommandLineTool {
                     }.toMap().toSortedMap()
                 } finally {
                     // Clean the temporarily updated working tree again.
-                    workingDir.listFiles().forEach {
+                    workingDir.walk().maxDepth(1).forEach {
                         if (it.isDirectory) {
-                            if (it.name != "CVS") it.safeDeleteRecursively()
+                            if (it != workingDir && it.name != "CVS") it.safeDeleteRecursively()
                         } else {
                             it.delete()
                         }

@@ -19,115 +19,126 @@
 
 package org.ossreviewtoolkit.helper.commands
 
-import com.beust.jcommander.JCommander
-import com.beust.jcommander.Parameter
-import com.beust.jcommander.Parameters
+import com.github.ajalt.clikt.core.CliktCommand
+import com.github.ajalt.clikt.core.UsageError
+import com.github.ajalt.clikt.parameters.groups.mutuallyExclusiveOptions
+import com.github.ajalt.clikt.parameters.groups.single
+import com.github.ajalt.clikt.parameters.options.convert
+import com.github.ajalt.clikt.parameters.options.default
+import com.github.ajalt.clikt.parameters.options.flag
+import com.github.ajalt.clikt.parameters.options.option
+import com.github.ajalt.clikt.parameters.options.required
+import com.github.ajalt.clikt.parameters.options.split
+import com.github.ajalt.clikt.parameters.types.enum
+import com.github.ajalt.clikt.parameters.types.file
 
-import org.ossreviewtoolkit.helper.CommandWithHelp
-import org.ossreviewtoolkit.helper.common.IdentifierConverter
+import java.io.File
+import java.lang.IllegalArgumentException
+
+import org.ossreviewtoolkit.helper.common.PackageConfigurationOption
+import org.ossreviewtoolkit.helper.common.createProvider
 import org.ossreviewtoolkit.helper.common.fetchScannedSources
 import org.ossreviewtoolkit.helper.common.getLicenseFindingsById
 import org.ossreviewtoolkit.helper.common.getPackageOrProject
 import org.ossreviewtoolkit.helper.common.getViolatedRulesByLicense
+import org.ossreviewtoolkit.helper.common.replaceConfig
 import org.ossreviewtoolkit.model.Identifier
 import org.ossreviewtoolkit.model.OrtResult
+import org.ossreviewtoolkit.model.Provenance
 import org.ossreviewtoolkit.model.Severity
 import org.ossreviewtoolkit.model.TextLocation
 import org.ossreviewtoolkit.model.readValue
-import org.ossreviewtoolkit.utils.PARAMETER_ORDER_MANDATORY
-import org.ossreviewtoolkit.utils.PARAMETER_ORDER_OPTIONAL
+import org.ossreviewtoolkit.spdx.SpdxSingleLicenseExpression
+import org.ossreviewtoolkit.utils.expandTilde
 
-import java.io.File
+internal class ListLicensesCommand : CliktCommand(
+    help = "Lists the license findings for a given package as distinct text locations."
+) {
+    private val ortResultFile by option(
+        "--ort-result-file",
+        help = "The ORT result file to read as input."
+    ).convert { it.expandTilde() }
+        .file(mustExist = true, canBeFile = true, canBeDir = false, mustBeWritable = false, mustBeReadable = true)
+        .required()
 
-@Parameters(
-    commandNames = ["list-licenses"],
-    commandDescription = "Lists the license findings for a given package as distinct text locations."
-)
-internal class ListLicensesCommand : CommandWithHelp() {
-    @Parameter(
-        names = ["--ort-result-file"],
-        required = true,
-        order = PARAMETER_ORDER_MANDATORY,
-        description = "The ORT result file to read as input."
-    )
-    private lateinit var ortResultFile: File
+    private val packageId by option(
+        "--package-id",
+        help = "The target package for which the licenses shall be listed."
+    ).convert { Identifier(it) }
+        .required()
 
-    @Parameter(
-        names = ["--package-id"],
-        required = true,
-        order = PARAMETER_ORDER_MANDATORY,
-        converter = IdentifierConverter::class,
-        description = "The target package for which the licenses shall be listed."
-    )
-    private lateinit var packageId: Identifier
+    private val sourceCodeDir by option(
+        "--source-code-dir",
+        help = "A directory containing the sources for the target package. These sources should match the provenance " +
+                "of the respective scan result in the ORT result. If not specified those sources are downloaded if " +
+                "needed."
+    ).convert { it.expandTilde() }
+        .file(mustExist = true, canBeFile = false, canBeDir = true, mustBeWritable = false, mustBeReadable = true)
 
-    @Parameter(
-        names = ["--source-code-dir"],
-        required = false,
-        order = PARAMETER_ORDER_OPTIONAL,
-        description = "A directory containing the sources for the target package. These sources should match " +
-                "the provenance of the respective scan result in the ORT result. If not specified those sources " +
-                "are downloaded if needed."
-    )
-    private var sourceCodeDir: File? = null
+    private val offendingOnly by option(
+        "--offending-only",
+        help = "Only list licenses causing a rule violation of severity specified severity, see --severity."
+    ).flag()
 
-    @Parameter(
-        names = ["--only-offending"],
-        required = false,
-        order = PARAMETER_ORDER_OPTIONAL,
-        description = "Only list licenses causing a rule violation of error severity in the given ORT result."
-    )
-    private var onlyOffending: Boolean = false
+    private val offendingSeverity by option(
+        "--offending-severity",
+        help = "Set the severities to use filtering enabled by --offending-only, specified as comma-separated " +
+                "values. Allowed values: ERROR,WARNING,HINT."
+    ).enum<Severity>().split(",").default(enumValues<Severity>().asList())
 
-    @Parameter(
-        names = ["--omit-excluded"],
-        required = false,
-        order = PARAMETER_ORDER_OPTIONAL,
-        description = "Only list license findings for non-excluded file locations."
-    )
-    private var omitExcluded: Boolean = false
+    private val omitExcluded by option(
+        "--omit-excluded",
+        help = "Only list license findings for non-excluded file locations."
+    ).flag()
 
-    @Parameter(
-        names = ["--ignore-excluded-rule-ids"],
-        required = false,
-        order = PARAMETER_ORDER_OPTIONAL,
-        description = "A comma separated list of rule names for which --omit-excluded should not have any effect."
-    )
-    private var ignoreExcludedRuleIds: List<String> = emptyList()
+    private val ignoreExcludedRuleIds by option(
+        "--ignore-excluded-rule-ids",
+        help = "A comma separated list of rule names for which --omit-excluded should not have any effect."
+    ).split(",").default(emptyList())
 
-    @Parameter(
-        names = ["--no-license-texts"],
-        required = false,
-        order = PARAMETER_ORDER_OPTIONAL,
-        description = "Do not output the actual file content of file locations of license findings."
-    )
-    private var noLicenseTexts: Boolean = false
+    private val noLicenseTexts by option(
+        "--no-license-texts",
+        help = "Do not output the actual file content of file locations of license findings."
+    ).flag()
 
-    @Parameter(
-        names = ["--apply-license-finding-curations"],
-        required = false,
-        order = PARAMETER_ORDER_OPTIONAL,
-        description = "Apply the license finding curations contained in the ORT result."
-    )
-    private var applyLicenseFindingCurations: Boolean = false
+    private val applyLicenseFindingCurations by option(
+        "--apply-license-finding-curations",
+        help = "Apply the license finding curations contained in the ORT result."
+    ).flag()
 
-    @Parameter(
-        names = ["--repository-configuration-file"],
-        required = false,
-        order = PARAMETER_ORDER_OPTIONAL,
-        description = "Override the repository configuration contained in the ORT result."
-    )
-    private var repositoryConfigurationFile: File? = null
+    private val decomposeLicenseExpressions by option(
+        "--decompose-license-expressions",
+        help = "Decompose SPDX license expressions into its single licenses components and list the findings for " +
+                "each single license separately."
+    ).flag()
 
-    override fun runCommand(jc: JCommander): Int {
-        var ortResult = ortResultFile.readValue<OrtResult>()
+    private val repositoryConfigurationFile by option(
+        "--repository-configuration-file",
+        help = "Override the repository configuration contained in the ORT result."
+    ).convert { it.expandTilde() }
+        .file(mustExist = true, canBeFile = true, canBeDir = false, mustBeWritable = false, mustBeReadable = true)
+
+    private val packageConfigurationOption by mutuallyExclusiveOptions<PackageConfigurationOption>(
+        option(
+            "--package-configuration-dir",
+            help = "The directory containing the package configuration files to read as input. It is searched " +
+                    "recursively."
+        ).convert { it.expandTilde() }
+            .file(mustExist = true, canBeFile = false, canBeDir = true, mustBeWritable = false, mustBeReadable = true)
+            .convert { PackageConfigurationOption.Dir(it) },
+        option(
+            "--package-configuration-file",
+            help = "The file containing the package configurations to read as input."
+        ).convert { it.expandTilde() }
+            .file(mustExist = true, canBeFile = true, canBeDir = false, mustBeWritable = false, mustBeReadable = true)
+            .convert { PackageConfigurationOption.File(it) }
+    ).single()
+
+    override fun run() {
+        val ortResult = ortResultFile.readValue<OrtResult>().replaceConfig(repositoryConfigurationFile)
+
         if (ortResult.getPackageOrProject(packageId) == null) {
-            println("Could not find a package for the given id `$packageId`.")
-            return 2
-        }
-
-        repositoryConfigurationFile?.let {
-            ortResult = ortResult.replaceConfig(it.readValue())
+            throw UsageError("Could not find a package for the given id `$packageId`.")
         }
 
         val sourcesDir = if (sourceCodeDir == null) {
@@ -136,38 +147,67 @@ internal class ListLicensesCommand : CommandWithHelp() {
         } else {
             sourceCodeDir!!
         }
-        val violatedRulesByLicense = ortResult.getViolatedRulesByLicense(packageId, Severity.ERROR)
 
-        fun isPathExcluded(path: String) = ortResult.repository.config.excludes.findPathExcludes(path).isNotEmpty()
+        val packageConfigurationProvider = packageConfigurationOption.createProvider()
 
-        ortResult
-            .getLicenseFindingsById(packageId, applyLicenseFindingCurations)
-            .filter { (license, _) -> !onlyOffending || violatedRulesByLicense.contains(license) }
-            .mapValues { (license, locations) ->
-                locations.filter {
-                    !omitExcluded || !isPathExcluded(it.path) ||
-                            ignoreExcludedRuleIds.intersect(violatedRulesByLicense[license].orEmpty()).isNotEmpty()
-                }
-            }
-            .mapValues { it.value.groupByText(sourcesDir) }
-            .writeValueAsString(
-                isPathExcluded = { path -> isPathExcluded(path) },
-                includeLicenseTexts = !noLicenseTexts
+        fun isPathExcluded(provenance: Provenance, path: String): Boolean =
+            if (ortResult.isProject(packageId)) {
+                ortResult.getExcludes().paths
+            } else {
+                packageConfigurationProvider.getPackageConfiguration(packageId, provenance)?.pathExcludes.orEmpty()
+            }.any { it.matches(path) }
+
+        val violatedRulesByLicense = ortResult.getViolatedRulesByLicense(packageId, offendingSeverity)
+
+        val findingsByProvenance = ortResult
+            .getLicenseFindingsById(
+                packageId,
+                packageConfigurationProvider,
+                applyLicenseFindingCurations,
+                decomposeLicenseExpressions
             )
-            .let { println(it) }
+            .mapValues { (provenance, locationsByLicense) ->
+                locationsByLicense.filter { (license, _) ->
+                    !offendingOnly || violatedRulesByLicense.contains(license)
+                }.mapValues { (license, locations) ->
+                    locations.filter {
+                        !omitExcluded || !isPathExcluded(provenance, it.path) ||
+                                ignoreExcludedRuleIds.intersect(violatedRulesByLicense[license].orEmpty()).isNotEmpty()
+                    }
+                }.mapValues { (_, locations) ->
+                    locations.groupByText(sourcesDir)
+                }.filter { (_, locations) -> locations.isNotEmpty() }
+            }
 
-        return 0
+        buildString {
+            appendln("  scan results:")
+            findingsByProvenance.keys.forEachIndexed { i, provenance ->
+                appendln("    [$i] ${provenance.writeValueAsString()}")
+            }
+        }.also { println(it) }
+
+        findingsByProvenance.keys.forEachIndexed { i, provenance ->
+            findingsByProvenance.getValue(provenance).writeValueAsString(
+                isPathExcluded = { path -> isPathExcluded(provenance, path) },
+                provenanceIndex = i,
+                includeLicenseTexts = !noLicenseTexts
+            ).also { println(it) }
+        }
     }
 }
 
 private data class TextLocationGroup(
     val locations: Set<TextLocation>,
     val text: String? = null
-)
+) {
+    companion object {
+        val COMPARATOR = compareBy<TextLocationGroup>({ it.text == null }, { -it.locations.size })
+    }
+}
 
 private fun Collection<TextLocationGroup>.assignReferenceNameAndSort(): List<Pair<TextLocationGroup, String>> {
     var i = 0
-    return sortedWith(compareBy({ it.text == null }, { -it.locations.size }))
+    return sortedWith(TextLocationGroup.COMPARATOR)
         .map {
             if (it.text != null) {
                 Pair(it, "${i++}")
@@ -177,8 +217,9 @@ private fun Collection<TextLocationGroup>.assignReferenceNameAndSort(): List<Pai
         }
 }
 
-private fun Map<String, List<TextLocationGroup>>.writeValueAsString(
+private fun Map<SpdxSingleLicenseExpression, List<TextLocationGroup>>.writeValueAsString(
     isPathExcluded: (String) -> Boolean,
+    provenanceIndex: Int,
     includeLicenseTexts: Boolean = true
 ): String {
     return buildString {
@@ -188,7 +229,7 @@ private fun Map<String, List<TextLocationGroup>>.writeValueAsString(
         }
 
         this@writeValueAsString.forEach { (license, textLocationGroups) ->
-            appendlnIndent("$license:", 2)
+            appendlnIndent("$license [$provenanceIndex]:", 2)
 
             val sortedGroups = textLocationGroups.assignReferenceNameAndSort()
             sortedGroups.forEach { (group, name) ->
@@ -239,3 +280,14 @@ private fun TextLocation.resolve(baseDir: File): String? {
 
     return lines.subList(startLine - 1, endLine).joinToString(separator = "\n")
 }
+
+/**
+ * Return a representation dedicated for this [ListLicensesCommand] command which is more compact than the
+ * representation returned by [Provenance.toString()], does not have any nesting and omits some irrelevant fields.
+ */
+private fun Provenance.writeValueAsString(): String =
+    sourceArtifact?.let {
+        "url=${it.url}, hash=${it.hash.value}"
+    } ?: vcsInfo?.let {
+        "type=${it.type}, url=${it.url}, path=${it.path}, revision=${it.resolvedRevision}"
+    } ?: throw IllegalArgumentException("Provenance must have either a non-null source artifact or VCS info.")

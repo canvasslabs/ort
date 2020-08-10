@@ -25,6 +25,7 @@ import com.fasterxml.jackson.annotation.JsonInclude
 import org.ossreviewtoolkit.spdx.SpdxDeclaredLicenseMapping
 import org.ossreviewtoolkit.spdx.SpdxException
 import org.ossreviewtoolkit.spdx.SpdxExpression
+import org.ossreviewtoolkit.spdx.toSpdx
 
 object DeclaredLicenseProcessor {
     private val urlPrefixesToRemove = listOf(
@@ -33,6 +34,7 @@ object DeclaredLicenseProcessor {
         "gnu.org/licenses/",
         "licenses.nuget.org/",
         "opensource.org/licenses/",
+        "spdx.dev/licenses/",
         "spdx.org/licenses/",
         "tldrlegal.com/license/"
     ).flatMap {
@@ -63,24 +65,31 @@ object DeclaredLicenseProcessor {
     fun process(declaredLicense: String): SpdxExpression? {
         val licenseWithoutPrefixOrSuffix = preprocess(declaredLicense)
         val mappedLicense = SpdxDeclaredLicenseMapping.map(licenseWithoutPrefixOrSuffix)
-        return (mappedLicense ?: parseLicense(licenseWithoutPrefixOrSuffix))?.normalize()
+        return (mappedLicense ?: parseLicense(licenseWithoutPrefixOrSuffix))?.normalize()?.takeIf { it.isValid() }
     }
 
     fun process(declaredLicenses: Collection<String>): ProcessedDeclaredLicense {
-        val processedLicenses = mutableSetOf<SpdxExpression>()
+        val processedLicenses = mutableMapOf<String, SpdxExpression>()
         val unmapped = mutableListOf<String>()
 
-        declaredLicenses.forEach { declaredLicense ->
-            process(declaredLicense)?.let { processedLicenses += it } ?: run { unmapped += declaredLicense }
+        declaredLicenses.distinct().forEach { declaredLicense ->
+            process(declaredLicense)?.let {
+                processedLicenses[declaredLicense] = it
+            } ?: run { unmapped += declaredLicense }
         }
 
-        val spdxExpression = processedLicenses.takeUnless { it.isEmpty() }?.reduce { left, right -> left and right }
-        return ProcessedDeclaredLicense(spdxExpression, unmapped)
+        val spdxExpression = processedLicenses.values.distinct().takeUnless { it.isEmpty() }
+            ?.reduce { left, right -> left and right }
+        val mapped = processedLicenses.filterNot { (key, value) ->
+            key.removeSurrounding("(", ")") == value.toString()
+        }
+
+        return ProcessedDeclaredLicense(spdxExpression, mapped, unmapped)
     }
 
     private fun parseLicense(declaredLicense: String) =
         try {
-            SpdxExpression.parse(declaredLicense, SpdxExpression.Strictness.ALLOW_ANY)
+            declaredLicense.toSpdx()
         } catch (e: SpdxException) {
             log.debug { "Could not parse declared license '$declaredLicense': ${e.collectMessagesAsString()}" }
             null
@@ -95,6 +104,13 @@ data class ProcessedDeclaredLicense(
     val spdxExpression: SpdxExpression?,
 
     /**
+     * A map from the original declared license strings to the SPDX expressions they were mapped to. If the original
+     * declared license string and the processed declared license are identical they are not contained in this map.
+     */
+    @JsonInclude(JsonInclude.Include.NON_EMPTY)
+    val mapped: Map<String, SpdxExpression> = emptyMap(),
+
+    /**
      * Declared licenses that could not be mapped to an SPDX expression.
      */
     @JsonInclude(JsonInclude.Include.NON_EMPTY)
@@ -104,6 +120,7 @@ data class ProcessedDeclaredLicense(
         @JvmField
         val EMPTY = ProcessedDeclaredLicense(
             spdxExpression = null,
+            mapped = emptyMap(),
             unmapped = emptyList()
         )
     }

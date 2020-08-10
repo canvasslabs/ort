@@ -3,8 +3,8 @@
 The items below can be configured by adding an `.ort.yml` file
 to the root of the source code repository.
 
-* [excludes](#excludes) - Mark [files, directories](#excluding-paths).
-  or [package manager scopes](#excluding-scopes) as not included in released artifacts
+* [excludes](#excludes) - Mark [files, directories](#excluding-paths)
+  or [package manager scopes](#excluding-scopes) as not included in released artifacts.
 * [license finding curations](#curations): Overwrite scan results to correct identified licenses.
 * [resolutions](#resolutions) - Resolve any issues or policy rule violations.
 
@@ -42,7 +42,7 @@ To be able to show why a part is excluded, each exclude must include an explanat
 The explanation consists of:
 
 * `reason` -- must be selected from a predefined list of options.
-* `comment` -- free text that provides an additional explanation.
+* `comment` -- free text that provides an optional explanation.
 
 ### Excluding Paths
 
@@ -54,7 +54,7 @@ The code below shows the structure of a path exclude in the `.ort.yml` file:
 excludes:
   paths:
   - pattern: "A glob pattern matching files or paths."
-    reason: "One of PathExcludeReason e.g. BUILD_TOOL_OF or DOCUMENTATION_OF."
+    reason: "One of PathExcludeReason e.g. BUILD_TOOL_OF, DOCUMENTATION_OF or TEST_OF."
     comment: "A comment further explaining why the path is excluded."
 ```
 
@@ -74,7 +74,7 @@ The path exclude above has the following effects:
 excludes:
   paths:
   - pattern: "test-data/**"
-    reason: "TEST_DEPENDENCY_OF"
+    reason: "TEST_OF"
     comment: "This directory contains test data which are not distributed."
 ```
 
@@ -129,7 +129,7 @@ Note that you must verify that the scopes defined in the examples below match th
 
 Project-specific curations should be used when you want to correct the licenses detected in the source code of the
 project. If you need to correct the license findings for a third-party dependency then add a curation to
-[curations.yml](config-file-curations-yml.md).
+[curations.yml](config-file-curations-yml.md) or [package configuration](config-file-package-configuration-yml.md).
 
 ### Curating License Findings
 

@@ -21,25 +21,6 @@ package org.ossreviewtoolkit.scanner.scanners
 
 import com.fasterxml.jackson.databind.JsonNode
 
-import org.ossreviewtoolkit.model.EMPTY_JSON_NODE
-import org.ossreviewtoolkit.model.LicenseFinding
-import org.ossreviewtoolkit.model.Provenance
-import org.ossreviewtoolkit.model.ScanResult
-import org.ossreviewtoolkit.model.ScanSummary
-import org.ossreviewtoolkit.model.TextLocation
-import org.ossreviewtoolkit.model.config.ScannerConfiguration
-import org.ossreviewtoolkit.model.yamlMapper
-import org.ossreviewtoolkit.scanner.AbstractScannerFactory
-import org.ossreviewtoolkit.scanner.HTTP_CACHE_PATH
-import org.ossreviewtoolkit.scanner.LocalScanner
-import org.ossreviewtoolkit.scanner.ScanException
-import org.ossreviewtoolkit.spdx.calculatePackageVerificationCode
-import org.ossreviewtoolkit.utils.ORT_NAME
-import org.ossreviewtoolkit.utils.Os
-import org.ossreviewtoolkit.utils.OkHttpClientHelper
-import org.ossreviewtoolkit.utils.ProcessCapture
-import org.ossreviewtoolkit.utils.log
-
 import java.io.File
 import java.io.IOException
 import java.net.HttpURLConnection
@@ -49,6 +30,24 @@ import okhttp3.Request
 
 import okio.buffer
 import okio.sink
+
+import org.ossreviewtoolkit.model.EMPTY_JSON_NODE
+import org.ossreviewtoolkit.model.LicenseFinding
+import org.ossreviewtoolkit.model.Provenance
+import org.ossreviewtoolkit.model.ScanResult
+import org.ossreviewtoolkit.model.ScanSummary
+import org.ossreviewtoolkit.model.TextLocation
+import org.ossreviewtoolkit.model.config.ScannerConfiguration
+import org.ossreviewtoolkit.model.yamlMapper
+import org.ossreviewtoolkit.scanner.AbstractScannerFactory
+import org.ossreviewtoolkit.scanner.LocalScanner
+import org.ossreviewtoolkit.scanner.ScanException
+import org.ossreviewtoolkit.spdx.calculatePackageVerificationCode
+import org.ossreviewtoolkit.utils.ORT_NAME
+import org.ossreviewtoolkit.utils.OkHttpClientHelper
+import org.ossreviewtoolkit.utils.Os
+import org.ossreviewtoolkit.utils.ProcessCapture
+import org.ossreviewtoolkit.utils.log
 
 class Askalono(name: String, config: ScannerConfiguration) : LocalScanner(name, config) {
     class Factory : AbstractScannerFactory<Askalono>("Askalono") {
@@ -81,7 +80,7 @@ class Askalono(name: String, config: ScannerConfiguration) : LocalScanner(name, 
 
         val request = Request.Builder().get().url(url).build()
 
-        return OkHttpClientHelper.execute(HTTP_CACHE_PATH, request).use { response ->
+        return OkHttpClientHelper.execute(request).use { response ->
             val body = response.body
 
             if (response.code != HttpURLConnection.HTTP_OK || body == null) {

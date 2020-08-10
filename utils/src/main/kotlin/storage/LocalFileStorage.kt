@@ -19,12 +19,12 @@
 
 package org.ossreviewtoolkit.utils.storage
 
-import org.ossreviewtoolkit.utils.log
-import org.ossreviewtoolkit.utils.safeMkdirs
-
 import java.io.File
 import java.io.InputStream
 import java.io.OutputStream
+
+import org.ossreviewtoolkit.utils.log
+import org.ossreviewtoolkit.utils.safeMkdirs
 
 /**
  * A [FileStorage] that stores files in a [directory] of the local file system. The [read] and [write] operations are
@@ -47,6 +47,14 @@ open class LocalFileStorage(
         }
     }
 
+    /**
+     * Return the internally used path, which might differ from the provided [path] e.g. in case a suffix is added to
+     * denote a compression scheme.
+     */
+    open fun transformPath(path: String): String = path
+
+    override fun exists(path: String) = directory.resolve(path).exists()
+
     @Synchronized
     override fun read(path: String): InputStream {
         val file = directory.resolve(path)
@@ -58,6 +66,9 @@ open class LocalFileStorage(
         return file.inputStream()
     }
 
+    /**
+     * Return the output stream to be used when writing to the provided [path].
+     */
     protected open fun getOutputStream(path: String): OutputStream {
         val file = directory.resolve(path)
 

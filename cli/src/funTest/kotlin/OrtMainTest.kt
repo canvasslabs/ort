@@ -20,25 +20,24 @@
 package org.ossreviewtoolkit
 
 import com.github.ajalt.clikt.core.MutuallyExclusiveGroupException
-import com.github.ajalt.clikt.core.UsageError
+import com.github.ajalt.clikt.core.ProgramResult
 
-import org.ossreviewtoolkit.commands.RequirementsCommand
+import io.kotest.assertions.throwables.shouldThrow
+import io.kotest.core.spec.style.StringSpec
+import io.kotest.core.test.TestCase
+import io.kotest.core.test.TestResult
+import io.kotest.matchers.nulls.shouldBeNull
+import io.kotest.matchers.shouldBe
+
+import java.io.File
+
 import org.ossreviewtoolkit.downloader.VersionControlSystem
 import org.ossreviewtoolkit.utils.ORT_NAME
-import org.ossreviewtoolkit.utils.log
 import org.ossreviewtoolkit.utils.normalizeVcsUrl
 import org.ossreviewtoolkit.utils.redirectStdout
 import org.ossreviewtoolkit.utils.safeDeleteRecursively
 import org.ossreviewtoolkit.utils.test.patchActualResult
 import org.ossreviewtoolkit.utils.test.patchExpectedResult
-
-import io.kotlintest.TestCase
-import io.kotlintest.TestResult
-import io.kotlintest.shouldBe
-import io.kotlintest.shouldThrow
-import io.kotlintest.specs.StringSpec
-
-import java.io.File
 
 /**
  * A test for the main entry point of the application.
@@ -165,9 +164,9 @@ class OrtMainTest : StringSpec() {
 
         "Requirements are listed correctly" {
             val stdout = runMain("requirements")
-            val errorLogs = stdout.find { it.contains(" ERROR - ") }
+            val errorLogs = stdout.find { it.contains(" ERROR ") }
 
-            errorLogs shouldBe null
+            errorLogs.shouldBeNull()
         }
     }
 
@@ -175,14 +174,8 @@ class OrtMainTest : StringSpec() {
         redirectStdout {
             try {
                 OrtMain().parse(args.asList())
-            } catch (e: UsageError) {
-                // TODO: Improve this once clikt has a way to distinguish a non-zero status code caused by a real user
-                //       error from cases where the usage was correct but the tool ran into an error.
-                if (e.context?.command is RequirementsCommand) {
-                    log.debug { "Status code was ${e.statusCode}." }
-                } else {
-                    throw e
-                }
+            } catch (e: ProgramResult) {
+                // Ignore exceptions that just propagate the program result.
             }
         }.lineSequence()
 }

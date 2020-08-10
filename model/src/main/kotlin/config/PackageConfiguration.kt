@@ -27,46 +27,54 @@ import org.ossreviewtoolkit.model.VcsInfo
 import org.ossreviewtoolkit.model.VcsType
 
 /**
- * A configuration for a specific package and provenance. It allows to setup [PathExclude]s and (in the future, TODO)
- * also [LicenseFindingCuration]s, similar to how its done via the [RepositoryConfiguration] for projects.
- **/
+ * A configuration for a specific package and provenance. It allows to setup [PathExclude]s and
+ * [LicenseFindingCuration]s, similar to how its done via the [RepositoryConfiguration] for projects.
+ */
 data class PackageConfiguration(
     /**
      * The identifier of the package this configuration applies to.
      */
     val id: Identifier,
+
     /**
      * The source artifact this configuration applies to.
      */
-    val sourceArtifactUrl: String?,
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    val sourceArtifactUrl: String? = null,
 
     /**
      * The vcs and revision this configuration applies to.
      */
-    val vcs: VcsMatcher?,
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    val vcs: VcsMatcher? = null,
 
     /**
      * Path excludes.
      */
     @JsonInclude(JsonInclude.Include.NON_EMPTY)
-    val pathExcludes: List<PathExclude> = emptyList()
+    val pathExcludes: List<PathExclude> = emptyList(),
+
+    /**
+     * License finding curations.
+     */
+    @JsonInclude(JsonInclude.Include.NON_EMPTY)
+    val licenseFindingCurations: List<LicenseFindingCuration> = emptyList()
 ) {
     init {
         require((sourceArtifactUrl == null) xor (vcs == null)) {
-            "A package configuration can either apply to a source artifact or to a VCS, not to both."
+            "A package configuration can either apply to a source artifact or to a VCS, not to neither or both."
         }
     }
 
-    fun matches(id: Identifier, provenance: Provenance): Boolean {
-        if (id != this.id) return false
-
-        if (vcs != null) {
-            val vcsInfo = provenance.vcsInfo ?: return false
-            return vcs.matches(vcsInfo)
+    fun matches(id: Identifier, provenance: Provenance): Boolean =
+        when {
+            id != this.id -> false
+            vcs != null -> when (provenance.vcsInfo) {
+                null -> false
+                else -> vcs.matches(provenance.vcsInfo)
+            }
+            else -> sourceArtifactUrl == provenance.sourceArtifact?.url
         }
-
-        return sourceArtifactUrl == provenance.sourceArtifact?.url
-    }
 }
 
 /**
@@ -75,11 +83,21 @@ data class PackageConfiguration(
 data class VcsMatcher(
     val type: VcsType,
     val url: String,
-    val revision: String
+    val revision: String,
+    @JsonInclude(JsonInclude.Include.NON_EMPTY)
+    val path: String? = null
 ) {
     init {
         require(url.isNotBlank() && revision.isNotBlank())
+
+        if (type == VcsType.GIT_REPO) {
+            require(!path.isNullOrBlank()) {
+                "Matching against Git-Repo VCS info requires a non-blank path."
+            }
+        }
     }
 
-    fun matches(vcsInfo: VcsInfo): Boolean = type == vcsInfo.type && url == vcsInfo.url && revision == vcsInfo.revision
+    fun matches(vcsInfo: VcsInfo): Boolean =
+        type == vcsInfo.type && url == vcsInfo.url && (path == null || path == vcsInfo.path) &&
+                revision == vcsInfo.resolvedRevision
 }

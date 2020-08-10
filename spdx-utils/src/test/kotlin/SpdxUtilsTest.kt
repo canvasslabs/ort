@@ -19,19 +19,21 @@
 
 package org.ossreviewtoolkit.spdx
 
-import org.ossreviewtoolkit.utils.ORT_NAME
-
-import io.kotlintest.TestCase
-import io.kotlintest.TestResult
-import io.kotlintest.shouldBe
-import io.kotlintest.shouldNot
-import io.kotlintest.shouldNotBe
-import io.kotlintest.matchers.endWith
-import io.kotlintest.matchers.startWith
-import io.kotlintest.matchers.string.beBlank
-import io.kotlintest.specs.WordSpec
+import io.kotest.core.spec.style.WordSpec
+import io.kotest.core.test.TestCase
+import io.kotest.core.test.TestResult
+import io.kotest.matchers.nulls.shouldBeNull
+import io.kotest.matchers.should
+import io.kotest.matchers.shouldBe
+import io.kotest.matchers.shouldNot
+import io.kotest.matchers.shouldNotBe
+import io.kotest.matchers.string.beBlank
+import io.kotest.matchers.string.endWith
+import io.kotest.matchers.string.startWith
 
 import java.io.File
+
+import org.ossreviewtoolkit.utils.ORT_NAME
 
 class SpdxUtilsTest : WordSpec() {
     private var tempDir: File? = null
@@ -142,7 +144,7 @@ class SpdxUtilsTest : WordSpec() {
             }
 
             "return null for an invalid SPDX license id" {
-                getLicenseText("FooBar-1.0") shouldBe null
+                getLicenseText("FooBar-1.0").shouldBeNull()
             }
 
             "return the exception text for an SPDX exception id if handling exceptions is enabled" {
@@ -153,7 +155,7 @@ class SpdxUtilsTest : WordSpec() {
             }
 
             "return null for an SPDX exception id if handling exceptions is disabled" {
-                getLicenseText("Autoconf-exception-3.0", false) shouldBe null
+                getLicenseText("Autoconf-exception-3.0", false).shouldBeNull()
             }
 
             "return a non-blank string for all SPDX ids" {
@@ -177,7 +179,7 @@ class SpdxUtilsTest : WordSpec() {
             }
 
             "return null for an unknown SPDX LicenseRef" {
-                getLicenseText("LicenseRef-foo-bar") shouldBe null
+                getLicenseText("LicenseRef-foo-bar").shouldBeNull()
             }
         }
 
@@ -206,7 +208,7 @@ class SpdxUtilsTest : WordSpec() {
             "return null if license text is not known by ort and also not in custom dir" {
                 setupTempFile("LicenseRef-ort-abc", "abc")
 
-                getText("LicenseRef-not-present") shouldBe null
+                getText("LicenseRef-not-present").shouldBeNull()
             }
         }
     }

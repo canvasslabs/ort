@@ -19,18 +19,22 @@
 
 package org.ossreviewtoolkit.downloader.vcs
 
-import org.ossreviewtoolkit.model.VcsType
-import org.ossreviewtoolkit.utils.ORT_NAME
-import org.ossreviewtoolkit.utils.getUserOrtDirectory
-import org.ossreviewtoolkit.utils.safeDeleteRecursively
-import org.ossreviewtoolkit.utils.unpack
-
-import io.kotlintest.Spec
-import io.kotlintest.shouldBe
-import io.kotlintest.shouldNotBe
-import io.kotlintest.specs.StringSpec
+import io.kotest.core.spec.Spec
+import io.kotest.core.spec.style.StringSpec
+import io.kotest.matchers.maps.beEmpty
+import io.kotest.matchers.should
+import io.kotest.matchers.shouldBe
+import io.kotest.matchers.shouldNotBe
 
 import java.io.File
+
+import org.ossreviewtoolkit.model.VcsInfo
+import org.ossreviewtoolkit.model.VcsType
+import org.ossreviewtoolkit.utils.Ci
+import org.ossreviewtoolkit.utils.ORT_NAME
+import org.ossreviewtoolkit.utils.ortDataDirectory
+import org.ossreviewtoolkit.utils.safeDeleteRecursively
+import org.ossreviewtoolkit.utils.unpack
 
 class CvsWorkingTreeTest : StringSpec() {
     private val cvs = Cvs()
@@ -50,29 +54,36 @@ class CvsWorkingTreeTest : StringSpec() {
     }
 
     init {
-        "Detected CVS version is not empty" {
+        // Disabled on Azure Windows build because CVS is not installed there.
+        "Detected CVS version is not empty".config(enabled = !Ci.isAzureWindows) {
             val version = cvs.getVersion()
             println("CVS version $version detected.")
             version shouldNotBe ""
         }
 
-        "CVS detects non-working-trees" {
-            cvs.getWorkingTree(getUserOrtDirectory()).isValid() shouldBe false
+        // Disabled on Azure Windows build because CVS is not installed there.
+        "CVS detects non-working-trees".config(enabled = !Ci.isAzureWindows) {
+            cvs.getWorkingTree(ortDataDirectory).isValid() shouldBe false
         }
 
         "CVS correctly detects URLs to remote repositories" {
             cvs.isApplicableUrl(":pserver:anonymous@a.cvs.sourceforge.net:/cvsroot/tyrex") shouldBe true
             cvs.isApplicableUrl(":ext:jrandom@cvs.foobar.com:/usr/local/cvs") shouldBe true
-            cvs.isApplicableUrl("http://svn.code.sf.net/p/grepwin/code/") shouldBe false
+            cvs.isApplicableUrl("https://svn.code.sf.net/p/grepwin/code/") shouldBe false
         }
 
         "Detected CVS working tree information is correct".config(enabled = false /* Failing due to SF issues. */) {
             val workingTree = cvs.getWorkingTree(zipContentDir)
 
-            workingTree.vcsType shouldBe VcsType.CVS
             workingTree.isValid() shouldBe true
-            workingTree.getRemoteUrl() shouldBe ":pserver:anonymous@a.cvs.sourceforge.net:/cvsroot/jhove"
-            workingTree.getRevision() shouldBe "449addc0d9e0ee7be48bfaa06f99a6f23cd3bae0"
+            workingTree.getInfo() shouldBe VcsInfo(
+                type = VcsType.CVS,
+                url = ":pserver:anonymous@a.cvs.sourceforge.net:/cvsroot/jhove",
+                revision = "449addc0d9e0ee7be48bfaa06f99a6f23cd3bae0",
+                resolvedRevision = null,
+                path = ""
+            )
+            workingTree.getNested() should beEmpty()
             workingTree.getRootPath() shouldBe zipContentDir
             workingTree.getPathToRoot(File(zipContentDir, "lib")) shouldBe "lib"
         }

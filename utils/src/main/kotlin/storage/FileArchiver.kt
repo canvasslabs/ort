@@ -19,15 +19,16 @@
 
 package org.ossreviewtoolkit.utils.storage
 
+import java.io.File
+import java.io.IOException
+
 import org.ossreviewtoolkit.utils.FileMatcher
+import org.ossreviewtoolkit.utils.ORT_NAME
 import org.ossreviewtoolkit.utils.collectMessagesAsString
 import org.ossreviewtoolkit.utils.log
 import org.ossreviewtoolkit.utils.packZip
 import org.ossreviewtoolkit.utils.showStackTrace
 import org.ossreviewtoolkit.utils.unpackZip
-
-import java.io.File
-import java.io.IOException
 
 /**
  * A class to archive files matched by provided [patterns] in a ZIP file that is stored in a [FileStorage][storage].
@@ -51,11 +52,16 @@ class FileArchiver(
     private val matcher = FileMatcher(patterns)
 
     /**
+     * Return whether '[storagePath]/[ARCHIVE_FILE_NAME]' exists.
+     */
+    fun hasArchive(storagePath: String) = storage.exists(getArchivePath(storagePath))
+
+    /**
      * Archive all files in [directory] matching any of the configured [patterns] in the [storage]. The archived files
      * are zipped in the file '[storagePath]/[ARCHIVE_FILE_NAME]'.
      */
     fun archive(directory: File, storagePath: String) {
-        val zipFile = createTempFile(prefix = "ort", suffix = ".zip")
+        val zipFile = createTempFile(ORT_NAME, ".zip")
         zipFile.deleteOnExit()
 
         directory.packZip(zipFile, overwrite = true) { path ->
@@ -72,6 +78,9 @@ class FileArchiver(
         storage.write(getArchivePath(storagePath), zipFile.inputStream())
     }
 
+    /**
+     * Unarchive the file at '[storagePath]/[ARCHIVE_FILE_NAME]' to [directory].
+     */
     fun unarchive(directory: File, storagePath: String): Boolean =
         try {
             storage.read(getArchivePath(storagePath)).use { input ->

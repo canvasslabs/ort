@@ -106,16 +106,6 @@ const RuleViolationsTable = (props) => {
             ])(),
             filteredValue: filteredInfo.severityIndex || null,
             onFilter: (value, webAppRuleViolation) => webAppRuleViolation.severityIndex === Number(value),
-            sorter: (a, b) => {
-                if (a.severityIndex < b.severityIndex) {
-                    return -1;
-                }
-                if (a.severityIndex > b.severityIndex) {
-                    return 1;
-                }
-
-                return 0;
-            },
             render: (text, webAppRuleViolation) => (
                 webAppRuleViolation.isResolved
                     ? (
@@ -156,6 +146,7 @@ const RuleViolationsTable = (props) => {
                         </span>
                     )
             ),
+            sorter: (a, b) => a.severityIndex - b.severityIndex,
             width: '5em'
         }
     ];
@@ -207,7 +198,7 @@ const RuleViolationsTable = (props) => {
                     <span className="ort-excludes">
                         <Tooltip
                             placement="right"
-                            title={Array.from(webAppPackage.pathExcludeReasons).join(', ')}
+                            title={Array.from(webAppPackage.excludeReasons).join(', ')}
                         >
                             <FileExcelOutlined className="ort-excluded" />
                         </Tooltip>
@@ -216,21 +207,24 @@ const RuleViolationsTable = (props) => {
                     <FileAddOutlined />
                 );
             },
+            responsive: ['md'],
             width: '2em'
         });
     }
 
     columns.push(
         {
-            ellipsis: true,
             dataIndex: 'packageName',
+            ellipsis: true,
             key: 'packageName',
+            responsive: ['md'],
             title: 'Package',
             width: '25%'
         },
         {
             dataIndex: 'rule',
             key: 'rule',
+            responsive: ['md'],
             title: 'Rule',
             width: '25%'
         },

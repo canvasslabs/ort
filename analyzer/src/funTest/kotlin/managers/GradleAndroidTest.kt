@@ -19,20 +19,18 @@
 
 package org.ossreviewtoolkit.analyzer.managers
 
+import io.kotest.core.spec.style.StringSpec
+import io.kotest.matchers.shouldBe
+
+import java.io.File
+
 import org.ossreviewtoolkit.downloader.VersionControlSystem
-import org.ossreviewtoolkit.model.yamlMapper
 import org.ossreviewtoolkit.utils.normalizeVcsUrl
 import org.ossreviewtoolkit.utils.test.AndroidTag
 import org.ossreviewtoolkit.utils.test.DEFAULT_ANALYZER_CONFIGURATION
 import org.ossreviewtoolkit.utils.test.DEFAULT_REPOSITORY_CONFIGURATION
 import org.ossreviewtoolkit.utils.test.USER_DIR
 import org.ossreviewtoolkit.utils.test.patchExpectedResult
-
-import io.kotlintest.shouldBe
-import io.kotlintest.shouldNotBe
-import io.kotlintest.specs.StringSpec
-
-import java.io.File
 
 class GradleAndroidTest : StringSpec() {
     private val projectDir = File("src/funTest/assets/projects/synthetic/gradle-android").absoluteFile
@@ -49,11 +47,9 @@ class GradleAndroidTest : StringSpec() {
                 revision = vcsRevision
             )
 
-            val result = createGradle().resolveDependencies(listOf(packageFile))[packageFile]
+            val result = createGradle().resolveSingleProject(packageFile)
 
-            result shouldNotBe null
-            result!!.issues shouldBe emptyList()
-            yamlMapper.writeValueAsString(result) shouldBe expectedResult
+            result.toYaml() shouldBe expectedResult
         }
 
         "Project dependencies are detected correctly".config(tags = setOf(AndroidTag)) {
@@ -64,11 +60,9 @@ class GradleAndroidTest : StringSpec() {
                 revision = vcsRevision
             )
 
-            val result = createGradle().resolveDependencies(listOf(packageFile))[packageFile]
+            val result = createGradle().resolveSingleProject(packageFile)
 
-            result shouldNotBe null
-            result!!.issues shouldBe emptyList()
-            yamlMapper.writeValueAsString(result) shouldBe expectedResult
+            result.toYaml() shouldBe expectedResult
         }
 
         "External dependencies are detected correctly".config(tags = setOf(AndroidTag)) {
@@ -79,11 +73,9 @@ class GradleAndroidTest : StringSpec() {
                 revision = vcsRevision
             )
 
-            val result = createGradle().resolveDependencies(listOf(packageFile))[packageFile]
+            val result = createGradle().resolveSingleProject(packageFile)
 
-            result shouldNotBe null
-            result!!.issues shouldBe emptyList()
-            yamlMapper.writeValueAsString(result) shouldBe expectedResult
+            result.toYaml() shouldBe expectedResult
         }
     }
 

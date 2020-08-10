@@ -19,6 +19,8 @@
 
 package org.ossreviewtoolkit.analyzer.integration
 
+import java.io.File
+
 import org.ossreviewtoolkit.analyzer.PackageManagerFactory
 import org.ossreviewtoolkit.analyzer.managers.Gradle
 import org.ossreviewtoolkit.analyzer.managers.Maven
@@ -28,15 +30,13 @@ import org.ossreviewtoolkit.model.RemoteArtifact
 import org.ossreviewtoolkit.model.VcsInfo
 import org.ossreviewtoolkit.model.VcsType
 
-import java.io.File
-
 class GradleIntegrationTest : AbstractIntegrationSpec() {
     override val pkg: Package = Package(
         id = Identifier(
             type = "Maven",
             namespace = "org.gradle",
             name = "Gradle",
-            version = "4.4.0"
+            version = "6.3.0"
         ),
         declaredLicenses = sortedSetOf(),
         description = "",
@@ -46,27 +46,28 @@ class GradleIntegrationTest : AbstractIntegrationSpec() {
         vcs = VcsInfo(
             type = VcsType.GIT,
             url = "https://github.com/gradle/gradle.git",
-            revision = "v4.4.0"
+            revision = "v6.3.0"
         )
     )
 
     override val expectedManagedFiles by lazy {
         // The Gradle project contains far too many definition files to list them all here. Use this tests to double
         // check that all of them are found, and that they are assigned to the correct package manager.
-        val gradleBuildFilenames = listOf("build.gradle", "build.gradle.kts")
-        val gradleSettingsFilenames = listOf("settings.gradle", "settings.gradle.kts")
-        val gradleFilenames = gradleBuildFilenames + gradleSettingsFilenames
+        val gradleFilenames = listOf("build.gradle", "build.gradle.kts", "settings.gradle", "settings.gradle.kts")
 
-        val gradleFiles = downloadResult.downloadDirectory.walkTopDown().filter {
+        val gradleFiles = downloadResult.downloadDirectory.walk().filterTo(mutableListOf()) {
             it.name in gradleFilenames
-        }.toMutableList()
-
-        // "settings" files should only be considered if there is no "build" file in the same directory.
-        gradleFiles.removeAll { file ->
-            file.name in gradleSettingsFilenames && gradleBuildFilenames.any { file.resolveSibling(it) in gradleFiles }
         }
 
-        val pomFiles = downloadResult.downloadDirectory.walkTopDown().filter { it.name == "pom.xml" }.toList()
+        // In each directory only the first file contained in gradleFiles is used.
+        gradleFiles.removeAll { file ->
+            val preferentialGradleFilenames = gradleFilenames.subList(0, gradleFilenames.indexOf(file.name))
+            preferentialGradleFilenames.any { file.resolveSibling(it) in gradleFiles }
+        }
+
+        val pomFiles = downloadResult.downloadDirectory.walk().filterTo(mutableListOf()) {
+            it.name == "pom.xml"
+        }
 
         mapOf(
             Gradle.Factory() as PackageManagerFactory to gradleFiles,

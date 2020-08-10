@@ -19,17 +19,22 @@
 
 package org.ossreviewtoolkit.model.config
 
-import org.ossreviewtoolkit.utils.ORT_NAME
-
 import com.typesafe.config.ConfigFactory
 
 import io.github.config4k.extract
 
-import io.kotlintest.shouldBe
-import io.kotlintest.shouldNotBe
-import io.kotlintest.specs.WordSpec
+import io.kotest.core.spec.style.WordSpec
+import io.kotest.matchers.collections.containExactly
+import io.kotest.matchers.nulls.shouldBeNull
+import io.kotest.matchers.nulls.shouldNotBeNull
+import io.kotest.matchers.should
+import io.kotest.matchers.shouldBe
 
 import java.io.File
+
+import org.ossreviewtoolkit.utils.ORT_NAME
+import org.ossreviewtoolkit.utils.test.containExactly as containExactlyEntries
+import org.ossreviewtoolkit.utils.test.shouldNotBeNull
 
 class OrtConfigurationTest : WordSpec({
     "OrtConfiguration" should {
@@ -39,58 +44,44 @@ class OrtConfigurationTest : WordSpec({
             val config = ConfigFactory.parseString(hocon)
             val ortConfig = config.extract<OrtConfiguration>("ort")
 
-            ortConfig.scanner.let { scanner ->
-                scanner shouldNotBe null
-
-                scanner!!.archive shouldNotBe null
-                scanner.archive!!.let { archive ->
-                    archive.patterns shouldBe listOf("LICENSE*", "COPYING*")
-                    archive.storage.let { storage ->
-                        storage.httpFileStorage shouldBe null
-                        storage.localFileStorage shouldNotBe null
-                        storage.localFileStorage!!.let { localFileStorage ->
-                            localFileStorage.directory shouldBe File("~/.ort/scanner/archive")
-                        }
+            ortConfig.scanner shouldNotBeNull {
+                archive shouldNotBeNull {
+                    patterns should containExactly("LICENSE*", "COPYING*")
+                    storage.httpFileStorage.shouldBeNull()
+                    storage.localFileStorage shouldNotBeNull {
+                        directory shouldBe File("~/.ort/scanner/archive")
                     }
                 }
 
-                scanner.fileBasedStorage.let { fileBased ->
-                    fileBased shouldNotBe null
-                    fileBased!!.backend.let { backend ->
-                        backend shouldNotBe null
+                fileBasedStorage shouldNotBeNull {
+                    backend.httpFileStorage shouldNotBeNull {
+                        url shouldBe "https://your-http-server"
+                        headers should containExactlyEntries("key1" to "value1", "key2" to "value2")
+                    }
 
-                        backend.httpFileStorage.let { httpFileStorage ->
-                            httpFileStorage shouldNotBe null
-                            httpFileStorage!!.url shouldBe "https://your-http-server"
-                            httpFileStorage.headers shouldBe mapOf("key1" to "value1", "key2" to "value2")
-                        }
-
-                        backend.localFileStorage.let { localFileStorage ->
-                            localFileStorage shouldNotBe null
-                            localFileStorage!!.directory shouldBe File("~/.ort/scanner/results")
-                        }
+                    backend.localFileStorage shouldNotBeNull {
+                        directory shouldBe File("~/.ort/scanner/results")
                     }
                 }
 
-                scanner.postgresStorage.let { postgres ->
-                    postgres shouldNotBe null
-                    postgres!!.url shouldBe "postgresql://your-postgresql-server:5444/your-database"
-                    postgres.schema shouldBe "schema"
-                    postgres.username shouldBe "username"
-                    postgres.password shouldBe "password"
-                    postgres.sslmode shouldBe "required"
-                    postgres.sslcert shouldBe "/defaultdir/postgresql.crt"
-                    postgres.sslkey shouldBe "/defaultdir/postgresql.pk8"
-                    postgres.sslrootcert shouldBe "/defaultdir/root.crt"
+                postgresStorage shouldNotBeNull {
+                    url shouldBe "jdbc:postgresql://your-postgresql-server:5444/your-database"
+                    schema shouldBe "schema"
+                    username shouldBe "username"
+                    password shouldBe "password"
+                    sslmode shouldBe "required"
+                    sslcert shouldBe "/defaultdir/postgresql.crt"
+                    sslkey shouldBe "/defaultdir/postgresql.pk8"
+                    sslrootcert shouldBe "/defaultdir/root.crt"
                 }
 
-                scanner.options shouldNotBe null
+                options.shouldNotBeNull()
             }
         }
 
         "correctly prioritize the sources" {
-            val configFile = createTempFile(ORT_NAME, javaClass.simpleName)
-            configFile.deleteOnExit()
+            val configFile = createTempFile(ORT_NAME, javaClass.simpleName).apply { deleteOnExit() }
+
             configFile.writeText(
                 """
                 ort {
@@ -111,10 +102,12 @@ class OrtConfigurationTest : WordSpec({
                 configFile = configFile
             )
 
-            config.scanner shouldNotBe null
-            config.scanner!!.postgresStorage shouldNotBe null
-            config.scanner!!.postgresStorage!!.username shouldBe "username"
-            config.scanner!!.postgresStorage!!.schema shouldBe "argsSchema"
+            config.scanner shouldNotBeNull {
+                postgresStorage shouldNotBeNull {
+                    username shouldBe "username"
+                    schema shouldBe "argsSchema"
+                }
+            }
         }
     }
 })

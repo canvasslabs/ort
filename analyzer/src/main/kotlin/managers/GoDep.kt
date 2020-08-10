@@ -19,6 +19,13 @@
 
 package org.ossreviewtoolkit.analyzer.managers
 
+import com.moandjiezana.toml.Toml
+
+import java.io.File
+import java.io.IOException
+import java.net.URI
+import java.nio.file.Paths
+
 import org.ossreviewtoolkit.analyzer.AbstractPackageManagerFactory
 import org.ossreviewtoolkit.analyzer.PackageManager
 import org.ossreviewtoolkit.downloader.VersionControlSystem
@@ -45,22 +52,16 @@ import org.ossreviewtoolkit.utils.safeCopyRecursively
 import org.ossreviewtoolkit.utils.safeDeleteRecursively
 import org.ossreviewtoolkit.utils.showStackTrace
 
-import com.moandjiezana.toml.Toml
-
-import java.io.File
-import java.io.IOException
-import java.net.MalformedURLException
-import java.net.URL
-import java.nio.file.Paths
-
 /**
  * A map of legacy package manager file names "dep" can import, and their respective lock file names, if any.
  */
-val GO_LEGACY_MANIFESTS = mapOf(
-    // https://github.com/Masterminds/glide
+private val GO_LEGACY_MANIFESTS = mapOf(
+    // The [Glide](https://github.com/Masterminds/glide) package manager uses a dedicated `glide.yaml` rules file for
+    // direct dependencies and scans dependent packages for imports to determine transitive dependencies.
     "glide.yaml" to "glide.lock",
 
-    // https://github.com/tools/godep
+    // The [godep](https://github.com/tools/godep) dependency manager works by inspecting imports but was discontinued
+    // in favor of the [dep](https://github.com/golang/dep) dependency management tool.
     "Godeps.json" to ""
 )
 
@@ -90,7 +91,7 @@ class GoDep(
     override fun transformVersion(output: String) =
         output.lineSequence().first { it.contains("version") }.substringAfter(':').trim().removePrefix("v")
 
-    override fun resolveDependencies(definitionFile: File): ProjectAnalyzerResult? {
+    override fun resolveDependencies(definitionFile: File): List<ProjectAnalyzerResult> {
         val projectDir = resolveProjectRoot(definitionFile)
         val projectVcs = processProjectVcs(projectDir)
         val gopath = createTempDir(ORT_NAME, "${projectDir.name}-gopath")
@@ -143,44 +144,49 @@ class GoDep(
         }
 
         val scope = Scope("default", packageRefs.toSortedSet())
+
+        @Suppress("TooGenericExceptionCaught")
         val projectName = try {
-            val url = URL(projectVcs.url)
+            val uri = URI(projectVcs.url)
             val vcsPath = VersionControlSystem.getPathInfo(definitionFile.parentFile).path
-            listOf(url.host, url.path.removePrefix("/").removeSuffix(".git"), vcsPath)
+            listOf(uri.host, uri.path.removePrefix("/").removeSuffix(".git"), vcsPath)
                 .filterNot { it.isEmpty() }
                 .joinToString(separator = "/")
                 .toLowerCase()
-        } catch (e: MalformedURLException) {
+        } catch (e: Exception) {
             projectDir.name
         }
 
         // TODO Keeping this between scans would speed things up considerably.
         gopath.safeDeleteRecursively(force = true)
 
-        return ProjectAnalyzerResult(
-            project = Project(
-                id = Identifier(
-                    type = managerName,
-                    namespace = "",
-                    name = projectName,
-                    version = projectVcs.revision
+        return listOf(
+            ProjectAnalyzerResult(
+                project = Project(
+                    id = Identifier(
+                        type = managerName,
+                        namespace = "",
+                        name = projectName,
+                        version = projectVcs.revision
+                    ),
+                    definitionFilePath = VersionControlSystem.getPathInfo(definitionFile).path,
+                    declaredLicenses = sortedSetOf(),
+                    vcs = VcsInfo.EMPTY,
+                    vcsProcessed = projectVcs,
+                    homepageUrl = "",
+                    scopes = sortedSetOf(scope)
                 ),
-                definitionFilePath = VersionControlSystem.getPathInfo(definitionFile).path,
-                declaredLicenses = sortedSetOf(),
-                vcs = VcsInfo.EMPTY,
-                vcsProcessed = projectVcs,
-                homepageUrl = "",
-                scopes = sortedSetOf(scope)
-            ),
-            packages = packages.mapTo(sortedSetOf()) { it.toCuratedPackage() }
+                packages = packages.mapTo(sortedSetOf()) { it.toCuratedPackage() }
+            )
         )
     }
 
     fun deduceImportPath(projectDir: File, vcs: VcsInfo, gopath: File): File =
+        @Suppress("TooGenericExceptionCaught")
         try {
-            val url = URL(vcs.url)
-            Paths.get(gopath.path, "src", url.host, url.path)
-        } catch (e: MalformedURLException) {
+            val uri = URI(vcs.url)
+            Paths.get(gopath.path, "src", uri.host, uri.path)
+        } catch (e: Exception) {
             Paths.get(gopath.path, "src", projectDir.name)
         }.toFile()
 

@@ -19,12 +19,15 @@
 
 package org.ossreviewtoolkit.reporter
 
+import java.io.File
+import java.util.ServiceLoader
+
 import org.ossreviewtoolkit.model.AnalyzerResult
 import org.ossreviewtoolkit.model.OrtResult
 import org.ossreviewtoolkit.model.ScanRecord
-
-import java.io.OutputStream
-import java.util.ServiceLoader
+import org.ossreviewtoolkit.model.config.PathExclude
+import org.ossreviewtoolkit.model.config.ScopeExclude
+import org.ossreviewtoolkit.utils.joinNonBlank
 
 /**
  * A reporter that creates a human readable report from the [AnalyzerResult] and [ScanRecord] contained in an
@@ -46,13 +49,17 @@ interface Reporter {
     val reporterName: String
 
     /**
-     * The default output filename to use with this reporter format.
+     * Generate a report for the provided [input] and write the generated file(s) to the [outputDir]. If and how the
+     * [input] data is used depends on the specific reporter implementation, taking into account any format-specific
+     * [options]. The list of generated report files is returned.
      */
-    val defaultFilename: String
-
-    /**
-     * Generate a report for the provided [input] and write the result to the [outputStream]. If and how the [input]
-     * data is used depends on the specific reporter implementation.
-     */
-    fun generateReport(outputStream: OutputStream, input: ReporterInput)
+    fun generateReport(
+        input: ReporterInput,
+        outputDir: File,
+        options: Map<String, String> = emptyMap()
+    ): List<File>
 }
+
+internal val PathExclude.description: String get() = joinNonBlank(reason.toString(), comment)
+
+internal val ScopeExclude.description: String get() = joinNonBlank(reason.toString(), comment)

@@ -21,15 +21,14 @@ package org.ossreviewtoolkit.model
 
 import com.fasterxml.jackson.module.kotlin.readValue
 
-import org.ossreviewtoolkit.utils.test.patchActualResult
-
-import io.kotlintest.matchers.collections.shouldContainExactly
-import io.kotlintest.shouldBe
-import io.kotlintest.specs.WordSpec
+import io.kotest.core.spec.style.WordSpec
+import io.kotest.matchers.shouldBe
 
 import java.io.File
 import java.time.Duration
 import java.time.Instant
+
+import org.ossreviewtoolkit.utils.test.patchActualResult
 
 class ScanResultContainerTest : WordSpec() {
     private val id = Identifier("type", "namespace", "name", "version")
@@ -66,11 +65,11 @@ class ScanResultContainerTest : WordSpec() {
         "packageVerificationCode",
         sortedSetOf(
             LicenseFinding(
-                "license 1.1",
+                "license-1.1",
                 TextLocation("path 1.1", 1, 1)
             ),
             LicenseFinding(
-                "license 1.2",
+                "license-1.2",
                 TextLocation("path 1.2", 1, 2)
             )
         ),
@@ -93,12 +92,12 @@ class ScanResultContainerTest : WordSpec() {
         "packageVerificationCode",
         sortedSetOf(
             LicenseFinding(
-                "license 2.1",
+                "license-2.1",
                 TextLocation("path/to/file", 1, 2)
 
             ),
             LicenseFinding(
-                "license 2.2",
+                "license-2.2",
                 TextLocation("path/to/another/file", 3, 4)
             )
         ),
@@ -136,33 +135,6 @@ class ScanResultContainerTest : WordSpec() {
 
                 patchActualResult(serializedScanResults) shouldBe expectedScanResults
             }
-
-            "deserialize with the deprecated license_findings field in the scan summary as expected" {
-                val deprecatedScanResult = File("src/test/assets/deprecated-license-findings-scan-result.yml")
-                    .readValue<ScanResultContainer>()
-
-                deprecatedScanResult.results[0].summary.copyrightFindings shouldContainExactly listOf(
-                    CopyrightFinding(
-                        statement = "copyright 1",
-                        location = TextLocation(path = "copyright path 1.1", startLine = 1, endLine = 1)
-                    ),
-                    CopyrightFinding(
-                        statement = "copyright 2",
-                        location = TextLocation(path = "copyright path 1.2", startLine = 1, endLine = 2)
-                    )
-                )
-
-                deprecatedScanResult.results[0].summary.licenseFindings shouldContainExactly listOf(
-                    LicenseFinding(
-                        license = "license 1.1",
-                        location = TextLocation(path = "path 1.1", startLine = 1, endLine = 1)
-                    ),
-                    LicenseFinding(
-                        license = "license 1.2",
-                        location = TextLocation(path = "path 1.2", startLine = 1, endLine = 2)
-                    )
-                )
-             }
         }
     }
 }

@@ -19,6 +19,17 @@
 
 package org.ossreviewtoolkit.analyzer.managers
 
+import java.io.File
+
+import org.apache.maven.project.ProjectBuilder
+import org.apache.maven.project.ProjectBuildingException
+import org.apache.maven.project.ProjectBuildingResult
+
+import org.eclipse.aether.artifact.Artifact
+import org.eclipse.aether.graph.DependencyNode
+import org.eclipse.aether.repository.WorkspaceReader
+import org.eclipse.aether.repository.WorkspaceRepository
+
 import org.ossreviewtoolkit.analyzer.AbstractPackageManagerFactory
 import org.ossreviewtoolkit.analyzer.PackageManager
 import org.ossreviewtoolkit.analyzer.managers.utils.MavenSupport
@@ -38,17 +49,6 @@ import org.ossreviewtoolkit.utils.collectMessagesAsString
 import org.ossreviewtoolkit.utils.log
 import org.ossreviewtoolkit.utils.searchUpwardsForSubdirectory
 import org.ossreviewtoolkit.utils.showStackTrace
-
-import java.io.File
-
-import org.apache.maven.project.ProjectBuilder
-import org.apache.maven.project.ProjectBuildingException
-import org.apache.maven.project.ProjectBuildingResult
-
-import org.eclipse.aether.artifact.Artifact
-import org.eclipse.aether.graph.DependencyNode
-import org.eclipse.aether.repository.WorkspaceReader
-import org.eclipse.aether.repository.WorkspaceRepository
 
 /**
  * The [Maven](https://maven.apache.org/) package manager for Java.
@@ -96,7 +96,7 @@ class Maven(
     fun enableSbtMode() = also { sbtMode = true }
 
     override fun beforeResolution(definitionFiles: List<File>) {
-        val projectBuilder = mvn.container.lookup(ProjectBuilder::class.java, "default")
+        val projectBuilder = mvn.containerLookup<ProjectBuilder>()
         val projectBuildingRequest = mvn.createProjectBuildingRequest(false)
         val projectBuildingResults = try {
             projectBuilder.build(definitionFiles, false, projectBuildingRequest)
@@ -126,7 +126,7 @@ class Maven(
         }
     }
 
-    override fun resolveDependencies(definitionFile: File): ProjectAnalyzerResult? {
+    override fun resolveDependencies(definitionFile: File): List<ProjectAnalyzerResult> {
         val workingDir = definitionFile.parentFile
         val projectBuildingResult = mvn.buildMavenProject(definitionFile)
         val mavenProject = projectBuildingResult.project
@@ -152,7 +152,9 @@ class Maven(
             workingDir
         }
 
-        val vcsFallbackUrls = listOfNotNull(mavenProject.scm?.url, mavenProject.url)
+        val browsableScmUrl = MavenSupport.getOriginalScm(mavenProject)?.url
+        val homepageUrl = mavenProject.url
+        val vcsFallbackUrls = listOfNotNull(browsableScmUrl, homepageUrl).toTypedArray()
 
         val project = Project(
             id = Identifier(
@@ -164,12 +166,17 @@ class Maven(
             definitionFilePath = VersionControlSystem.getPathInfo(definitionFile).path,
             declaredLicenses = MavenSupport.parseLicenses(mavenProject),
             vcs = vcsFromPackage,
-            vcsProcessed = processProjectVcs(projectDir, vcsFromPackage, vcsFallbackUrls),
-            homepageUrl = mavenProject.url.orEmpty(),
+            vcsProcessed = processProjectVcs(projectDir, vcsFromPackage, *vcsFallbackUrls),
+            homepageUrl = homepageUrl.orEmpty(),
             scopes = scopes.values.toSortedSet()
         )
 
-        return ProjectAnalyzerResult(project, packages.values.mapTo(sortedSetOf()) { it.toCuratedPackage() })
+        return listOf(
+            ProjectAnalyzerResult(
+                project = project,
+                packages = packages.values.mapTo(sortedSetOf()) { it.toCuratedPackage() }
+            )
+        )
     }
 
     private fun parseDependency(node: DependencyNode, packages: MutableMap<String, Package>): PackageReference {

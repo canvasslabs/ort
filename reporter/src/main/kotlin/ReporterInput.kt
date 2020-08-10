@@ -24,10 +24,14 @@ import org.ossreviewtoolkit.model.OrtResult
 import org.ossreviewtoolkit.model.RuleViolation
 import org.ossreviewtoolkit.model.config.CopyrightGarbage
 import org.ossreviewtoolkit.model.config.OrtConfiguration
+import org.ossreviewtoolkit.model.config.PackageConfiguration
+import org.ossreviewtoolkit.model.licenses.DefaultLicenseInfoProvider
 import org.ossreviewtoolkit.model.licenses.LicenseConfiguration
+import org.ossreviewtoolkit.model.licenses.LicenseInfoResolver
+import org.ossreviewtoolkit.model.utils.DefaultResolutionProvider
 import org.ossreviewtoolkit.model.utils.PackageConfigurationProvider
+import org.ossreviewtoolkit.model.utils.ResolutionProvider
 import org.ossreviewtoolkit.model.utils.SimplePackageConfigurationProvider
-import org.ossreviewtoolkit.reporter.reporters.AbstractNoticeReporter
 
 /**
  * A bundle of input to be used by [Reporter] implementations.
@@ -64,14 +68,16 @@ data class ReporterInput(
     val copyrightGarbage: CopyrightGarbage = CopyrightGarbage(),
 
     /**
+     * A resolver for license information for the projects and packages contained in [ortResult].
+     */
+    val licenseInfoResolver: LicenseInfoResolver = LicenseInfoResolver(
+        provider = DefaultLicenseInfoProvider(ortResult, packageConfigurationProvider),
+        copyrightGarbage = copyrightGarbage
+    ),
+
+    /**
      * A [LicenseConfiguration], can be used to handle licenses based on the user's configuration, for example to
      * determine which licenses to include in a notice file.
      */
-    val licenseConfiguration: LicenseConfiguration = LicenseConfiguration(),
-
-    /**
-     * A [notice pre-processor][AbstractNoticeReporter.PreProcessor], used by implementations of
-     * [AbstractNoticeReporter] to pre-process the default [data][AbstractNoticeReporter.NoticeReportData].
-     */
-    val preProcessingScript: String? = null
+    val licenseConfiguration: LicenseConfiguration = LicenseConfiguration()
 )

@@ -19,18 +19,17 @@
 
 package org.ossreviewtoolkit.analyzer.managers
 
+import io.kotest.core.spec.style.WordSpec
+import io.kotest.matchers.shouldBe
+
+import java.io.File
+
 import org.ossreviewtoolkit.downloader.VersionControlSystem
-import org.ossreviewtoolkit.model.yamlMapper
 import org.ossreviewtoolkit.utils.normalizeVcsUrl
 import org.ossreviewtoolkit.utils.test.DEFAULT_ANALYZER_CONFIGURATION
 import org.ossreviewtoolkit.utils.test.DEFAULT_REPOSITORY_CONFIGURATION
 import org.ossreviewtoolkit.utils.test.USER_DIR
 import org.ossreviewtoolkit.utils.test.patchExpectedResult
-
-import io.kotlintest.shouldBe
-import io.kotlintest.specs.WordSpec
-
-import java.io.File
 
 class PipTest : WordSpec() {
     private val projectsDir = File("src/funTest/assets/projects").absoluteFile
@@ -43,19 +42,19 @@ class PipTest : WordSpec() {
             "resolve setup.py dependencies correctly for spdx-tools-python" {
                 val definitionFile = File(projectsDir, "external/spdx-tools-python/setup.py")
 
-                val result = createPIP().resolveDependencies(listOf(definitionFile))[definitionFile]
+                val result = createPIP().resolveSingleProject(definitionFile)
                 val expectedResult = File(projectsDir, "external/spdx-tools-python-expected-output.yml").readText()
 
-                yamlMapper.writeValueAsString(result) shouldBe expectedResult
+                result.toYaml() shouldBe expectedResult
             }
 
             "resolve requirements.txt dependencies correctly for example-python-flask" {
                 val definitionFile = File(projectsDir, "external/example-python-flask/requirements.txt")
 
-                val result = createPIP().resolveDependencies(listOf(definitionFile))[definitionFile]
+                val result = createPIP().resolveSingleProject(definitionFile)
                 val expectedResult = File(projectsDir, "external/example-python-flask-expected-output.yml").readText()
 
-                yamlMapper.writeValueAsString(result) shouldBe expectedResult
+                result.toYaml() shouldBe expectedResult
             }
 
             "capture metadata from setup.py even if requirements.txt is present" {
@@ -69,19 +68,19 @@ class PipTest : WordSpec() {
                     path = vcsPath
                 )
 
-                val result = createPIP().resolveDependencies(listOf(definitionFile))[definitionFile]
+                val result = createPIP().resolveSingleProject(definitionFile)
 
-                yamlMapper.writeValueAsString(result) shouldBe expectedResult
+                result.toYaml() shouldBe expectedResult
             }
         }
 
         "Python 3" should {
-            "resolve dependencies correctly for python-django" {
-                val definitionFile = File(projectsDir, "synthetic/python3-django/requirements.txt")
+            "resolve dependencies correctly for a Django project" {
+                val definitionFile = File(projectsDir, "synthetic/pip-python3/requirements.txt")
                 val vcsPath = vcsDir.getPathToRoot(definitionFile.parentFile)
 
-                val result = createPIP().resolveDependencies(listOf(definitionFile))[definitionFile]
-                val expectedResultFile = File(projectsDir, "synthetic/python3-django-expected-output.yml")
+                val result = createPIP().resolveSingleProject(definitionFile)
+                val expectedResultFile = File(projectsDir, "synthetic/pip-python3-expected-output.yml")
                 val expectedResult = patchExpectedResult(
                     expectedResultFile,
                     url = normalizeVcsUrl(vcsUrl),
@@ -89,7 +88,7 @@ class PipTest : WordSpec() {
                     path = vcsPath
                 )
 
-                yamlMapper.writeValueAsString(result) shouldBe expectedResult
+                result.toYaml() shouldBe expectedResult
             }
         }
     }

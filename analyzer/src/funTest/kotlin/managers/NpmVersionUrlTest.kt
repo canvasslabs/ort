@@ -19,19 +19,18 @@
 
 package org.ossreviewtoolkit.analyzer.managers
 
+import io.kotest.core.spec.style.WordSpec
+import io.kotest.matchers.shouldBe
+
+import java.io.File
+
 import org.ossreviewtoolkit.downloader.VersionControlSystem
 import org.ossreviewtoolkit.model.config.AnalyzerConfiguration
-import org.ossreviewtoolkit.model.yamlMapper
 import org.ossreviewtoolkit.utils.normalizeVcsUrl
 import org.ossreviewtoolkit.utils.test.DEFAULT_ANALYZER_CONFIGURATION
 import org.ossreviewtoolkit.utils.test.DEFAULT_REPOSITORY_CONFIGURATION
 import org.ossreviewtoolkit.utils.test.USER_DIR
 import org.ossreviewtoolkit.utils.test.patchExpectedResult
-
-import io.kotlintest.shouldBe
-import io.kotlintest.specs.WordSpec
-
-import java.io.File
 
 class NpmVersionUrlTest : WordSpec() {
     private val projectDir = File("src/funTest/assets/projects/synthetic/npm-version-urls").absoluteFile
@@ -45,7 +44,7 @@ class NpmVersionUrlTest : WordSpec() {
                 val packageFile = File(projectDir, "package.json")
 
                 val config = AnalyzerConfiguration(ignoreToolVersions = false, allowDynamicVersions = true)
-                val result = createNPM(config).resolveDependencies(listOf(packageFile))[packageFile]
+                val result = createNPM(config).resolveSingleProject(packageFile)
                 val vcsPath = vcsDir.getPathToRoot(projectDir)
                 val expectedResult = patchExpectedResult(
                     File(projectDir.parentFile, "npm-version-urls-expected-output.yml"),
@@ -55,7 +54,7 @@ class NpmVersionUrlTest : WordSpec() {
                     path = vcsPath
                 )
 
-                yamlMapper.writeValueAsString(result) shouldBe expectedResult
+                result.toYaml() shouldBe expectedResult
             }
         }
     }

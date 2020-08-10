@@ -20,21 +20,19 @@
 
 package org.ossreviewtoolkit.analyzer.managers
 
+import io.kotest.core.spec.style.StringSpec
+import io.kotest.matchers.should
+import io.kotest.matchers.shouldBe
+
+import java.io.File
+
 import org.ossreviewtoolkit.downloader.VersionControlSystem
-import org.ossreviewtoolkit.model.yamlMapper
 import org.ossreviewtoolkit.utils.normalizeVcsUrl
 import org.ossreviewtoolkit.utils.test.DEFAULT_ANALYZER_CONFIGURATION
 import org.ossreviewtoolkit.utils.test.DEFAULT_REPOSITORY_CONFIGURATION
 import org.ossreviewtoolkit.utils.test.USER_DIR
+import org.ossreviewtoolkit.utils.test.containExactly
 import org.ossreviewtoolkit.utils.test.patchExpectedResult
-
-import io.kotlintest.matchers.beEmpty
-import io.kotlintest.should
-import io.kotlintest.shouldBe
-import io.kotlintest.shouldNotBe
-import io.kotlintest.specs.StringSpec
-
-import java.io.File
 
 class DotNetTest : StringSpec() {
     private val projectDir = File("src/funTest/assets/projects/synthetic/dotnet").absoluteFile
@@ -48,7 +46,10 @@ class DotNetTest : StringSpec() {
             val mapper = DotNetPackageReferenceMapper()
             val result = mapper.mapPackageReferences(packageFile)
 
-            result.size shouldBe 2
+            result should containExactly(
+                "jQuery" to "3.3.1",
+                "WebGrease" to "1.5.2"
+            )
         }
 
         "Project dependencies are detected correctly" {
@@ -62,11 +63,9 @@ class DotNetTest : StringSpec() {
                 revision = vcsRevision,
                 path = "$vcsPath/subProjectTest"
             )
-            val result = createDotNet().resolveDependencies(listOf(packageFile))[packageFile]
+            val result = createDotNet().resolveSingleProject(packageFile)
 
-            result shouldNotBe null
-            result!!.issues should beEmpty()
-            yamlMapper.writeValueAsString(result) shouldBe expectedResult
+            result.toYaml() shouldBe expectedResult
         }
     }
 
