@@ -30,6 +30,7 @@ import okhttp3.Request
 
 import org.ossreviewtoolkit.model.EMPTY_JSON_NODE
 import org.ossreviewtoolkit.model.LicenseFinding
+import org.ossreviewtoolkit.model.CopyrightFinding
 import org.ossreviewtoolkit.model.Provenance
 import org.ossreviewtoolkit.model.ScanResult
 import org.ossreviewtoolkit.model.ScanSummary
@@ -47,26 +48,24 @@ import org.ossreviewtoolkit.utils.ProcessCapture
 import org.ossreviewtoolkit.utils.log
 import org.ossreviewtoolkit.utils.unpack
 
+
 class CanvassLabs(name: String, config: ScannerConfiguration) : LocalScanner(name, config) {
     class Factory : AbstractScannerFactory<CanvassLabs>("CanvassLabs") {
         override fun create(config: ScannerConfiguration) = CanvassLabs(scannerName, config)
     }
 
     companion object {
-        val CONFIGURATION_OPTIONS = listOf(
-            "--confidence", "0.95", // Cut-off value to only get most relevant matches.
-            "--format", "json"
-        )
+        val CONFIGURATION_OPTIONS = listOf("")
     }
 
     override val scannerVersion = "1.3.1"
     override val resultFileExt = "json"
 
     override fun command(workingDir: File?) =
-	listOfNotNull(workingDir, if (Os.isWindows) "ORTClient.exe" else "ORTClient").joinToString(File.separator)
+        listOfNotNull(workingDir, if (Os.isWindows) "ORTClient.exe" else "ORTClient").joinToString(File.separator)
 
     override fun transformVersion(output: String) =
-        // "ORTClient --version" returns a string like "ORTClient version 1.1.1", so simply remove the prefix.
+        // "lc --version" returns a string like "licensechecker version 1.1.1", so simply remove the prefix.
         output.removePrefix("ORTClient version ")
 
     override fun bootstrap(): File {
@@ -77,9 +76,10 @@ class CanvassLabs(name: String, config: ScannerConfiguration) : LocalScanner(nam
             else -> throw IllegalArgumentException("Unsupported operating system.")
         }
 
+        //TODO: remove the nested folders from aws
         val archive = "ORTClient-$scannerVersion-$platform.zip"
-        val url = "https://s3.us-west-2.amazonaws.com/ortclient/v1.3.1/x86_64-unknown-linux/ORTClient-1.3.1-x86_64-unknown-linux.zip"
-        //val url = "http://127.0.0.1:5000/lian_ort/download/v$scannerVersion/$archive"
+        //val url = "https://ortclient.s3-us-west-2.amazonaws.com/v1.3.1/x86_64-unknown-linux/$archive"
+        val url = "https://ortclient.s3-us-west-2.amazonaws.com/$archive"
 
         log.info { "Downloading $scannerName from $url... " }
 
@@ -115,22 +115,11 @@ class CanvassLabs(name: String, config: ScannerConfiguration) : LocalScanner(nam
     override fun scanPathInternal(path: File, resultsFile: File): ScanResult {
         val startTime = Instant.now()
 
-        //val lianCredentials = "/home/charliec/.lian_credentials"
-	val home_directory = System.getenv("HOME")
-        val lianCredentials = "$home_directory/.lian_credentials"
-	log.info {"checking for credentials in $lianCredentials"}
-	var lianCredentialsFile = File(lianCredentials)
-	var credentialsFileExists = lianCredentialsFile.exists()
-	val errorSubscriptionRequiredMessage = "Use of CanvassLab's LiAn scan tool requires a subscription. Please visit https://lianort.canvasslabs.com for more information."
-
-	if(!credentialsFileExists) {
-            throw ScanException(errorSubscriptionRequiredMessage)
-        }
-
         val process = ProcessCapture(
             scannerPath.absolutePath,
-            "-i", path.absolutePath,
-            "-o", resultsFile.absolutePath
+            //*CONFIGURATION_OPTIONS.toTypedArray(),
+            "-o", resultsFile.absolutePath,
+            "-i", path.absolutePath
         )
 
         val endTime = Instant.now()
@@ -159,29 +148,62 @@ class CanvassLabs(name: String, config: ScannerConfiguration) : LocalScanner(nam
 
     private fun generateSummary(startTime: Instant, endTime: Instant, scanPath: File, result: JsonNode): ScanSummary {
         val licenseFindings = sortedSetOf<LicenseFinding>()
+        val copyrightFindings = sortedSetOf<CopyrightFinding>()
 
+        /*for (i in 0 until result.length)
+        {
+            val item = result.get(i)
+        }*/
+
+        /*
+            The idea here is to iterate through 'matches' and first pick out
+            the ones that are not copyrights, and assume they're licenses by
+            default. The quirk is that currently matched_type returns
+            'copyright' for copyrights, but the spdx name for licenses,
+            instead of 'license'. Using mapNotNull() allows us to not populate
+            the sets defined above with None values, which violate some
+            assertion downstream.
+        */
         result.flatMapTo(licenseFindings) { file ->
-            // local_file_path contains the original file name and path of the client's file.
-            // file_path is the deidentified file name given to the local file before sending metadata off to the server.
-            // LiAn depends on having a filename on the server side.
             val filePath = File(file["local_file_path"].textValue())
-            file["matches"].map {
-               val license = it["matched_license"].textValue()
-               // ORT expects line numbers to begin at 1, not 0. Set the range to start at 1 and end at end + 1
-               val start_line = it["start_line_ind"].intValue() + 1
-               val end_line = it["end_line_ind"].intValue() + 1 
-               val location = TextLocation(relativizePath(scanPath, filePath), start_line, end_line)
-               LicenseFinding(license, location)
+            file["matches"].mapNotNull {   
+                it -> if(!it["matched_type"].textValue().equals("copyright"))
+                    LicenseFinding(
+                        license = getSpdxLicenseIdString(it["matched_type"].textValue()),
+                        location = TextLocation(
+                            // Turn absolute paths in the native result into relative paths to not expose any information.
+                            relativizePath(scanPath, filePath),
+                            it["start_line_ind"].intValue() + 1,
+                            it["end_line_ind"].intValue() + 1
+                        )
+                    ) else null
             }
         }
 
+        result.flatMapTo(copyrightFindings) { file ->
+            val filePath = File(file["local_file_path"].textValue())
+            file["matches"].mapNotNull {   
+                it -> if(it["matched_type"].textValue().equals("copyright"))
+                    CopyrightFinding(
+                        statement = it["found_region"].textValue(),
+                        location = TextLocation(
+                            // Turn absolute paths in the native result into relative paths to not expose any information.
+                            relativizePath(scanPath, filePath),
+                            // copyright lines appear to need an increment
+                            it["start_line_ind"].intValue() + 1,
+                            it["end_line_ind"].intValue() + 1
+                        )
+                    ) else null
+            }
+        }
+    
         return ScanSummary(
             startTime = startTime,
             endTime = endTime,
             fileCount = result.size(),
             packageVerificationCode = calculatePackageVerificationCode(scanPath),
-            licenseFindings = licenseFindings,
-            copyrightFindings = sortedSetOf(),
+            licenseFindings = licenseFindings,  
+            copyrightFindings = copyrightFindings,
             issues = mutableListOf()
         )
     }
