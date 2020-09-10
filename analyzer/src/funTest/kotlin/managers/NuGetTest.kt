@@ -21,17 +21,19 @@
 package org.ossreviewtoolkit.analyzer.managers
 
 import io.kotest.core.spec.style.StringSpec
+import io.kotest.matchers.collections.containExactly
 import io.kotest.matchers.should
 import io.kotest.matchers.shouldBe
 
 import java.io.File
 
 import org.ossreviewtoolkit.downloader.VersionControlSystem
+import org.ossreviewtoolkit.model.Identifier
 import org.ossreviewtoolkit.utils.normalizeVcsUrl
 import org.ossreviewtoolkit.utils.test.DEFAULT_ANALYZER_CONFIGURATION
 import org.ossreviewtoolkit.utils.test.DEFAULT_REPOSITORY_CONFIGURATION
 import org.ossreviewtoolkit.utils.test.USER_DIR
-import org.ossreviewtoolkit.utils.test.containExactly
+import org.ossreviewtoolkit.utils.test.patchActualResult
 import org.ossreviewtoolkit.utils.test.patchExpectedResult
 
 class NuGetTest : StringSpec() {
@@ -42,13 +44,14 @@ class NuGetTest : StringSpec() {
     private val packageFile = File(projectDir, "packages.config")
 
     init {
-        "Definition file is correctly mapped" {
-            val mapper = NuGetPackageReferenceMapper()
-            val result = mapper.mapPackageReferences(packageFile)
+        "Definition file is correctly read" {
+            val reader = NuGetPackageFileReader()
+            val result = reader.getPackageReferences(packageFile)
 
             result should containExactly(
-                "jQuery" to "3.3.1",
-                "WebGrease" to "1.5.2"
+                Identifier(type = "NuGet", namespace = "", name = "jQuery", version = "3.3.1"),
+                Identifier(type = "NuGet", namespace = "", name = "WebGrease", version = "1.5.2"),
+                Identifier(type = "NuGet", namespace = "", name = "foobar", version = "1.2.3")
             )
         }
 
@@ -65,7 +68,7 @@ class NuGetTest : StringSpec() {
             )
             val result = createNuGet().resolveSingleProject(packageFile)
 
-            result.toYaml() shouldBe expectedResult
+            patchActualResult(result.toYaml()) shouldBe expectedResult
         }
     }
 

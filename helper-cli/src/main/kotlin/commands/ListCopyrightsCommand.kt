@@ -46,6 +46,7 @@ internal class ListCopyrightsCommand : CliktCommand(
         help = "The ORT result file to read as input."
     ).convert { it.expandTilde() }
         .file(mustExist = true, canBeFile = true, canBeDir = false, mustBeWritable = false, mustBeReadable = true)
+        .convert { it.absoluteFile.normalize() }
         .required()
 
     private val copyrightGarbageFile by option(
@@ -53,6 +54,7 @@ internal class ListCopyrightsCommand : CliktCommand(
         help = "A file containing garbage copyright statements entries which are to be ignored."
     ).convert { it.expandTilde() }
         .file(mustExist = true, canBeFile = true, canBeDir = false, mustBeWritable = false, mustBeReadable = true)
+        .convert { it.absoluteFile.normalize() }
 
     private val packageId by option(
         "--package-id",
@@ -69,7 +71,7 @@ internal class ListCopyrightsCommand : CliktCommand(
         help = "Show the raw statements corresponding to each processed statement if these are any different."
     ).flag()
 
-    private val packageConfigurationOption by mutuallyExclusiveOptions<PackageConfigurationOption>(
+    private val packageConfigurationOption by mutuallyExclusiveOptions(
         option(
             "--package-configuration-dir",
             help = "The directory containing the package configuration files to read as input. It is searched " +
@@ -100,10 +102,10 @@ internal class ListCopyrightsCommand : CliktCommand(
 
         val result = buildString {
             copyrightStatements.forEach { (processedStatement, unprocessedStatements) ->
-                appendln(processedStatement)
+                appendLine(processedStatement)
                 if (showRawStatements && unprocessedStatements.size > 1) {
                     unprocessedStatements.forEach {
-                        appendln("  $it")
+                        appendLine("  $it")
                     }
                 }
             }

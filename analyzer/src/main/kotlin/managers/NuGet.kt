@@ -30,40 +30,13 @@ import java.io.File
 
 import org.ossreviewtoolkit.analyzer.AbstractPackageManagerFactory
 import org.ossreviewtoolkit.analyzer.PackageManager
-import org.ossreviewtoolkit.analyzer.managers.utils.XmlPackageReferenceMapper
-import org.ossreviewtoolkit.analyzer.managers.utils.resolveDotNetDependencies
+import org.ossreviewtoolkit.analyzer.managers.utils.NuGetSupport
+import org.ossreviewtoolkit.analyzer.managers.utils.XmlPackageFileReader
+import org.ossreviewtoolkit.analyzer.managers.utils.resolveNuGetDependencies
+import org.ossreviewtoolkit.model.Identifier
 import org.ossreviewtoolkit.model.ProjectAnalyzerResult
 import org.ossreviewtoolkit.model.config.AnalyzerConfiguration
 import org.ossreviewtoolkit.model.config.RepositoryConfiguration
-
-class NuGetPackageReferenceMapper : XmlPackageReferenceMapper() {
-    // See https://docs.microsoft.com/en-us/nuget/reference/packages-config.
-    @JsonIgnoreProperties(ignoreUnknown = true)
-    data class PackagesConfig(
-        @JsonProperty(value = "package")
-        @JacksonXmlElementWrapper(useWrapping = false)
-        val packages: List<Package>
-    )
-
-    @JsonIgnoreProperties(ignoreUnknown = true)
-    data class Package(
-        @JacksonXmlProperty(isAttribute = true)
-        val id: String,
-        @JacksonXmlProperty(isAttribute = true)
-        val version: String
-    )
-
-    override fun mapPackageReferences(definitionFile: File): Map<String, String> {
-        val map = mutableMapOf<String, String>()
-        val packagesConfig = mapper.readValue<PackagesConfig>(definitionFile)
-
-        packagesConfig.packages.forEach {
-            map[it.id] = it.version
-        }
-
-        return map
-    }
-}
 
 /**
  * The [NuGet](https://www.nuget.org/) package manager for .NET.
@@ -84,6 +57,41 @@ class NuGet(
         ) = NuGet(managerName, analysisRoot, analyzerConfig, repoConfig)
     }
 
+    private val reader = NuGetPackageFileReader()
+    private val support = NuGetSupport()
+
     override fun resolveDependencies(definitionFile: File): List<ProjectAnalyzerResult> =
-        listOfNotNull(resolveDotNetDependencies(definitionFile, NuGetPackageReferenceMapper()))
+        listOf(resolveNuGetDependencies(definitionFile, reader, support))
+}
+
+/**
+ * A reader for XML-based NuGet package configuration files, see
+ * https://docs.microsoft.com/en-us/nuget/reference/packages-config.
+ */
+class NuGetPackageFileReader : XmlPackageFileReader {
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    private data class PackagesConfig(
+        @JsonProperty(value = "package")
+        @JacksonXmlElementWrapper(useWrapping = false)
+        val packages: List<Package>
+    )
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    private data class Package(
+        @JacksonXmlProperty(isAttribute = true)
+        val id: String,
+        @JacksonXmlProperty(isAttribute = true)
+        val version: String
+    )
+
+    override fun getPackageReferences(definitionFile: File): Set<Identifier> {
+        val ids = mutableSetOf<Identifier>()
+        val packagesConfig = NuGetSupport.XML_MAPPER.readValue<PackagesConfig>(definitionFile)
+
+        packagesConfig.packages.forEach {
+            ids += Identifier(type = "NuGet", namespace = "", name = it.id, version = it.version)
+        }
+
+        return ids
+    }
 }

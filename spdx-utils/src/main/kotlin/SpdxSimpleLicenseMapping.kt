@@ -47,23 +47,13 @@ object SpdxSimpleLicenseMapping {
      */
     private val deprecatedLicenseIds by lazy {
         val resource = javaClass.getResource("/deprecated-license-mapping.yml")
-        val map = yamlMapper.readValue<Map<String, SpdxLicense>>(resource)
-        map.mapValues { (_, v) -> v.toExpression() }
-    }
-
-    /**
-     * The map of deprecated SPDX license exception ids associated with their current compound SPDX expression.
-     */
-    private val deprecatedExceptionIds by lazy {
-        val resource = javaClass.getResource("/deprecated-exception-mapping.yml")
-        yamlMapper.readValue<Map<String, SpdxLicenseWithExceptionExpression>>(resource)
+        yamlMapper.readValue<Map<String, SpdxSingleLicenseExpression>>(resource)
     }
 
     /**
      * The map of varied SPDX license ids associated with their corresponding SPDX expression.
      */
-    val mapping =
-        (customLicenseIds + deprecatedLicenseIds + deprecatedExceptionIds).toSortedMap(String.CASE_INSENSITIVE_ORDER)
+    val mapping = (customLicenseIds + deprecatedLicenseIds).toSortedMap(String.CASE_INSENSITIVE_ORDER)
 
     /**
      * Return the [SpdxExpression] the [license] id maps to, or null if there is no corresponding expression. If

@@ -50,12 +50,9 @@ typealias ManagedProjectFiles = Map<PackageManagerFactory, List<File>>
 typealias ResolutionResult = MutableMap<File, List<ProjectAnalyzerResult>>
 
 /**
- * A class representing a package manager that handles software dependencies.
- *
- * @param managerName The package manager's name.
- * @param analysisRoot The root directory of the analysis.
- * @param analyzerConfig The configuration of the analyzer to use.
- * @param repoConfig The configuration of the repository to use.
+ * A class representing a package manager that handles software dependencies. The package manager is referred to by its
+ * [managerName]. The analysis of any projects and their dependencies starts in the [analysisRoot] directory using the
+ * given general [analyzerConfig]. Per-repository configuration is passed in [repoConfig].
  */
 abstract class PackageManager(
     val managerName: String,
@@ -92,10 +89,7 @@ abstract class PackageManager(
         }
 
         /**
-         * Recursively search for files managed by a package manager.
-         *
-         * @param directory The root directory to search for managed files.
-         * @param packageManagers A list of package managers to use, defaults to [ALL].
+         * Recursively search the [directory] for files managed by any of the [packageManagers].
          */
         fun findManagedFiles(directory: File, packageManagers: List<PackageManagerFactory> = ALL):
                 ManagedProjectFiles {
@@ -150,37 +144,41 @@ abstract class PackageManager(
         }
 
         /**
-         * Enrich a package's VCS information with information deduced from the package's VCS URL or a list of fallback
-         * URLs.
-         *
-         * @param vcsFromPackage The [VcsInfo] of a [Package].
-         * @param fallbackUrls The alternative URLs to to use as fallback for determining the [VcsInfo]. The first
-         *                     element that is recognized as a VCS URL is used.
+         * Enrich a [package's VCS information][vcsFromPackage] with information deduced from the package's VCS URL or a
+         * [list of fallback URLs][fallbackUrls] (the first element that is recognized as a VCS URL is used).
          */
         fun processPackageVcs(vcsFromPackage: VcsInfo, vararg fallbackUrls: String): VcsInfo {
-            // Merge the VCS information from the package with information derived from its normalized URL only.
-            val normalizedVcsFromPackage = vcsFromPackage.normalize().let { VcsHost.toVcsInfo(it.url).merge(it) }
+            val normalizedVcsFromPackage = vcsFromPackage.normalize()
 
-            // Add the VCS information derived from the normalized fallback URLs to the list.
-            val availableVcsInfo = fallbackUrls.mapTo(mutableListOf(normalizedVcsFromPackage)) {
+            val fallbackVcs = fallbackUrls.mapTo(mutableListOf(VcsHost.toVcsInfo(normalizedVcsFromPackage.url))) {
                 VcsHost.toVcsInfo(normalizeVcsUrl(it))
+            }.firstOrNull {
+                // Ignore fallback VCS information that changes a known type, or where the VCS type is unknown.
+                if (normalizedVcsFromPackage.type != VcsType.UNKNOWN) {
+                    it.type == normalizedVcsFromPackage.type
+                } else {
+                    it.type != VcsType.UNKNOWN
+                }
             }
 
-            // Use the first VCS information with a valid type, or the normalized VCS information from the package.
-            return availableVcsInfo.find { it.type != VcsType.NONE } ?: normalizedVcsFromPackage
+            if (fallbackVcs != null) {
+                // Enrich (not overwrite) the normalized VCS information from the package...
+                val mergedVcs = normalizedVcsFromPackage.merge(fallbackVcs)
+                if (mergedVcs != normalizedVcsFromPackage) {
+                    // ... but if indeed meta data was enriched, overwrite the URL with the one from the fallback VCS
+                    // information to ensure we get the correct base URL if additional VCS information (like a revision
+                    // or path) has been split from the original URL.
+                    return mergedVcs.copy(url = fallbackVcs.url)
+                }
+            }
+
+            return normalizedVcsFromPackage
         }
 
         /**
-         * Merge the [VcsInfo] read from the project with [VcsInfo] deduced from the VCS URL and from the working
-         * directory.
-         *
-         * Get a project's VCS information from the working tree and optionally enrich it with VCS information from
-         * another source (like meta-data) or a list of fallback URLs.
-         *
-         * @param projectDir The working tree directory of the [Project].
-         * @param vcsFromProject The project's [VcsInfo], if any.
-         * @param fallbackUrls The alternative URLs to to use as fallback for determining the [VcsInfo]. The first
-         *                     element that is recognized as a VCS URL is used.
+         * Enrich VCS information determined from the [project's directory][projectDir] with VCS information determined
+         * from the [project's meta data][vcsFromProject], if any, and from a [list of fallback URLs][fallbackUrls] (the
+         * first element that is recognized as a VCS URL is used).
          */
         fun processProjectVcs(
             projectDir: File,

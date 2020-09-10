@@ -58,8 +58,8 @@ import org.ossreviewtoolkit.utils.log
 
 import retrofit2.Call
 
-class ClearlyDefinedUploadCommand : CliktCommand(
-    name = "cd-upload",
+class UploadCurationsCommand : CliktCommand(
+    name = "upload-curations",
     help = "Upload ORT package curations to ClearlyDefined."
 ) {
     private val inputFile by option(
@@ -67,6 +67,7 @@ class ClearlyDefinedUploadCommand : CliktCommand(
         help = "The file with package curations to upload."
     ).convert { it.expandTilde() }
         .file(mustExist = true, canBeFile = true, canBeDir = false, mustBeWritable = false, mustBeReadable = true)
+        .convert { it.absoluteFile.normalize() }
         .required()
 
     private val server by option(
@@ -118,8 +119,7 @@ class ClearlyDefinedUploadCommand : CliktCommand(
         }
 
     override fun run() {
-        val absoluteInputFile = inputFile.normalize()
-        val curations = absoluteInputFile.readValue<List<PackageCuration>>()
+        val curations = inputFile.readValue<List<PackageCuration>>()
         val curationsToCoordinates = curations.associateWith { it.id.toClearlyDefinedCoordinates().toString() }
         val definitions = getDefinitions(curationsToCoordinates.values)
 

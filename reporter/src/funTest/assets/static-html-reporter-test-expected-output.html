@@ -425,6 +425,26 @@ Prism.languages.yaml={scalar:{pattern:/([\-:]\s*(?:![^\s]+)?[ \t]*[|>])[ \t]*(?:
     <div id="report-container">
       <div class="ort-report-label">Scan Report</div>
       <div>Created by <strong>ORT</strong>, the <a href="http://oss-review-toolkit.org/">OSS Review Toolkit</a>, version <REPLACE_ORT_VERSION> on <REPLACE_TIMESTAMP>.</div>
+      <h2>Metadata</h2>
+      <table class="ort-report-metadata">
+        <tbody>
+          <tr>
+            <td>JOB_PARAM_1</td><td>label job param 1</td>
+          </tr>
+          <tr>
+            <td>JOB_PARAM_2</td><td>label job param 2</td>
+          </tr>
+          <tr>
+            <td>PROCESS_PARAM_1</td><td>label process param 1</td>
+          </tr>
+          <tr>
+            <td>PROCESS_PARAM_2</td><td>label process param 2</td>
+          </tr>
+          <tr>
+            <td>OTHER</td><td>label other</td>
+          </tr>
+        </tbody>
+      </table>
       <h2>Index</h2>
       <ul>
         <li>
@@ -536,6 +556,26 @@ Resolved by: CANT_FIX_EXCEPTION - Apache-2 is not an issue.</p>
                   <p>Unknown time [ERROR]: FileCounter - DownloadException: No source artifact URL provided for 'Gradle:org.ossreviewtoolkit.gradle.example:lib:1.0.0'.<br>Caused by: DownloadException: No VCS URL provided for 'Gradle:org.ossreviewtoolkit.gradle.example:lib:1.0.0'. Please make sure the release POM file includes the SCM connection, see: https://docs.gradle.org/current/userguide/publishing_maven.html#example_customizing_the_pom_file</p>
                   <p></p>
                 </li>
+                <details>
+                  <summary>How to fix</summary>
+                  <ul>
+
+                    <li>
+                      <em>Step 1</em>
+                    </li>
+
+                    <li>
+                      <strong>Step 2</strong>
+                    </li>
+
+                    <li>
+                      <em><strong>Step 3</strong></em>
+<code>Some long issue resolution text to verify that overflow:scroll is working as expected.</code>
+                    </li>
+
+                  </ul>
+
+                </details>
               </ul>
             </td>
           </tr>

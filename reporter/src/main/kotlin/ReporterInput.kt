@@ -32,6 +32,7 @@ import org.ossreviewtoolkit.model.utils.DefaultResolutionProvider
 import org.ossreviewtoolkit.model.utils.PackageConfigurationProvider
 import org.ossreviewtoolkit.model.utils.ResolutionProvider
 import org.ossreviewtoolkit.model.utils.SimplePackageConfigurationProvider
+import org.ossreviewtoolkit.utils.storage.FileArchiver
 
 /**
  * A bundle of input to be used by [Reporter] implementations.
@@ -72,12 +73,18 @@ data class ReporterInput(
      */
     val licenseInfoResolver: LicenseInfoResolver = LicenseInfoResolver(
         provider = DefaultLicenseInfoProvider(ortResult, packageConfigurationProvider),
-        copyrightGarbage = copyrightGarbage
+        copyrightGarbage = copyrightGarbage,
+        archiver = ortConfig.scanner?.archive?.createFileArchiver() ?: FileArchiver.DEFAULT
     ),
 
     /**
      * A [LicenseConfiguration], can be used to handle licenses based on the user's configuration, for example to
      * determine which licenses to include in a notice file.
      */
-    val licenseConfiguration: LicenseConfiguration = LicenseConfiguration()
+    val licenseConfiguration: LicenseConfiguration = LicenseConfiguration(),
+
+    /**
+     * A [HowToFixTextProvider], can be used to integrate how to fix texts for [OrtIssue]s into reports.
+     */
+    val howToFixTextProvider: HowToFixTextProvider = HowToFixTextProvider.NONE
 )

@@ -176,7 +176,7 @@ val ORT_RESULT = OrtResult(
                     pkg = Package(
                         id = Identifier("NPM:@ort:concluded-license:1.0"),
                         declaredLicenses = sortedSetOf("BSD-3-Clause"),
-                        concludedLicense = "MIT".toSpdx(),
+                        concludedLicense = "MIT AND MIT WITH Libtool-exception".toSpdx(),
                         description = "",
                         homepageUrl = "",
                         binaryArtifact = RemoteArtifact.EMPTY,
@@ -255,33 +255,6 @@ val ORT_RESULT = OrtResult(
                                 packageVerificationCode = "",
                                 licenseFindings = sortedSetOf(),
                                 copyrightFindings = sortedSetOf()
-                            )
-                        )
-                    )
-                ),
-                ScanResultContainer(
-                    id = Identifier("NPM:@ort:no-license-file:1.0"),
-                    results = listOf(
-                        ScanResult(
-                            provenance = Provenance(sourceArtifact = RemoteArtifact.EMPTY),
-                            scanner = ScannerDetails(name = "scanner", version = "1.0", configuration = ""),
-                            summary = ScanSummary(
-                                startTime = Instant.EPOCH,
-                                endTime = Instant.EPOCH,
-                                fileCount = 0,
-                                packageVerificationCode = "",
-                                licenseFindings = sortedSetOf(
-                                    LicenseFinding(
-                                        license = "MIT",
-                                        location = TextLocation("file", 1, 1)
-                                    )
-                                ),
-                                copyrightFindings = sortedSetOf(
-                                    CopyrightFinding(
-                                        statement = "Copyright 1",
-                                        location = TextLocation("file", 1, 1)
-                                    )
-                                )
                             )
                         )
                     )

@@ -29,10 +29,10 @@ plugins {
 dependencies {
     api(project(":model"))
 
-    api("io.kotest:kotest-core-jvm:$kotestVersion")
     api("io.kotest:kotest-assertions-core-jvm:$kotestVersion")
-    api("io.kotest:kotest-runner-console-jvm:$kotestVersion")
+    api("io.kotest:kotest-framework-api:$kotestVersion")
 
-    // kotest uses slf4j 1.7, so route these calls to log4j to avoid the slf4j warning about no logger being bound.
+    implementation("io.kotest:kotest-extensions-junitxml:$kotestVersion")
+    implementation("io.kotest:kotest-framework-engine-jvm:$kotestVersion")
     implementation("org.apache.logging.log4j:log4j-slf4j-impl:$log4jCoreVersion")
 }

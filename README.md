@@ -30,24 +30,22 @@
 
 # Introduction
 
-The OSS Review Toolkit (ORT) assists with verifying Free and Open Source Software license compliance by checking a
-project's source code and its dependencies.
+The OSS Review Toolkit (ORT) aims to assist with the tasks that commonly need to be performed in the context of license
+compliance checks, especially for (but not limited to) Free and Open Source Software dependencies.
 
-From a bird's eye, it works by analyzing the project's build system for dependencies, downloading the source code of the
-dependencies, scanning all source code for license information, and summarizing the results.
+It does so by orchestrating a _highly customizable_ pipeline of tools that _abstract away_ the underlying services.
+These tools are implemented as libraries (for programmatic use) and exposed via a command line interface (for scripted
+use):
 
-The different tools that make up ORT are designed as libraries (for programmatic use), with a minimal command line
-interface (for scripted use).
-
-The toolkit consists of the following tools:
-
-* [_Analyzer_](#analyzer) - determines dependencies of a project. Supports multiple package managers and sub-projects.
-  No changes to the projects are required.
-* [_Downloader_](#downloader) - fetches the source code referred to by the Analyzer result.
-* [_Scanner_](#scanner) - wraps existing license / copyright scanners to detect findings in local source code
-  directories.
-* [_Evaluator_](#evaluator) - evaluates license findings against customizable policy rules.
-* [_Reporter_](#reporter) - presents results in various formats such as visual reports, open source notices or
+* [_Analyzer_](#analyzer) - determines the dependencies of projects and their meta-data, abstracting which package
+  managers or build systems are actually being used.
+* [_Downloader_](#downloader) - fetches all source code of the projects and their dependencies, abstracting which
+  Version Control System (VCS) or other means are used to retrieve the source code.
+* [_Scanner_](#scanner) - uses configured source code scanners to detect license / copyright findings, abstracting
+  the type of scanner.
+* [_Evaluator_](#evaluator) - evaluates license / copyright findings against customizable policy rules and license
+  classifications.
+* [_Reporter_](#reporter) - presents results in various formats such as visual reports, Open Source notices or
   Bill-Of-Materials (BOMs) to easily identify dependencies, licenses, copyrights or policy rule violations.
 
 The following tools are [planned](https://github.com/oss-review-toolkit/ort/projects/1) but not yet available:
@@ -160,13 +158,16 @@ Please see [Getting Started](./docs/getting-started.md) for an introduction to t
 
 Please see the documentation below for details about the ORT configuration.
 
-* [The .ort.yml file](./docs/config-file-ort-yml.md) - project-specific license finding curations, exclusions
+* The [ORT configuration](./model/src/main/resources/reference.conf) file - the main configuration file for the
+  operation of ORT. This configuration is maintained by an administrator who manages the ORT instance. In contrast to
+  the configuration files in the following, this file rarely changes once ORT is operational.
+* The [.ort.yml](./docs/config-file-ort-yml.md) file - project-specific license finding curations, exclusions
   and resolutions to address issues found within a project's code repository.
-* [The package configuration file](./docs/config-file-package-configuration-yml.md) - package (dependency) and provenance
+* The [package configuration](./docs/config-file-package-configuration-yml.md) file - package (dependency) and provenance
   specific license finding curations and exclusions to address issues found within a scan result for a package.
-* [The curations.yml file](./docs/config-file-curations-yml.md) - curations correct invalid or missing package metadata
+* The [curations.yml](./docs/config-file-curations-yml.md) file - curations correct invalid or missing package metadata
   and set the concluded license for packages.
-* [The resolutions.yml file](./docs/config-file-resolutions-yml.md) - resolutions allow *resolving* any issues
+* The [resolutions.yml](./docs/config-file-resolutions-yml.md) file - resolutions allow *resolving* any issues
   or policy rule violations by providing a reason why they are acceptable and can be ignored.
 
 # Details on the tools
@@ -190,7 +191,7 @@ Currently, the following package managers are supported:
 * [Bundler](http://bundler.io/) (Ruby)
 * [Cargo](https://doc.rust-lang.org/cargo/) (Rust)
 * [Conan](https://conan.io/) (C / C++, *experimental* as the VCS locations often times do not contain the actual source
-  code, see [issue #2037](../../issues/2037))
+  code, see [issue #2037](https://github.com/oss-review-toolkit/ort/issues/2037))
 * [dep](https://golang.github.io/dep/) (Go)
 * [DotNet](https://docs.microsoft.com/en-us/dotnet/core/tools/) (.NET, with currently some
   [limitations](https://github.com/oss-review-toolkit/ort/pull/1303#issue-253860146))
@@ -208,6 +209,9 @@ Currently, the following package managers are supported:
 * [Pipenv](https://pipenv.readthedocs.io/) (Python)
 * [Pub](https://pub.dev/) (Dart / Flutter)
 * [SBT](http://www.scala-sbt.org/) (Scala)
+* [SPDX](https://spdx.dev/specifications/) (SPDX documents used to describe
+  [projects](./analyzer/src/funTest/assets/projects/synthetic/spdx/project/project.spdx.yml) or
+  [packages](./analyzer/src/funTest/assets/projects/synthetic/spdx/package/libs/curl/package.spdx.yml))
 * [Stack](http://haskellstack.org/) (Haskell)
 * [Yarn](https://yarnpkg.com/) (Node.js)
 
@@ -220,7 +224,7 @@ all contained packages to the specified output directory (`-o`). The _downloader
 URLs and using the [appropriate VCS tool](./downloader/src/main/kotlin/vcs) to checkout source code from version
 control.
 
-Currently, the following Version Control Systems are supported:
+Currently, the following Version Control Systems (VCS) are supported:
 
 * [CVS](https://en.wikipedia.org/wiki/Concurrent_Versions_System)
 * [Git](https://git-scm.com/)
@@ -326,7 +330,7 @@ options see [PostgresStorageConfiguration.kt](./model/src/main/kotlin/config/Pos
 
 The _evaluator_ is used to perform custom license policy checks on scan results. The rules to check against are
 implemented as scripts (currently Kotlin scripts, with a dedicated DSL, but support for other scripting can be added as
-well. See [rules.kts](./docs/examples/rules.kts) for an example file.
+well. See [rules.kts](./examples/rules.kts) for an example file.
 
 <a name="reporter">&nbsp;</a>
 
@@ -341,12 +345,28 @@ Currently, the following report formats are supported (reporter names are case-i
 * [Antenna Attribution Document (PDF)](./docs/reporters/AntennaAttributionDocumentReporter.md) (`-f AntennaAttributionDocument`)
 * [CycloneDX](https://cyclonedx.org/) BOM (`-f CycloneDx`)
 * [Excel](https://products.office.com/excel) sheet (`-f Excel`)
+* [GitLabLicenseModel](https://docs.gitlab.com/ee/ci/pipelines/job_artifacts.html#artifactsreportslicense_scanning-ultimate) (`-f GitLabLicenseModel`)
 * [NOTICE](http://www.apache.org/dev/licensing-howto.html) file in two variants
   * List license texts and copyrights by package (`-f NoticeByPackage`)
   * Summarize all license texts and copyrights (`-f NoticeSummary`)
 * [SPDX Document](https://spdx.dev/specifications/), version 2.2 (`-f SpdxDocument`)
 * Static HTML (`-f StaticHtml`)
 * Web App (`-f WebApp`)
+
+# System requirements
+
+ORT is being continuously used on Linux, Windows and macOS by the
+[core development team](https://github.com/orgs/oss-review-toolkit/teams/core-devs), so these operating systems are
+considered to be well supported.
+
+To run the ORT binaries (also see [Installation from binaries](#from-binaries)) at least a Java Runtime Environment
+(JRE) version 8 is required, but using version 11 is recommended. Memory and CPU requirements vary depending on the size
+and type of project(s) to analyze / scan, but the general recommendation is to configure the JRE with 8 GiB of memory
+(`-Xmx=8g`) and to use a CPU with at least 4 cores.
+
+If ORT requires external tools in order to analyze a project, these tools are listed by the `ort requirements` command.
+If a package manager is not list listed there, support for it is integrated directly into ORT and does not require any
+external tools to be installed.
 
 # Development
 
@@ -379,12 +399,19 @@ the following steps to import the project.
 
 3. In the *Import Project from Gradle* dialog select *Use auto-import* and leave all other settings at their defaults.
 
+## Debugging
+
 To set up a basic run configuration for debugging, navigate to `Main.kt` in the `cli` module and look for the
 `fun main(args: Array<String>)` function. In the gutter next to it, a green "Play" icon should be displayed. Click on it
 and select `Run 'org.ossreviewtoolkit.Main'` to run the entry point, which implicitly creates a run configuration.
 Double-check that running ORT without any arguments will simply show the command line help in IDEA's *Run* tool window.
 Finally, edit the created run configuration to your needs, e.g. by adding an argument and options to run a specific ORT
 sub-command.
+
+## Testing
+
+For running tests and individual test cases from the IDE, the [kotest plugin](https://plugins.jetbrains.com/plugin/14080-kotest)
+needs to be installed. Afterwards tests can be run via the green "Play" icon from the gutter as described above.
 
 # License
 

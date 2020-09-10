@@ -77,7 +77,8 @@
     "message" : "DownloadException: No source artifact URL provided for 'Gradle:org.ossreviewtoolkit.gradle.example:lib:1.0.0'.\nCaused by: DownloadException: No VCS URL provided for 'Gradle:org.ossreviewtoolkit.gradle.example:lib:1.0.0'. Please make sure the release POM file includes the SCM connection, see: https://docs.gradle.org/current/userguide/publishing_maven.html#example_customizing_the_pom_file",
     "severity" : "ERROR",
     "pkg" : 0,
-    "scan_result" : 0
+    "scan_result" : 0,
+    "how_to_fix" : "Some how to fix text."
   } ],
   "scan_results" : [ {
     "_id" : 0,
@@ -761,5 +762,11 @@
     }
   },
   "repository_configuration" : "---\nexcludes:\n  paths:\n  - pattern: \"sub/module/project/build.gradle\"\n    reason: \"EXAMPLE_OF\"\n    comment: \"The project is an example.\"\n  - pattern: \"**.java\"\n    reason: \"EXAMPLE_OF\"\n    comment: \"These are example files.\"\n  scopes:\n  - pattern: \"testCompile\"\n    reason: \"TEST_DEPENDENCY_OF\"\n    comment: \"The scope only contains test dependencies.\"\nresolutions:\n  rule_violations:\n  - message: \"Apache-2.0 hint\"\n    reason: \"CANT_FIX_EXCEPTION\"\n    comment: \"Apache-2 is not an issue.\"\n",
-  "custom_data" : { }
+  "labels" : {
+    "job_parameters.JOB_PARAM_1" : "label job param 1",
+    "job_parameters.JOB_PARAM_2" : "label job param 2",
+    "process_parameters.PROCESS_PARAM_1" : "label process param 1",
+    "process_parameters.PROCESS_PARAM_2" : "label process param 2",
+    "OTHER" : "label other"
+  }
 }

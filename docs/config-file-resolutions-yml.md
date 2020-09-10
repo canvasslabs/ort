@@ -3,7 +3,7 @@
 Resolutions allow you to *resolve* issues or policy rule violations
 by providing a reason why they are acceptable and can be ignored.
 
-You can use [examples/resolutions.yml](examples/resolutions.yml) as the base configuration file for your scans.
+You can use the [resolutions.yml example](../examples/resolutions.yml) as the base configuration file for your scans.
 
 ### When to Use Resolutions
 Resolutions should be used when it is impossible to solve an issue or a fix is planned for a later time.
@@ -94,4 +94,5 @@ cli/build/install/ort/bin/ort report
   -o [reporter-output-path]
   --report-formats NoticeByPackage,StaticHtml,WebApp
   --license-configuration-file [ort-configuration-path]/licenses.yml
+  --resolutions-file [ort-configuration-path]/resolutions.yml
 ```

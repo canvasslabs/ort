@@ -21,6 +21,10 @@ package org.ossreviewtoolkit.model
 
 import io.kotest.assertions.throwables.shouldThrow
 import io.kotest.core.spec.style.WordSpec
+import io.kotest.matchers.collections.containExactlyInAnyOrder
+import io.kotest.matchers.maps.beEmpty
+import io.kotest.matchers.maps.shouldContainExactly
+import io.kotest.matchers.should
 import io.kotest.matchers.shouldBe
 
 import org.ossreviewtoolkit.spdx.toSpdx
@@ -40,13 +44,15 @@ class PackageCurationTest : WordSpec({
                 homepageUrl = "",
                 binaryArtifact = RemoteArtifact.EMPTY,
                 sourceArtifact = RemoteArtifact.EMPTY,
-                vcs = VcsInfo.EMPTY
+                vcs = VcsInfo.EMPTY,
+                isMetaDataOnly = false
             )
 
             val curation = PackageCuration(
                 id = pkg.id,
                 data = PackageCurationData(
                     declaredLicenses = sortedSetOf("license a", "license b"),
+                    declaredLicenseMapping = mapOf("license a" to "Apache-2.0".toSpdx()),
                     concludedLicense = "license1 OR license2".toSpdx(),
                     description = "description",
                     homepageUrl = "http://home.page",
@@ -64,21 +70,25 @@ class PackageCurationTest : WordSpec({
                         revision = "revision",
                         resolvedRevision = "resolvedRevision",
                         path = "path"
-                    )
+                    ),
+                    isMetaDataOnly = true
                 )
             )
 
             val curatedPkg = curation.apply(pkg.toCuratedPackage())
 
-            curatedPkg.pkg.apply {
+            with(curatedPkg.pkg) {
                 id.toCoordinates() shouldBe pkg.id.toCoordinates()
                 declaredLicenses shouldBe curation.data.declaredLicenses
+                declaredLicensesProcessed.spdxExpression shouldBe "Apache-2.0".toSpdx()
+                declaredLicensesProcessed.unmapped should containExactlyInAnyOrder("license b")
                 concludedLicense shouldBe curation.data.concludedLicense
                 description shouldBe curation.data.description
                 homepageUrl shouldBe curation.data.homepageUrl
                 binaryArtifact shouldBe curation.data.binaryArtifact
                 sourceArtifact shouldBe curation.data.sourceArtifact
                 vcs.toCuration() shouldBe curation.data.vcs
+                isMetaDataOnly shouldBe true
             }
 
             curatedPkg.curations.size shouldBe 1
@@ -105,7 +115,8 @@ class PackageCurationTest : WordSpec({
                     revision = "revision",
                     resolvedRevision = "resolvedRevision",
                     path = "path"
-                )
+                ),
+                isMetaDataOnly = false
             )
 
             val curation = PackageCuration(
@@ -120,7 +131,7 @@ class PackageCurationTest : WordSpec({
 
             val curatedPkg = curation.apply(pkg.toCuratedPackage())
 
-            curatedPkg.pkg.apply {
+            with(curatedPkg.pkg) {
                 id.toCoordinates() shouldBe pkg.id.toCoordinates()
                 declaredLicenses shouldBe pkg.declaredLicenses
                 concludedLicense shouldBe pkg.concludedLicense
@@ -135,6 +146,7 @@ class PackageCurationTest : WordSpec({
                     resolvedRevision = pkg.vcs.resolvedRevision,
                     path = pkg.vcs.path
                 )
+                isMetaDataOnly shouldBe false
             }
 
             curatedPkg.curations.size shouldBe 1
@@ -167,7 +179,7 @@ class PackageCurationTest : WordSpec({
                 id = pkg.id,
                 data = PackageCurationData(
                     vcs = VcsInfoCurationData(
-                        type = VcsType.NONE,
+                        type = VcsType.UNKNOWN,
                         url = "",
                         revision = "",
                         path = ""
@@ -202,7 +214,7 @@ class PackageCurationTest : WordSpec({
                 data = PackageCurationData(
                     homepageUrl = "http://home.page",
                     vcs = VcsInfoCurationData(
-                        type = VcsType.NONE,
+                        type = VcsType.UNKNOWN,
                         url = "http://url.git",
                         revision = ""
                     )
@@ -212,6 +224,35 @@ class PackageCurationTest : WordSpec({
             shouldThrow<IllegalArgumentException> {
                 curation.apply(pkg.toCuratedPackage())
             }
+        }
+
+        "be able to clear isMetaDataOnly" {
+            val pkg = Package(
+                id = Identifier(
+                    type = "Maven",
+                    namespace = "org.hamcrest",
+                    name = "hamcrest-core",
+                    version = "1.3"
+                ),
+                declaredLicenses = sortedSetOf(),
+                description = "",
+                homepageUrl = "",
+                binaryArtifact = RemoteArtifact.EMPTY,
+                sourceArtifact = RemoteArtifact.EMPTY,
+                vcs = VcsInfo.EMPTY,
+                isMetaDataOnly = true
+            )
+
+            val curation = PackageCuration(
+                id = pkg.id,
+                data = PackageCurationData(
+                    isMetaDataOnly = false
+                )
+            )
+
+            val curatedPkg = curation.apply(pkg.toCuratedPackage())
+
+            curatedPkg.pkg.isMetaDataOnly shouldBe false
         }
     }
 
@@ -249,4 +290,48 @@ class PackageCurationTest : WordSpec({
             result3.curations[2].curation shouldBe curation3.data
         }
     }
+
+    "Applying multiple declared license mapping curations" should {
+        "accumulate the map entries and override the entries with same key" {
+            val pkg = Package(
+                id = Identifier("type", "namespace", "name", "version"),
+                declaredLicenses = sortedSetOf("license a", "license b", "license c"),
+                description = "",
+                homepageUrl = "",
+                binaryArtifact = RemoteArtifact.EMPTY,
+                sourceArtifact = RemoteArtifact.EMPTY,
+                vcs = VcsInfo.EMPTY
+            )
+
+            val curation1 =
+                declaredLicenseMappingCuration(pkg.id, "license a" to "Apache-2.0", "license b" to "BSD-3-Clause")
+            val curation2 = declaredLicenseMappingCuration(pkg.id, "license c" to "CC-BY-1.0")
+            val curation3 = declaredLicenseMappingCuration(pkg.id, "license c" to "CC-BY-2.0")
+
+            val result1 = curation1.apply(pkg.toCuratedPackage())
+            val result2 = curation2.apply(result1)
+            val result3 = curation3.apply(result2)
+
+            result1.pkg.declaredLicensesProcessed.spdxExpression shouldBe
+                    "Apache-2.0 AND BSD-3-Clause".toSpdx()
+            result2.pkg.declaredLicensesProcessed.spdxExpression shouldBe
+                    "Apache-2.0 AND BSD-3-Clause AND CC-BY-1.0".toSpdx()
+            result3.pkg.declaredLicensesProcessed.spdxExpression shouldBe
+                    "Apache-2.0 AND BSD-3-Clause AND CC-BY-2.0".toSpdx()
+
+            result3.curations[0].base.declaredLicenseMapping should beEmpty()
+            result3.curations[1].base.declaredLicenseMapping should beEmpty()
+            result3.curations[2].base.declaredLicenseMapping.shouldContainExactly(
+                mapOf("license c" to "CC-BY-1.0".toSpdx())
+            )
+        }
+    }
 })
+
+private fun declaredLicenseMappingCuration(id: Identifier, vararg entries: Pair<String, String>): PackageCuration =
+    PackageCuration(
+        id,
+        PackageCurationData(
+            declaredLicenseMapping = entries.map { it.first to it.second.toSpdx() }.toMap()
+        )
+    )

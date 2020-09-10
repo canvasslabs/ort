@@ -65,9 +65,7 @@ class MercurialWorkingTreeTest : StringSpec() {
 
         "Mercurial correctly detects URLs to remote repositories" {
             hg.isApplicableUrl("https://hg.sr.ht/~duangle/paniq_legacy") shouldBe true
-
-            // Bitbucket forwards to ".git" URLs for Git repositories, so we can omit the suffix.
-            hg.isApplicableUrl("https://bitbucket.org/yevster/spdxtraxample") shouldBe false
+            hg.isApplicableUrl("https://bitbucket.org/yevster/spdxtraxample.git") shouldBe false
         }
 
         "Detected Mercurial working tree information is correct" {
@@ -86,7 +84,8 @@ class MercurialWorkingTreeTest : StringSpec() {
             workingTree.getPathToRoot(File(zipContentDir, "tests")) shouldBe "tests"
         }
 
-        "Mercurial correctly lists remote branches" {
+        // TODO: Find an alternative to Bitbucket that hosts public Mercurial repositories.
+        "Mercurial correctly lists remote branches".config(enabled = false) {
             val expectedBranches = listOf(
                 "default"
             )
@@ -95,7 +94,8 @@ class MercurialWorkingTreeTest : StringSpec() {
             workingTree.listRemoteBranches().joinToString("\n") shouldBe expectedBranches.joinToString("\n")
         }
 
-        "Mercurial correctly lists remote tags" {
+        // TODO: Find an alternative to Bitbucket that hosts public Mercurial repositories.
+        "Mercurial correctly lists remote tags".config(enabled = false) {
             val expectedTags = listOf(
                 "1.0",
                 "1.0.1",

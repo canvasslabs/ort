@@ -39,6 +39,7 @@ internal class SortRepositoryConfigurationCommand : CliktCommand(
         help = "The repository configuration file to be sorted."
     ).convert { it.expandTilde() }
         .file(mustExist = true, canBeFile = true, canBeDir = false, mustBeWritable = false, mustBeReadable = false)
+        .convert { it.absoluteFile.normalize() }
 
     override fun run() {
         repositoryConfigurationFile

@@ -37,7 +37,6 @@ import com.github.ajalt.clikt.parameters.types.file
 
 import java.io.File
 
-import org.ossreviewtoolkit.GroupTypes
 import org.ossreviewtoolkit.GroupTypes.FileType
 import org.ossreviewtoolkit.GroupTypes.StringType
 import org.ossreviewtoolkit.evaluator.Evaluator
@@ -50,6 +49,7 @@ import org.ossreviewtoolkit.model.licenses.orEmpty
 import org.ossreviewtoolkit.model.mapper
 import org.ossreviewtoolkit.model.readValue
 import org.ossreviewtoolkit.model.utils.mergeLabels
+import org.ossreviewtoolkit.utils.ORT_REPO_CONFIG_FILENAME
 import org.ossreviewtoolkit.utils.PackageConfigurationOption
 import org.ossreviewtoolkit.utils.createProvider
 import org.ossreviewtoolkit.utils.expandTilde
@@ -62,31 +62,32 @@ class EvaluatorCommand : CliktCommand(name = "evaluate", help = "Evaluate rules 
         help = "The ORT result file to read as input."
     ).convert { it.expandTilde() }
         .file(mustExist = true, canBeFile = true, canBeDir = false, mustBeWritable = false, mustBeReadable = true)
+        .convert { it.absoluteFile.normalize() }
         .required()
 
-    private val packageConfigurationOption by mutuallyExclusiveOptions<PackageConfigurationOption>(
+    private val packageConfigurationOption by mutuallyExclusiveOptions(
         option(
             "--package-configuration-dir",
             help = "The directory containing the package configuration files to read as input. It is searched " +
                     "recursively."
         ).convert { it.expandTilde() }
             .file(mustExist = true, canBeFile = false, canBeDir = true, mustBeWritable = false, mustBeReadable = true)
-            .convert { PackageConfigurationOption.Dir(it) },
+            .convert { PackageConfigurationOption.Dir(it.absoluteFile.normalize()) },
         option(
             "--package-configuration-file",
             help = "The file containing the package configurations to read as input."
         ).convert { it.expandTilde() }
             .file(mustExist = true, canBeFile = true, canBeDir = false, mustBeWritable = false, mustBeReadable = true)
-            .convert { PackageConfigurationOption.File(it) }
+            .convert { PackageConfigurationOption.File(it.absoluteFile.normalize()) }
     ).single()
 
-    private val rules by mutuallyExclusiveOptions<GroupTypes>(
+    private val rules by mutuallyExclusiveOptions(
         option(
             "--rules-file", "-r",
             help = "The name of a script file containing rules."
         ).convert { it.expandTilde() }
             .file(mustExist = true, canBeFile = true, canBeDir = false, mustBeWritable = false, mustBeReadable = true)
-            .convert { FileType(it) },
+            .convert { FileType(it.absoluteFile.normalize()) },
         option(
             "--rules-resource",
             help = "The name of a script resource on the classpath that contains rules."
@@ -100,6 +101,7 @@ class EvaluatorCommand : CliktCommand(name = "evaluate", help = "Evaluate rules 
                 "code signals a success or failure."
     ).convert { it.expandTilde() }
         .file(mustExist = false, canBeFile = false, canBeDir = true, mustBeWritable = false, mustBeReadable = false)
+        .convert { it.absoluteFile.normalize() }
 
     private val outputFormats by option(
         "--output-formats", "-f",
@@ -113,10 +115,11 @@ class EvaluatorCommand : CliktCommand(name = "evaluate", help = "Evaluate rules 
 
     private val repositoryConfigurationFile by option(
         "--repository-configuration-file",
-        help = "A file containing the repository configuration. If set the .ort.yml overrides the repository " +
-                "configuration contained in the ort result from the input file."
+        help = "A file containing the repository configuration. If set the '$ORT_REPO_CONFIG_FILENAME' overrides the " +
+                "repository configuration contained in the ort result from the input file."
     ).convert { it.expandTilde() }
         .file(mustExist = true, canBeFile = true, canBeDir = false, mustBeWritable = false, mustBeReadable = true)
+        .convert { it.absoluteFile.normalize() }
 
     private val packageCurationsFile by option(
         "--package-curations-file",
@@ -124,6 +127,7 @@ class EvaluatorCommand : CliktCommand(name = "evaluate", help = "Evaluate rules 
                 "ORT result file with the ones present in the given file."
     ).convert { it.expandTilde() }
         .file(mustExist = true, canBeFile = true, canBeDir = false, mustBeWritable = false, mustBeReadable = true)
+        .convert { it.absoluteFile.normalize() }
 
     private val licenseConfigurationFile by option(
         "--license-configuration-file",
@@ -131,6 +135,7 @@ class EvaluatorCommand : CliktCommand(name = "evaluate", help = "Evaluate rules 
                 "the rules script."
     ).convert { it.expandTilde() }
         .file(mustExist = true, canBeFile = true, canBeDir = false, mustBeWritable = false, mustBeReadable = true)
+        .convert { it.absoluteFile.normalize() }
 
     private val labels by option(
         "--label", "-l",
@@ -139,10 +144,9 @@ class EvaluatorCommand : CliktCommand(name = "evaluate", help = "Evaluate rules 
     ).associate()
 
     override fun run() {
-        val absoluteOutputDir = outputDir?.normalize()
         val outputFiles = mutableListOf<File>()
 
-        if (absoluteOutputDir != null) {
+        outputDir?.let { absoluteOutputDir ->
             outputFiles += outputFormats.distinct().map { format ->
                 File(absoluteOutputDir, "evaluation-result.${format.fileExtension}")
             }
@@ -196,7 +200,7 @@ class EvaluatorCommand : CliktCommand(name = "evaluate", help = "Evaluate rules 
 
         printSummary(evaluatorRun.violations)
 
-        if (absoluteOutputDir != null) {
+        outputDir?.let { absoluteOutputDir ->
             // Note: This overwrites any existing EvaluatorRun from the input file.
             val ortResultOutput = ortResultInput.copy(evaluator = evaluatorRun).apply {
                 data += ortResultInput.data
@@ -205,7 +209,7 @@ class EvaluatorCommand : CliktCommand(name = "evaluate", help = "Evaluate rules 
             absoluteOutputDir.safeMkdirs()
 
             outputFiles.forEach { file ->
-                println("Writing evaluation result to '${file.absolutePath}'.")
+                println("Writing evaluation result to '$file'.")
                 file.mapper().writerWithDefaultPrettyPrinter().writeValue(file, ortResultOutput)
             }
         }

@@ -100,7 +100,14 @@ data class Package(
     /**
      * Processed VCS-related information about the [Package] that has e.g. common mistakes corrected.
      */
-    val vcsProcessed: VcsInfo = vcs.normalize()
+    val vcsProcessed: VcsInfo = vcs.normalize(),
+
+    /**
+     * Indicates whether this [Package] is just meta data, like e.g. Maven BOM artifacts which only define constraints
+     * for dependency versions.
+     */
+    @JsonInclude(JsonInclude.Include.NON_DEFAULT)
+    val isMetaDataOnly: Boolean = false
 ) : Comparable<Package> {
     companion object {
         /**
@@ -143,14 +150,15 @@ data class Package(
             homepageUrl = homepageUrl.takeIf { it != other.homepageUrl },
             binaryArtifact = binaryArtifact.takeIf { it != other.binaryArtifact },
             sourceArtifact = sourceArtifact.takeIf { it != other.sourceArtifact },
-            vcs = vcs.takeIf { it != other.vcs }?.toCuration()
+            vcs = vcs.takeIf { it != other.vcs }?.toCuration(),
+            isMetaDataOnly = isMetaDataOnly.takeIf { it != other.isMetaDataOnly }
         )
     }
 
     /**
      * Check if this package contains any erroneous data.
      */
-    fun collectIssues() =
+    fun collectIssues(): List<OrtIssue> =
         declaredLicensesProcessed.unmapped.map { unmappedLicense ->
             OrtIssue(
                 severity = Severity.WARNING,

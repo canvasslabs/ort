@@ -27,6 +27,8 @@ import java.net.ProxySelector
 import java.net.SocketAddress
 import java.net.URI
 
+import org.apache.logging.log4j.Level
+
 typealias AuthenticatedProxy = Pair<Proxy, PasswordAuthentication?>
 typealias ProtocolProxyMap = Map<String, List<AuthenticatedProxy>>
 
@@ -46,7 +48,7 @@ class OrtProxySelector(private val fallback: ProxySelector? = null) : ProxySelec
         fun install(): OrtProxySelector {
             val current = getDefault()
             return if (current is OrtProxySelector) {
-                log.info { "Proxy selector is already installed." }
+                logOnce(Level.INFO) { "Proxy selector is already installed." }
                 current
             } else {
                 OrtProxySelector(current).also {
@@ -76,6 +78,10 @@ class OrtProxySelector(private val fallback: ProxySelector? = null) : ProxySelec
 
     private val proxyAuthentication = mutableMapOf<Proxy, PasswordAuthentication?>()
     private val proxyOrigins = mutableMapOf<String, MutableMap<String, MutableList<Proxy>>>()
+
+    private val noProxyUrls = Os.env["no_proxy"]?.let { list ->
+        list.split(',').map { it.trim() }
+    }.orEmpty()
 
     init {
         determineProxyFromProperties("http")?.let {
@@ -149,8 +155,12 @@ class OrtProxySelector(private val fallback: ProxySelector? = null) : ProxySelec
     fun getProxyAuthentication(proxy: Proxy) = proxyAuthentication[proxy]
 
     override fun select(uri: URI?): List<Proxy> {
+        requireNotNull(uri)
+
+        if (noProxyUrls.any { uri.authority.endsWith(it) }) return NO_PROXY_LIST
+
         val proxies = proxyOrigins.flatMap { (_, proxiesForProtocol) ->
-            proxiesForProtocol.getOrDefault(uri?.scheme, mutableListOf())
+            proxiesForProtocol.getOrDefault(uri.scheme, mutableListOf())
         }
 
         // Quote from the upstream documentation for select: When no proxy is available, the list will contain one

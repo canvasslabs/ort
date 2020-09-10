@@ -48,3 +48,20 @@
       but it is not part of the distributed .tar.gz package, see the `README.md` which says: \
       Ramda logo artwork © 2014 J. C. Phillipps. Licensed Creative Commons CC BY-NC-SA 3.0"
     concluded_license: "MIT"
+
+- id: "Maven:org.jetbrains.kotlin:kotlin-bom"
+  curations:
+    comment: "The package is a Maven BOM file and thus is metadata only."
+    is_meta_data_only: true
+
+- id: "PyPI::pyramid_workflow:1.0.0"
+  curations:
+    comment: "The package has an unmappable declared license entry."
+    declared_license_mapping:
+      "BSD-derived (http://www.repoze.org/LICENSE.txt)": "LicenseRef-scancode-repoze"
+
+- id: "PyPI::branca"
+  curations:
+    comment: "A copyright statement was used to declare the license."
+    declared_license_mapping:
+      "Copyright (C) 2013, Martin Journois": "NONE"

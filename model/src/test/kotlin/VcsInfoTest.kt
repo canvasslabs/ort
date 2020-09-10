@@ -23,12 +23,12 @@ import com.fasterxml.jackson.databind.exc.UnrecognizedPropertyException
 import com.fasterxml.jackson.module.kotlin.readValue
 
 import io.kotest.assertions.throwables.shouldThrow
-import io.kotest.core.spec.style.StringSpec
+import io.kotest.core.spec.style.WordSpec
 import io.kotest.matchers.collections.containAll
 import io.kotest.matchers.should
 import io.kotest.matchers.shouldBe
 
-class VcsInfoTest : StringSpec({
+class VcsInfoTest : WordSpec({
     "Deserializing VcsInfo" should {
         "work when all fields are given" {
             val yaml = """
@@ -43,10 +43,12 @@ class VcsInfoTest : StringSpec({
 
             val vcsInfo = yamlMapper.readValue<VcsInfo>(yaml)
 
-            vcsInfo.type shouldBe VcsType("type")
-            vcsInfo.url shouldBe "url"
-            vcsInfo.revision shouldBe "revision"
-            vcsInfo.path shouldBe "path"
+            with(vcsInfo) {
+                type shouldBe VcsType("type")
+                url shouldBe "url"
+                revision shouldBe "revision"
+                path shouldBe "path"
+            }
         }
 
         "assign empty strings to missing fields when only type is set" {
@@ -57,10 +59,12 @@ class VcsInfoTest : StringSpec({
 
             val vcsInfo = yamlMapper.readValue<VcsInfo>(yaml)
 
-            vcsInfo.type shouldBe VcsType("type")
-            vcsInfo.url shouldBe ""
-            vcsInfo.revision shouldBe ""
-            vcsInfo.path shouldBe ""
+            with(vcsInfo) {
+                type shouldBe VcsType("type")
+                url shouldBe ""
+                revision shouldBe ""
+                path shouldBe ""
+            }
         }
 
         "assign empty strings to missing fields when only path is set" {
@@ -71,10 +75,12 @@ class VcsInfoTest : StringSpec({
 
             val vcsInfo = yamlMapper.readValue<VcsInfo>(yaml)
 
-            vcsInfo.type shouldBe VcsType.NONE
-            vcsInfo.url shouldBe ""
-            vcsInfo.revision shouldBe ""
-            vcsInfo.path shouldBe "path"
+            with(vcsInfo) {
+                type shouldBe VcsType.UNKNOWN
+                url shouldBe ""
+                revision shouldBe ""
+                path shouldBe "path"
+            }
         }
 
         "fail if the input contains unknown fields" {
@@ -92,16 +98,17 @@ class VcsInfoTest : StringSpec({
                 yamlMapper.readValue<VcsInfo>(yaml)
             }
 
-            exception.propertyName shouldBe "unknown"
-            exception.knownPropertyIds should
-                    containAll<Any>("type", "url", "revision", "resolved_revision", "path")
+            with(exception) {
+                propertyName shouldBe "unknown"
+                knownPropertyIds should containAll<Any>("type", "url", "revision", "resolved_revision", "path")
+            }
         }
     }
 
     "Merging VcsInfo" should {
         "ignore empty information" {
             val inputA = VcsInfo(
-                type = VcsType.NONE,
+                type = VcsType.UNKNOWN,
                 url = "",
                 revision = ""
             )
@@ -151,7 +158,7 @@ class VcsInfoTest : StringSpec({
 
         "prefer more complete information for GitLab" {
             val inputA = VcsInfo(
-                type = VcsType.NONE,
+                type = VcsType.UNKNOWN,
                 url = "https://gitlab.com/rich-harris/rollup-plugin-buble.git",
                 revision = ""
             )

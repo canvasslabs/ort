@@ -303,9 +303,9 @@ on a bigger project you will see that `ScanCode` often finds more licenses than 
 ## 6. Running the evaluator
 
 The evaluator can apply a set of rules against the scan result created above.
-ORT provides examples for the policy rules file [(rules.kts)](examples/rules.kts),
-[user-defined categorization of licenses (licenses.yml)](examples/licenses.yml) and
-[user-defined package curations (curations.yml)](examples/curations.yml) that can be used for testing the _evaluator_. 
+ORT provides examples for the policy rules file [(rules.kts)](../examples/rules.kts),
+[user-defined categorization of licenses (licenses.yml)](../examples/licenses.yml) and
+[user-defined package curations (curations.yml)](../examples/curations.yml) that can be used for testing the _evaluator_. 
 
 To run the example rules use:
 
@@ -343,7 +343,8 @@ Created 'NoticeByPackage' report: [reporter-output-path]/NOTICE_BY_PACKAGE
 
 If you do not want to run the _evaluator_ you can pass the _scanner_ result e.g. `[scanner-output-path/scan-result.yml`
 to the `reporter` instead. To learn how you can customize generated notices see
-[notice-pre-processor-kts.md](notice-pre-processor-kts.md).
+[notice-pre-processor-kts.md](notice-pre-processor-kts.md). To learn how to customize the how-to-fix texts for scanner
+and analyzer issues see [how-to-fix-text-provider-kts.md](how-to-fix-text-provider-kts.md).
 
 ## 8. Curating Package Metadata or License Findings
 
