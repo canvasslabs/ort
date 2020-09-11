@@ -115,7 +115,7 @@ internal class EvaluatedModelMapper(private val input: ReporterInput) {
             statistics = StatisticsCalculator().getStatistics(input.ortResult, input.resolutionProvider),
             repository = input.ortResult.repository,
             repositoryConfiguration = yamlMapper.writeValueAsString(input.ortResult.repository.config),
-            customData = input.ortResult.data
+            labels = input.ortResult.labels
         )
     }
 
@@ -500,7 +500,8 @@ internal class EvaluatedModelMapper(private val input: ReporterInput) {
                 resolutions = resolutions,
                 pkg = pkg,
                 scanResult = scanResult,
-                path = path
+                path = path,
+                howToFix = input.howToFixTextProvider.getHowToFixText(issue).orEmpty()
             )
         }
 

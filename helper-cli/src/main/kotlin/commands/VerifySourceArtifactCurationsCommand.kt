@@ -42,6 +42,7 @@ internal class VerifySourceArtifactCurationsCommand : CliktCommand(
         help = "A file containing package curation data."
     ).convert { it.expandTilde() }
         .file(mustExist = true, canBeFile = true, canBeDir = false, mustBeWritable = false, mustBeReadable = true)
+        .convert { it.absoluteFile.normalize() }
 
     override fun run() {
         val curations = packageCurationsFile.readValue<List<PackageCuration>>()
@@ -78,8 +79,8 @@ internal class VerifySourceArtifactCurationsCommand : CliktCommand(
         if (failed.isNotEmpty()) {
             val message = buildString {
                 append("Source artifact curations for the following packages could NOT be verified, ")
-                appendln("check the log for details:")
-                appendln(failed.joinToString(separator = "\n") { it.id.toCoordinates() })
+                appendLine("check the log for details:")
+                appendLine(failed.joinToString(separator = "\n") { it.id.toCoordinates() })
             }
 
             println(message)

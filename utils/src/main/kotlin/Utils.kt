@@ -28,19 +28,6 @@ import java.security.Permission
 
 import kotlin.reflect.full.memberProperties
 
-const val ORT_NAME = "ort"
-const val ORT_FULL_NAME = "OSS Review Toolkit"
-
-/**
- * The name of the environment variable to customize the ORT data directory.
- */
-const val ORT_DATA_DIR_ENV_NAME = "ORT_DATA_DIR"
-
-/**
- * The name of the ORT configuration file.
- */
-const val ORT_CONFIG_FILENAME = ".ort.yml"
-
 private fun List<String>.generateCapitalizationVariants() = flatMap { listOf(it, it.toUpperCase(), it.capitalize()) }
 
 /**
@@ -67,7 +54,18 @@ val ROOT_LICENSE_FILENAMES = listOf(
 ).generateCapitalizationVariants()
 
 /**
- * The directory to store ORT data in, like the configuration, caches and archives.
+ * The directory to store ORT (read-only) configuration in.
+ */
+val ortConfigDirectory by lazy {
+    Os.env[ORT_CONFIG_DIR_ENV_NAME]?.takeUnless {
+        it.isEmpty()
+    }?.let {
+        File(it)
+    } ?: ortDataDirectory.resolve("config")
+}
+
+/**
+ * The directory to store ORT (read-write) data in, like caches and archives.
  */
 val ortDataDirectory by lazy {
     Os.env[ORT_DATA_DIR_ENV_NAME]?.takeUnless {
@@ -156,11 +154,9 @@ fun filterVersionNames(version: String, names: List<String>, project: String? = 
  * Return the longest parent directory that is common to all [files], or null if they have no directory in common.
  */
 fun getCommonFileParent(files: Collection<File>): File? =
-    files.takeUnless {
-        it.isEmpty()
-    }?.map {
+    files.map {
         it.normalize().absolutePath
-    }?.reduce { prefix, path ->
+    }.reduceOrNull { prefix, path ->
         prefix.commonPrefixWith(path)
     }?.let {
         val commonPrefix = File(it)

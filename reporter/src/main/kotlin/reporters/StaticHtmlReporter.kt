@@ -66,7 +66,7 @@ class StaticHtmlReporter : Reporter {
         outputDir: File,
         options: Map<String, String>
     ): List<File> {
-        val tabularScanRecord = ReportTableModelMapper(input.resolutionProvider)
+        val tabularScanRecord = ReportTableModelMapper(input.resolutionProvider, input.howToFixTextProvider)
             .mapToReportTableModel(
                 input.ortResult,
                 input.licenseInfoResolver
@@ -136,7 +136,7 @@ class StaticHtmlReporter : Reporter {
 
                     index(reportTableModel)
 
-                    reportTableModel.evaluatorIssues?.let {
+                    reportTableModel.ruleViolations?.let {
                         evaluatorTable(it)
                     }
 
@@ -174,11 +174,11 @@ class StaticHtmlReporter : Reporter {
         h2 { +"Index" }
 
         ul {
-            reportTableModel.evaluatorIssues?.let { ruleViolations ->
-                val issues = ruleViolations.filterNot { it.isResolved }.groupBy { it.violation.severity }
-                val errorCount = issues[Severity.ERROR].orEmpty().size
-                val warningCount = issues[Severity.WARNING].orEmpty().size
-                val hintCount = issues[Severity.HINT].orEmpty().size
+            reportTableModel.ruleViolations?.let { ruleViolations ->
+                val violations = ruleViolations.filterNot { it.isResolved }.groupBy { it.violation.severity }
+                val errorCount = violations[Severity.ERROR].orEmpty().size
+                val warningCount = violations[Severity.WARNING].orEmpty().size
+                val hintCount = violations[Severity.HINT].orEmpty().size
 
                 li {
                     a("#rule-violation-summary") {
@@ -334,7 +334,7 @@ class StaticHtmlReporter : Reporter {
 
         val issues = (row.analyzerIssues + row.scanIssues).flatMap { it.value }
 
-        val worstSeverity = issues.filterNot { it.isResolved }.map { it.severity }.min() ?: Severity.ERROR
+        val worstSeverity = issues.filterNot { it.isResolved }.map { it.severity }.minOrNull() ?: Severity.ERROR
 
         val areAllResolved = issues.isNotEmpty() && issues.all { it.isResolved }
 
@@ -368,6 +368,13 @@ class StaticHtmlReporter : Reporter {
                                 issueDescription(issue)
                                 p { +issue.resolutionDescription }
                             }
+
+                            if (!issue.isResolved && issue.howToFix.isNotBlank()) {
+                                details {
+                                    unsafe { +"<summary>How to fix</summary>" }
+                                    markdown(issue.howToFix)
+                                }
+                            }
                         }
                     }
                 }
@@ -382,6 +389,13 @@ class StaticHtmlReporter : Reporter {
                             li {
                                 issueDescription(issue)
                                 p { +issue.resolutionDescription }
+                            }
+
+                            if (!issue.isResolved && issue.howToFix.isNotBlank()) {
+                                details {
+                                    unsafe { +"<summary>How to fix</summary>" }
+                                    markdown(issue.howToFix)
+                                }
                             }
                         }
                     }

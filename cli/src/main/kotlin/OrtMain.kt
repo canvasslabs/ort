@@ -43,10 +43,13 @@ import org.apache.logging.log4j.core.config.Configurator
 import org.ossreviewtoolkit.commands.*
 import org.ossreviewtoolkit.model.Environment
 import org.ossreviewtoolkit.model.config.OrtConfiguration
+import org.ossreviewtoolkit.utils.ORT_CONFIG_DIR_ENV_NAME
+import org.ossreviewtoolkit.utils.ORT_CONFIG_FILENAME
 import org.ossreviewtoolkit.utils.ORT_DATA_DIR_ENV_NAME
 import org.ossreviewtoolkit.utils.ORT_NAME
 import org.ossreviewtoolkit.utils.Os
 import org.ossreviewtoolkit.utils.expandTilde
+import org.ossreviewtoolkit.utils.ortConfigDirectory
 import org.ossreviewtoolkit.utils.ortDataDirectory
 import org.ossreviewtoolkit.utils.printStackTrace
 
@@ -62,7 +65,7 @@ class OrtMain : CliktCommand(name = ORT_NAME, epilog = "* denotes required optio
     private val configFile by option("--config", "-c", help = "The path to a configuration file.")
         .convert { it.expandTilde() }
         .file(mustExist = true, canBeFile = true, canBeDir = false, mustBeWritable = false, mustBeReadable = true)
-        .default(ortDataDirectory.resolve("config/ort.conf"))
+        .default(ortConfigDirectory.resolve(ORT_CONFIG_FILENAME))
 
     private val logLevel by option(help = "Set the verbosity level of log output.").switch(
         "--info" to Level.INFO,
@@ -89,7 +92,7 @@ class OrtMain : CliktCommand(name = ORT_NAME, epilog = "* denotes required optio
             buildString {
                 // If help is invoked without a subcommand, the main run() is not invoked and no header is printed, so
                 // we need to do that manually here.
-                if (currentContext.invokedSubcommand == null) appendln(getVersionHeader(env.ortVersion))
+                if (currentContext.invokedSubcommand == null) appendLine(getVersionHeader(env.ortVersion))
                 append(super.formatHelp(prolog, epilog, parameters, programName))
             }
     }
@@ -102,12 +105,12 @@ class OrtMain : CliktCommand(name = ORT_NAME, epilog = "* denotes required optio
 
         subcommands(
             AnalyzerCommand(),
-            ClearlyDefinedUploadCommand(),
             DownloaderCommand(),
             EvaluatorCommand(),
             ReporterCommand(),
             RequirementsCommand(),
             ScannerCommand(),
+            UploadCurationsCommand(),
             UploadResultCommand()
         )
 
@@ -137,7 +140,11 @@ class OrtMain : CliktCommand(name = ORT_NAME, epilog = "* denotes required optio
     }
 
     private fun getVersionHeader(version: String): String {
-        val variables = mutableListOf("$ORT_DATA_DIR_ENV_NAME = $ortDataDirectory")
+        val variables = mutableListOf(
+            "$ORT_CONFIG_DIR_ENV_NAME = $ortConfigDirectory",
+            "$ORT_DATA_DIR_ENV_NAME = $ortDataDirectory"
+        )
+
         env.variables.entries.mapTo(variables) { (key, value) -> "$key = $value" }
 
         val commandName = currentContext.invokedSubcommand?.commandName

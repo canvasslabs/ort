@@ -62,6 +62,7 @@ issues:
   severity: "ERROR"
   pkg: 0
   scan_result: 0
+  how_to_fix: "Some how to fix text."
 scan_results:
 - _id: 0
   provenance:
@@ -699,4 +700,9 @@ repository_configuration: "---\nexcludes:\n  paths:\n  - pattern: \"sub/module/p
   \    comment: \"The scope only contains test dependencies.\"\nresolutions:\n  rule_violations:\n\
   \  - message: \"Apache-2.0 hint\"\n    reason: \"CANT_FIX_EXCEPTION\"\n    comment:\
   \ \"Apache-2 is not an issue.\"\n"
-custom_data: {}
+labels:
+  job_parameters.JOB_PARAM_1: "label job param 1"
+  job_parameters.JOB_PARAM_2: "label job param 2"
+  process_parameters.PROCESS_PARAM_1: "label process param 1"
+  process_parameters.PROCESS_PARAM_2: "label process param 2"
+  OTHER: "label other"

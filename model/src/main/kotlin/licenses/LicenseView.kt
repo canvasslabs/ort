@@ -25,22 +25,22 @@ import org.ossreviewtoolkit.spdx.SpdxSingleLicenseExpression
 
 /**
  * A [LicenseView] provides a custom view on the licenses that belong to a [Package]. It can be used to filter the
- * licenses relevant to a [Rule] whereas the [licenseSources] is the filter criteria. Only the entry with the lowest
- * index in the given [licenseSources] which yields a non-empty result is used as filter criteria.
+ * licenses relevant to an evaluator rule whereas the [licenseSources] is the filter criteria. Only the entry with the
+ * lowest index in the given [licenseSources] which yields a non-empty result is used as filter criteria.
  */
-class LicenseView(vararg licenseSources: List<LicenseSource>) {
+class LicenseView(vararg licenseSources: Set<LicenseSource>) {
     companion object {
         /**
          * Return all licenses.
          */
-        val ALL = LicenseView(listOf(LicenseSource.DECLARED, LicenseSource.DETECTED, LicenseSource.CONCLUDED))
+        val ALL = LicenseView(setOf(LicenseSource.DECLARED, LicenseSource.DETECTED, LicenseSource.CONCLUDED))
 
         /**
          * Return only the concluded licenses if they exist, otherwise return declared and detected licenses.
          */
         val CONCLUDED_OR_REST = LicenseView(
-            listOf(LicenseSource.CONCLUDED),
-            listOf(LicenseSource.DECLARED, LicenseSource.DETECTED)
+            setOf(LicenseSource.CONCLUDED),
+            setOf(LicenseSource.DECLARED, LicenseSource.DETECTED)
         )
 
         /**
@@ -48,36 +48,36 @@ class LicenseView(vararg licenseSources: List<LicenseSource>) {
          * return the detected licenses.
          */
         val CONCLUDED_OR_DECLARED_OR_DETECTED = LicenseView(
-            listOf(LicenseSource.CONCLUDED),
-            listOf(LicenseSource.DECLARED),
-            listOf(LicenseSource.DETECTED)
+            setOf(LicenseSource.CONCLUDED),
+            setOf(LicenseSource.DECLARED),
+            setOf(LicenseSource.DETECTED)
         )
 
         /**
          * Return only the concluded licenses if they exist, otherwise return detected licenses.
          */
         val CONCLUDED_OR_DETECTED = LicenseView(
-            listOf(LicenseSource.CONCLUDED),
-            listOf(LicenseSource.DETECTED)
+            setOf(LicenseSource.CONCLUDED),
+            setOf(LicenseSource.DETECTED)
         )
 
         /**
          * Return only the concluded licenses.
          */
-        val ONLY_CONCLUDED = LicenseView(listOf(LicenseSource.CONCLUDED))
+        val ONLY_CONCLUDED = LicenseView(setOf(LicenseSource.CONCLUDED))
 
         /**
          * Return only the declared licenses.
          */
-        val ONLY_DECLARED = LicenseView(listOf(LicenseSource.DECLARED))
+        val ONLY_DECLARED = LicenseView(setOf(LicenseSource.DECLARED))
 
         /**
          * Return only the detected licenses.
          */
-        val ONLY_DETECTED = LicenseView(listOf(LicenseSource.DETECTED))
+        val ONLY_DETECTED = LicenseView(setOf(LicenseSource.DETECTED))
     }
 
-    private val licenseSources = licenseSources.toList()
+    private val licenseSources = licenseSources.toSet()
 
     fun licenses(
         pkg: Package,
@@ -116,19 +116,32 @@ class LicenseView(vararg licenseSources: List<LicenseSource>) {
      * can still be required to access the detected locations or copyrights for the licenses. This function only changes
      * [ResolvedLicenseInfo.licenses], all other properties of the class are kept unchanged.
      */
-    fun filter(resolvedLicense: ResolvedLicenseInfo): ResolvedLicenseInfo {
+    fun filter(resolvedLicense: ResolvedLicenseInfo): ResolvedLicenseInfo =
+        resolvedLicense.copy(licenses = filter(resolvedLicense.licenses))
+
+    /**
+     * Use this [LicenseView] to filter a list of [ResolvedLicense]s. This function will filter the licenses based
+     * on the configured [LicenseSource]s, but it will not remove information from other sources. For example, if
+     * [ONLY_CONCLUDED] is used, it will remove all [ResolvedLicense]s that do not have [LicenseSource.CONCLUDED] in
+     * their [sources][ResolvedLicense.sources], but it will not remove any information about declared or detected
+     * licenses from the [ResolvedLicense] object. This is so, because even if only concluded licenses are requested, it
+     * can still be required to access the detected locations or copyrights for the licenses.
+     */
+    fun filter(resolvedLicenses: List<ResolvedLicense>): List<ResolvedLicense> {
         // Collect only the licenses instead of the full ResolvedLicense objects here, because calculating the hash
         // codes can be expensive for resolved licenses with many license and copyright findings.
-        val licenses = mutableSetOf<SpdxSingleLicenseExpression>()
+        val result = mutableSetOf<SpdxSingleLicenseExpression>()
 
-        licenseSources.forEach { sources ->
-            resolvedLicense.licenses.filter { license ->
-                license.sources.any { it in sources }
-            }.mapTo(licenses) { it.license }
+        run loop@{
+            licenseSources.forEach { sources ->
+                resolvedLicenses.filter { license ->
+                    license.sources.any { it in sources }
+                }.mapTo(result) { it.license }
 
-            if (licenses.isNotEmpty()) return@forEach
+                if (result.isNotEmpty()) return@loop
+            }
         }
 
-        return resolvedLicense.copy(licenses = resolvedLicense.licenses.filter { it.license in licenses })
+        return resolvedLicenses.filter { it.license in result }
     }
 }

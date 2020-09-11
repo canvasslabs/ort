@@ -30,47 +30,17 @@ import java.io.File
 
 import org.ossreviewtoolkit.analyzer.AbstractPackageManagerFactory
 import org.ossreviewtoolkit.analyzer.PackageManager
-import org.ossreviewtoolkit.analyzer.managers.utils.XmlPackageReferenceMapper
-import org.ossreviewtoolkit.analyzer.managers.utils.resolveDotNetDependencies
+import org.ossreviewtoolkit.analyzer.managers.utils.NuGetSupport
+import org.ossreviewtoolkit.analyzer.managers.utils.XmlPackageFileReader
+import org.ossreviewtoolkit.analyzer.managers.utils.resolveNuGetDependencies
+import org.ossreviewtoolkit.model.Identifier
 import org.ossreviewtoolkit.model.ProjectAnalyzerResult
 import org.ossreviewtoolkit.model.config.AnalyzerConfiguration
 import org.ossreviewtoolkit.model.config.RepositoryConfiguration
 
-class DotNetPackageReferenceMapper : XmlPackageReferenceMapper() {
-    // See https://docs.microsoft.com/en-us/nuget/consume-packages/package-references-in-project-files.
-    @JsonIgnoreProperties(ignoreUnknown = true)
-    data class ItemGroup(
-        @JsonProperty(value = "PackageReference")
-        @JacksonXmlElementWrapper(useWrapping = false)
-        val packageReference: List<PackageReference>?
-    )
-
-    @JsonIgnoreProperties(ignoreUnknown = true)
-    data class PackageReference(
-        @JacksonXmlProperty(isAttribute = true, localName = "Include")
-        val include: String,
-        @JacksonXmlProperty(isAttribute = true, localName = "Version")
-        val version: String
-    )
-
-    override fun mapPackageReferences(definitionFile: File): Map<String, String> {
-        val map = mutableMapOf<String, String>()
-        val itemGroups = mapper.readValue<List<ItemGroup>>(definitionFile)
-
-        itemGroups.forEach { itemGroup ->
-            itemGroup.packageReference?.forEach {
-                if (it.include.isNotEmpty()) {
-                    map[it.include] = it.version
-                }
-            }
-        }
-
-        return map
-    }
-}
-
 /**
- * The [DotNet](https://docs.microsoft.com/en-us/dotnet/core/tools/) package manager for .NET.
+ * A package manager implementation for [.NET](https://docs.microsoft.com/en-us/dotnet/core/tools/) project files that
+ * embed NuGet package configuration.
  */
 class DotNet(
     name: String,
@@ -88,6 +58,43 @@ class DotNet(
         ) = DotNet(managerName, analysisRoot, analyzerConfig, repoConfig)
     }
 
+    private val reader = DotNetPackageFileReader()
+    private val support = NuGetSupport()
+
     override fun resolveDependencies(definitionFile: File): List<ProjectAnalyzerResult> =
-        listOfNotNull(resolveDotNetDependencies(definitionFile, DotNetPackageReferenceMapper()))
+        listOf(resolveNuGetDependencies(definitionFile, reader, support))
+}
+
+/**
+ * A reader for XML-based .NET project files that embed NuGet package configuration, see
+ * https://docs.microsoft.com/en-us/nuget/consume-packages/package-references-in-project-files.
+ */
+class DotNetPackageFileReader : XmlPackageFileReader {
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    private data class ItemGroup(
+        @JsonProperty(value = "PackageReference")
+        @JacksonXmlElementWrapper(useWrapping = false)
+        val packageReference: List<PackageReference>?
+    )
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    private data class PackageReference(
+        @JacksonXmlProperty(isAttribute = true, localName = "Include")
+        val include: String,
+        @JacksonXmlProperty(isAttribute = true, localName = "Version")
+        val version: String
+    )
+
+    override fun getPackageReferences(definitionFile: File): Set<Identifier> {
+        val ids = mutableSetOf<Identifier>()
+        val itemGroups = NuGetSupport.XML_MAPPER.readValue<List<ItemGroup>>(definitionFile)
+
+        itemGroups.forEach { itemGroup ->
+            itemGroup.packageReference?.forEach {
+                ids += Identifier(type = "NuGet", namespace = "", name = it.include, version = it.version)
+            }
+        }
+
+        return ids
+    }
 }

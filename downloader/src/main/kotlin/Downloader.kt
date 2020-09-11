@@ -80,13 +80,14 @@ object Downloader {
         val downloadDirectory: File,
 
         /**
-         * The source artifact that was downloaded, or null if the download was performed from a [VCS][vcsInfo].
+         * The source artifact that was downloaded, or null if either the download was performed from a [VCS][vcsInfo]
+         * or there was no download performed at all because [Package.isMetaDataOnly] is true.
          */
         val sourceArtifact: RemoteArtifact? = null,
 
         /**
-         * Information about the VCS from which was downloaded, or null if a [source artifact][sourceArtifact] was
-         * downloaded.
+         * Information about the VCS from which was downloaded, or null if either a [source artifact][sourceArtifact]
+         * was downloaded or there was no download performed at all because [Package.isMetaDataOnly] is true.
          */
         val vcsInfo: VcsInfo? = null,
 
@@ -97,8 +98,8 @@ object Downloader {
         val originalVcsInfo: VcsInfo? = null
     ) {
         init {
-            require((sourceArtifact == null) != (vcsInfo == null)) {
-                "Either sourceArtifact or vcsInfo must be set, but not both."
+            require(sourceArtifact == null || vcsInfo == null) {
+                "Not both sourceArtifact and vcsInfo may be set."
             }
         }
     }
@@ -111,13 +112,13 @@ object Downloader {
      * failure.
      */
     fun download(pkg: Package, outputDirectory: File, allowMovingRevisions: Boolean = false): DownloadResult {
-        log.info { "Trying to download source code for '${pkg.id.toCoordinates()}'." }
-
         require(!outputDirectory.exists() || outputDirectory.list().isEmpty()) {
             "The output directory '$outputDirectory' must not contain any files yet."
         }
 
         outputDirectory.apply { safeMkdirs() }
+
+        if (pkg.isMetaDataOnly) return DownloadResult(dateTime = Instant.now(), downloadDirectory = outputDirectory)
 
         val exception = DownloadException("Download failed for '${pkg.id.toCoordinates()}'.")
 
@@ -192,7 +193,7 @@ object Downloader {
 
         var applicableVcs: VersionControlSystem? = null
 
-        if (pkg.vcsProcessed.type != VcsType.NONE) {
+        if (pkg.vcsProcessed.type != VcsType.UNKNOWN) {
             applicableVcs = VersionControlSystem.forType(pkg.vcsProcessed.type)
             log.info {
                 applicableVcs?.let {

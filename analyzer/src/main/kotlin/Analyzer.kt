@@ -32,18 +32,16 @@ import kotlinx.coroutines.withContext
 import org.ossreviewtoolkit.analyzer.managers.Unmanaged
 import org.ossreviewtoolkit.downloader.VersionControlSystem
 import org.ossreviewtoolkit.model.AnalyzerResult
-import org.ossreviewtoolkit.model.AnalyzerResultBuilder
 import org.ossreviewtoolkit.model.AnalyzerRun
 import org.ossreviewtoolkit.model.Environment
 import org.ossreviewtoolkit.model.OrtResult
-import org.ossreviewtoolkit.model.ProjectAnalyzerResult
 import org.ossreviewtoolkit.model.Repository
 import org.ossreviewtoolkit.model.VcsInfo
 import org.ossreviewtoolkit.model.config.AnalyzerConfiguration
 import org.ossreviewtoolkit.model.config.RepositoryConfiguration
 import org.ossreviewtoolkit.model.readValue
 import org.ossreviewtoolkit.utils.NamedThreadFactory
-import org.ossreviewtoolkit.utils.ORT_CONFIG_FILENAME
+import org.ossreviewtoolkit.utils.ORT_REPO_CONFIG_FILENAME
 import org.ossreviewtoolkit.utils.log
 
 /**
@@ -53,13 +51,15 @@ class Analyzer(private val config: AnalyzerConfiguration) {
     fun analyze(
         absoluteProjectPath: File,
         packageManagers: List<PackageManagerFactory> = PackageManager.ALL,
-        curationProvider: PackageCurationProvider? = null,
+        curationProvider: PackageCurationProvider = PackageCurationProvider.EMPTY,
         repositoryConfigurationFile: File? = null
     ): OrtResult {
+        require(absoluteProjectPath.isAbsolute)
+
         val startTime = Instant.now()
 
         val actualRepositoryConfigurationFile = repositoryConfigurationFile
-            ?: File(absoluteProjectPath, ORT_CONFIG_FILENAME)
+            ?: File(absoluteProjectPath, ORT_REPO_CONFIG_FILENAME)
 
         val repositoryConfiguration = if (actualRepositoryConfigurationFile.isFile) {
             log.info { "Using configuration file '${actualRepositoryConfigurationFile.absolutePath}'." }
@@ -127,11 +127,11 @@ class Analyzer(private val config: AnalyzerConfiguration) {
 
     private suspend fun analyzeInParallel(
         managedFiles: Map<PackageManager, List<File>>,
-        curationProvider: PackageCurationProvider?
+        curationProvider: PackageCurationProvider
     ): AnalyzerResult {
         val threadFactory = NamedThreadFactory(javaClass.simpleName)
         val analysisDispatcher = Executors.newFixedThreadPool(5, threadFactory).asCoroutineDispatcher()
-        val analyzerResultBuilder = AnalyzerResultBuilder()
+        val analyzerResultBuilder = AnalyzerResultBuilder(curationProvider)
 
         analysisDispatcher.use { dispatcher ->
             coroutineScope {
@@ -141,7 +141,7 @@ class Analyzer(private val config: AnalyzerConfiguration) {
                             val results = manager.resolveDependencies(files)
 
                             // By convention, project ids must be of the type of the respective package manager.
-                            results.forEach { (_, result) ->
+                            results.onEach { (_, result) ->
                                 val invalidProjects = result.filter { it.project.id.type != manager.managerName }
                                 require(invalidProjects.isEmpty()) {
                                     val projectString =
@@ -149,27 +149,6 @@ class Analyzer(private val config: AnalyzerConfiguration) {
                                     "Projects $projectString must be of type '${manager.managerName}'."
                                 }
                             }
-
-                            curationProvider?.let { provider ->
-                                results.mapValues { (_, projectAnalyzerResults) ->
-                                    projectAnalyzerResults.map {
-                                        ProjectAnalyzerResult(
-                                            project = it.project,
-                                            issues = it.issues,
-                                            packages = it.packages.map { curatedPackage ->
-                                                val curations = provider.getCurationsFor(curatedPackage.pkg.id)
-                                                curations.fold(curatedPackage) { cur, packageCuration ->
-                                                    log.debug {
-                                                        "Applying curation '$packageCuration' to package " +
-                                                                "'${curatedPackage.pkg.id.toCoordinates()}'."
-                                                    }
-                                                    packageCuration.apply(cur)
-                                                }
-                                            }.toSortedSet()
-                                        )
-                                    }
-                                }
-                            } ?: results
                         }
                     }
                 }.forEach { resolutionResult ->

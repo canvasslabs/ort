@@ -2,7 +2,7 @@
 
 Curations correct invalid or missing package metadata and set the concluded license for packages.
 
-You can use [examples/curations.yml](examples/curations.yml) as the base configuration file for your scans.
+You can use the [curations.yml example](../examples/curations.yml) as the base configuration file for your scans.
 
 ## When to Use Curations
 
@@ -16,6 +16,16 @@ Curations can be used to:
   * package description or URL to its homepage.
 * set the concluded license for a package:
   * concluded license is the license applicable to a package dependency defined as an SPDX license expression.
+* set the _is_meta_data_only_ flag:
+  * metadata-only packages, such as Maven BOM files, do not have any source code. Thus, when the flag is set the
+  _downloader_ just skips the download and the _scanner_ skips the scan. Also, any _evaluator rule_ may optionally skip
+  its execution.
+* set the _declared_license_mapping_ property:
+  * Packages may have declared license string values which cannot be parsed to SpdxExpressions. In some cases this can
+    be fixed by mapping these strings to a valid license. If multiple curations declare license mapping they get
+    combined into a single mapping. Thus, multiple curations can contribute to the declared license mapping for the
+    package. The effect of its application can be seen in the _declared_license_processed_ property of the respective
+    curated package. 
 
 The sections below explain how to create curations in the `curations.yml` file which,
 if passed to the _analyzer_, is applied to all package metadata found in the analysis.
@@ -59,6 +69,9 @@ The structure of the curations file consist of one or more `id` entries:
       url: "http://example.com/repo.git"
       revision: "1234abc"
       path: "subdirectory"
+    is_meta_data_only: true
+    declared_license_mapping:
+      "license a": "Apache-2.0"
 ````
 
 ## Command Line

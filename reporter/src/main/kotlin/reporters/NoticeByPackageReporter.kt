@@ -20,7 +20,7 @@
 package org.ossreviewtoolkit.reporter.reporters
 
 import java.io.File
-import java.nio.file.Path
+import java.util.SortedMap
 
 import org.apache.logging.log4j.Level
 
@@ -33,13 +33,10 @@ import org.ossreviewtoolkit.reporter.ReporterInput
 import org.ossreviewtoolkit.reporter.reporters.AbstractNoticeReporter.NoticeReportModel
 import org.ossreviewtoolkit.utils.CopyrightStatementsProcessor
 import org.ossreviewtoolkit.utils.FileMatcher
-import org.ossreviewtoolkit.utils.LICENSE_FILENAMES
 import org.ossreviewtoolkit.utils.ORT_NAME
 import org.ossreviewtoolkit.utils.log
 import org.ossreviewtoolkit.utils.logOnce
-import org.ossreviewtoolkit.utils.ortDataDirectory
 import org.ossreviewtoolkit.utils.storage.FileArchiver
-import org.ossreviewtoolkit.utils.storage.LocalFileStorage
 
 /**
  * Creates a notice file containing the licenses for all non-excluded projects and packages, listed by their identifier.
@@ -62,7 +59,6 @@ class NoticeByPackageReporter : AbstractNoticeReporter() {
 
 class NoticeByPackageProcessor(input: ReporterInput) : AbstractNoticeReporter.NoticeProcessor(input) {
     companion object {
-        private val DEFAULT_ARCHIVE_DIR by lazy { ortDataDirectory.resolve("scanner/archive") }
         private const val LICENSE_SEPARATOR = "\n  --\n\n"
     }
 
@@ -93,7 +89,7 @@ class NoticeByPackageProcessor(input: ReporterInput) : AbstractNoticeReporter.No
             } else {
                 add { model.headerWithLicenses }
 
-                addPackageFindings(packageFindings)
+                addPackageFindings(packageFindings.toSortedMap())
             }
 
             model.footers.forEach { footer ->
@@ -126,11 +122,8 @@ class NoticeByPackageProcessor(input: ReporterInput) : AbstractNoticeReporter.No
         addProcessedFindings(processedFindings)
     }
 
-    private fun MutableList<() -> String>.addPackageFindings(findings: Map<Identifier, LicenseFindingsMap>) {
-        val archiver = input.ortConfig.scanner?.archive?.createFileArchiver() ?: FileArchiver(
-            LICENSE_FILENAMES,
-            LocalFileStorage(DEFAULT_ARCHIVE_DIR)
-        )
+    private fun MutableList<() -> String>.addPackageFindings(findings: SortedMap<Identifier, LicenseFindingsMap>) {
+        val archiver = input.ortConfig.scanner?.archive?.createFileArchiver() ?: FileArchiver.DEFAULT
 
         findings.forEach { (id, licenseFindingsMap) ->
             add { AbstractNoticeReporter.NOTICE_SEPARATOR }
@@ -235,10 +228,9 @@ class NoticeByPackageProcessor(input: ReporterInput) : AbstractNoticeReporter.No
         val licenseFiles = mutableMapOf<String, LicenseFindingsMap>()
 
         archiveDir.walk().forEach { file ->
-            val relativePath = archiveDir.toPath().relativize(file.toPath())
-            val relativePathString = relativePath.toString()
-            if (matcher.matches(relativePathString)) {
-                licenseFiles[relativePathString] =
+            val relativePath = file.toRelativeString(archiveDir)
+            if (matcher.matches(relativePath)) {
+                licenseFiles[relativePath] =
                     getFindingsForLicenseFile(scanResult, relativePath, licenseFindingsMap)
             }
         }
@@ -248,7 +240,7 @@ class NoticeByPackageProcessor(input: ReporterInput) : AbstractNoticeReporter.No
 
     private fun getFindingsForLicenseFile(
         scanResult: ScanResult,
-        path: Path,
+        path: String,
         licenseFindingsMap: LicenseFindingsMap
     ): LicenseFindingsMap {
         val licenses = findLicensesForFile(scanResult, path)
@@ -269,17 +261,17 @@ class NoticeByPackageProcessor(input: ReporterInput) : AbstractNoticeReporter.No
         }.toSortedMap()
     }
 
-    private fun findCopyrightsForFile(scanResult: ScanResult, relativePath: Path): Set<String> {
+    private fun findCopyrightsForFile(scanResult: ScanResult, relativePath: String): Set<String> {
         return scanResult.summary.copyrightFindings.filter {
-            it.location.path == relativePath.toString()
+            it.location.path == relativePath
         }.mapTo(mutableSetOf()) {
             it.statement
         }
     }
 
-    private fun findLicensesForFile(scanResult: ScanResult, relativePath: Path): Set<String> {
+    private fun findLicensesForFile(scanResult: ScanResult, relativePath: String): Set<String> {
         return scanResult.summary.licenseFindings.filter {
-            it.location.path == relativePath.toString()
+            it.location.path == relativePath
         }.mapTo(mutableSetOf()) {
             it.license.toString()
         }

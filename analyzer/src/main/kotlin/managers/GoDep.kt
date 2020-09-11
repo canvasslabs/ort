@@ -103,7 +103,7 @@ class GoDep(
         }
 
         val projects = parseProjects(workingDir, gopath)
-        val packages = mutableListOf<Package>()
+        val packages = sortedSetOf<Package>()
         val packageRefs = mutableListOf<PackageReference>()
 
         for (project in projects) {
@@ -176,7 +176,7 @@ class GoDep(
                     homepageUrl = "",
                     scopes = sortedSetOf(scope)
                 ),
-                packages = packages.mapTo(sortedSetOf()) { it.toCuratedPackage() }
+                packages = packages
             )
         )
     }
@@ -190,15 +190,11 @@ class GoDep(
             Paths.get(gopath.path, "src", projectDir.name)
         }.toFile()
 
-    private fun resolveProjectRoot(definitionFile: File): File {
-        val projectDir = when (definitionFile.name) {
+    private fun resolveProjectRoot(definitionFile: File) =
+        when (definitionFile.name) {
             "Godeps.json" -> definitionFile.parentFile.parentFile
             else -> definitionFile.parentFile
         }
-
-        // Normalize the path to avoid using "." as the name of the project when the analyzer is run with "-i .".
-        return projectDir.toPath().normalize().toFile()
-    }
 
     private fun importLegacyManifest(lockfileName: String, workingDir: File, gopath: File) {
         requireLockfile(workingDir) { lockfileName.isEmpty() || File(workingDir, lockfileName).isFile }

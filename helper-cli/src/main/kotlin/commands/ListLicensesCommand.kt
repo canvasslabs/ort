@@ -34,6 +34,8 @@ import com.github.ajalt.clikt.parameters.types.file
 
 import java.io.File
 import java.lang.IllegalArgumentException
+import java.nio.file.FileSystems
+import java.nio.file.Paths
 
 import org.ossreviewtoolkit.helper.common.PackageConfigurationOption
 import org.ossreviewtoolkit.helper.common.createProvider
@@ -59,6 +61,7 @@ internal class ListLicensesCommand : CliktCommand(
         help = "The ORT result file to read as input."
     ).convert { it.expandTilde() }
         .file(mustExist = true, canBeFile = true, canBeDir = false, mustBeWritable = false, mustBeReadable = true)
+        .convert { it.absoluteFile.normalize() }
         .required()
 
     private val packageId by option(
@@ -74,6 +77,7 @@ internal class ListLicensesCommand : CliktCommand(
                 "needed."
     ).convert { it.expandTilde() }
         .file(mustExist = true, canBeFile = false, canBeDir = true, mustBeWritable = false, mustBeReadable = true)
+        .convert { it.absoluteFile.normalize() }
 
     private val offendingOnly by option(
         "--offending-only",
@@ -117,8 +121,9 @@ internal class ListLicensesCommand : CliktCommand(
         help = "Override the repository configuration contained in the ORT result."
     ).convert { it.expandTilde() }
         .file(mustExist = true, canBeFile = true, canBeDir = false, mustBeWritable = false, mustBeReadable = true)
+        .convert { it.absoluteFile.normalize() }
 
-    private val packageConfigurationOption by mutuallyExclusiveOptions<PackageConfigurationOption>(
+    private val packageConfigurationOption by mutuallyExclusiveOptions(
         option(
             "--package-configuration-dir",
             help = "The directory containing the package configuration files to read as input. It is searched " +
@@ -134,15 +139,28 @@ internal class ListLicensesCommand : CliktCommand(
             .convert { PackageConfigurationOption.File(it) }
     ).single()
 
+    private val licenseAllowlist by option(
+        "--license-allow-list",
+        help = "Output only license findings which are contained in the given allow list."
+    ).split(",")
+        .default(emptyList())
+
+    private val fileAllowList by option(
+        "--file-allow-list",
+        help = "Output only license findings for files whose paths matches any of the given glob expressions."
+    ).convert { csv ->
+        csv.split(",").map { pattern -> FileSystems.getDefault().getPathMatcher("glob:$pattern") }
+    }.default(emptyList())
+
     override fun run() {
         val ortResult = ortResultFile.readValue<OrtResult>().replaceConfig(repositoryConfigurationFile)
 
         if (ortResult.getPackageOrProject(packageId) == null) {
-            throw UsageError("Could not find a package for the given id `$packageId`.")
+            throw UsageError("Could not find the package for the given id '${packageId.toCoordinates()}'.")
         }
 
         val sourcesDir = if (sourceCodeDir == null) {
-            println("Downloading sources for package $packageId...")
+            println("Downloading sources for package '${packageId.toCoordinates()}'...")
             ortResult.fetchScannedSources(packageId)
         } else {
             sourceCodeDir!!
@@ -170,19 +188,24 @@ internal class ListLicensesCommand : CliktCommand(
                 locationsByLicense.filter { (license, _) ->
                     !offendingOnly || violatedRulesByLicense.contains(license)
                 }.mapValues { (license, locations) ->
-                    locations.filter {
-                        !omitExcluded || !isPathExcluded(provenance, it.path) ||
-                                ignoreExcludedRuleIds.intersect(violatedRulesByLicense[license].orEmpty()).isNotEmpty()
+                    locations.filter { location ->
+                        (fileAllowList.isEmpty() || fileAllowList.any { it.matches(Paths.get(location.path)) }) &&
+                                (!omitExcluded || !isPathExcluded(provenance, location.path) ||
+                                ignoreExcludedRuleIds.intersect(violatedRulesByLicense[license].orEmpty()).isNotEmpty())
                     }
                 }.mapValues { (_, locations) ->
                     locations.groupByText(sourcesDir)
-                }.filter { (_, locations) -> locations.isNotEmpty() }
+                }.filter { (_, locations) ->
+                    locations.isNotEmpty()
+                }.filter { (license, _) ->
+                    licenseAllowlist.isEmpty() || license.simpleLicense() in licenseAllowlist
+                }
             }
 
         buildString {
-            appendln("  scan results:")
+            appendLine("  scan results:")
             findingsByProvenance.keys.forEachIndexed { i, provenance ->
-                appendln("    [$i] ${provenance.writeValueAsString()}")
+                appendLine("    [$i] ${provenance.writeValueAsString()}")
             }
         }.also { println(it) }
 
@@ -223,19 +246,19 @@ private fun Map<SpdxSingleLicenseExpression, List<TextLocationGroup>>.writeValue
     includeLicenseTexts: Boolean = true
 ): String {
     return buildString {
-        fun appendlnIndent(value: String, indent: Int) {
+        fun appendLineIndent(value: String, indent: Int) {
             require(indent > 0)
-            appendln(value.replaceIndent(" ".repeat(indent)))
+            appendLine(value.replaceIndent(" ".repeat(indent)))
         }
 
         this@writeValueAsString.forEach { (license, textLocationGroups) ->
-            appendlnIndent("$license [$provenanceIndex]:", 2)
+            appendLineIndent("$license [$provenanceIndex]:", 2)
 
             val sortedGroups = textLocationGroups.assignReferenceNameAndSort()
             sortedGroups.forEach { (group, name) ->
                 group.locations.forEach {
                     val excludedIndicator = if (isPathExcluded(it.path)) "(-)" else "(+)"
-                    appendlnIndent(
+                    appendLineIndent(
                         "[$name] $excludedIndicator ${it.path}:${it.startLine}-${it.endLine}",
                         4
                     )
@@ -245,13 +268,13 @@ private fun Map<SpdxSingleLicenseExpression, List<TextLocationGroup>>.writeValue
             if (includeLicenseTexts) {
                 sortedGroups.forEach { (group, name) ->
                     if (group.text != null) {
-                        appendlnIndent("\n\n[$name]", 4)
-                        appendlnIndent("\n\n${group.text}\n", 6)
+                        appendLineIndent("\n\n[$name]", 4)
+                        appendLineIndent("\n\n${group.text}\n", 6)
                     }
                 }
             }
 
-            appendln()
+            appendLine()
         }
     }
 }

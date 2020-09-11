@@ -35,7 +35,6 @@ import com.github.ajalt.clikt.parameters.types.file
 
 import java.io.File
 
-import org.ossreviewtoolkit.GroupTypes
 import org.ossreviewtoolkit.GroupTypes.FileType
 import org.ossreviewtoolkit.GroupTypes.StringType
 import org.ossreviewtoolkit.downloader.DownloadException
@@ -59,13 +58,13 @@ import org.ossreviewtoolkit.utils.safeDeleteRecursively
 import org.ossreviewtoolkit.utils.showStackTrace
 
 class DownloaderCommand : CliktCommand(name = "download", help = "Fetch source code from a remote location.") {
-    private val input by mutuallyExclusiveOptions<GroupTypes>(
+    private val input by mutuallyExclusiveOptions(
         option(
             "--ort-file", "-i",
             help = "An ORT result file with an analyzer result to use. Must not be used together with '--project-url'."
         ).convert { it.expandTilde() }
             .file(mustExist = true, canBeFile = true, canBeDir = false, mustBeWritable = false, mustBeReadable = true)
-            .convert { FileType(it) },
+            .convert { FileType(it.absoluteFile.normalize()) },
         option(
             "--project-url",
             help = "A VCS or archive URL of a project to download. Must not be used together with '--ort-file'."
@@ -101,6 +100,7 @@ class DownloaderCommand : CliktCommand(name = "download", help = "Fetch source c
         help = "The output directory to download the source code to."
     ).convert { it.expandTilde() }
         .file(mustExist = false, canBeFile = false, canBeDir = true, mustBeWritable = false, mustBeReadable = false)
+        .convert { it.absoluteFile.normalize() }
         .required()
 
     private val archive by option(
@@ -126,11 +126,11 @@ class DownloaderCommand : CliktCommand(name = "download", help = "Fetch source c
 
         when (input) {
             is FileType -> {
-                val absoluteOrtFile = (input as FileType).file.normalize()
-                val analyzerResult = absoluteOrtFile.readValue<OrtResult>().analyzer?.result
+                val ortFile = (input as FileType).file
+                val analyzerResult = ortFile.readValue<OrtResult>().analyzer?.result
 
                 requireNotNull(analyzerResult) {
-                    "The provided ORT result file '$absoluteOrtFile' does not contain an analyzer result."
+                    "The provided ORT result file '$ortFile' does not contain an analyzer result."
                 }
 
                 val packages = mutableListOf<Package>().apply {
@@ -164,7 +164,7 @@ class DownloaderCommand : CliktCommand(name = "download", help = "Fetch source c
                 val projectUrl = (input as StringType).string
 
                 val vcs = VersionControlSystem.forUrl(projectUrl)
-                val vcsType = vcsTypeOption?.let { VcsType(it) } ?: (vcs?.type ?: VcsType.NONE)
+                val vcsType = vcsTypeOption?.let { VcsType(it) } ?: (vcs?.type ?: VcsType.UNKNOWN)
                 val vcsRevision = vcsRevisionOption ?: vcs?.defaultBranchName.orEmpty()
 
                 val projectFile = File(projectUrl)
@@ -214,7 +214,7 @@ class DownloaderCommand : CliktCommand(name = "download", help = "Fetch source c
         )
 
         log.info {
-            "Archiving directory '${inputDir.absolutePath}' to '${zipFile.absolutePath}'."
+            "Archiving directory '$inputDir' to '$zipFile'."
         }
 
         try {

@@ -31,43 +31,44 @@ import org.ossreviewtoolkit.model.VcsType
 
 class VcsHostTest : WordSpec({
     "The Bitbucket implementation" should {
-        val projectUrl = "https://bitbucket.org/facebook/lz4revlog/src/4c259957d2904604115a02543dc73f5be95761d7/COPYING"
+        val projectUrl = "https://bitbucket.org/yevster/spdxtraxample/" +
+                "src/287aebca5e7ff4167af1fb648640dcdbdf4ec666/LICENSE.txt"
 
         "correctly get the user or organization name" {
-            BITBUCKET.getUserOrOrganization(projectUrl) shouldBe "facebook"
+            BITBUCKET.getUserOrOrganization(projectUrl) shouldBe "yevster"
         }
 
         "correctly get the project name" {
-            BITBUCKET.getProject(projectUrl) shouldBe "lz4revlog"
+            BITBUCKET.getProject(projectUrl) shouldBe "spdxtraxample"
         }
 
         "be able to extract VCS information from a project URL" {
             BITBUCKET.toVcsInfo(projectUrl) shouldBe
                     VcsInfo(
-                        type = VcsType.MERCURIAL,
-                        url = "https://bitbucket.org/facebook/lz4revlog",
-                        revision = "4c259957d2904604115a02543dc73f5be95761d7",
-                        path = "COPYING"
+                        type = VcsType.GIT,
+                        url = "https://bitbucket.org/yevster/spdxtraxample.git",
+                        revision = "287aebca5e7ff4167af1fb648640dcdbdf4ec666",
+                        path = "LICENSE.txt"
                     )
         }
 
         "be able to create permalinks from VCS information" {
             val vcsInfo = VcsInfo(
-                type = VcsType.MERCURIAL,
-                url = "ssh://hg@bitbucket.org/paniq/masagin",
-                revision = "23349a9ba924f6341bd7f1ed907b1b413b298342",
-                path = "masagin.gpl"
+                type = VcsType.GIT,
+                url = "https://bitbucket.org/yevster/spdxtraxample.git",
+                revision = "287aebca5e7ff4167af1fb648640dcdbdf4ec666",
+                path = "LICENSE.txt"
             )
 
-            BITBUCKET.toPermalink(vcsInfo, 5) shouldBe "https://bitbucket.org/paniq/masagin/" +
-                    "src/23349a9ba924f6341bd7f1ed907b1b413b298342/masagin.gpl#lines-5"
-            BITBUCKET.toPermalink(vcsInfo, 5, 8) shouldBe "https://bitbucket.org/paniq/masagin/" +
-                    "src/23349a9ba924f6341bd7f1ed907b1b413b298342/masagin.gpl#lines-5:8"
+            BITBUCKET.toPermalink(vcsInfo, 1) shouldBe "https://bitbucket.org/yevster/spdxtraxample/" +
+                    "src/287aebca5e7ff4167af1fb648640dcdbdf4ec666/LICENSE.txt#lines-1"
+            BITBUCKET.toPermalink(vcsInfo, 4, 8) shouldBe "https://bitbucket.org/yevster/spdxtraxample/" +
+                    "src/287aebca5e7ff4167af1fb648640dcdbdf4ec666/LICENSE.txt#lines-4:8"
         }
     }
 
     "The GitHub implementation" should {
-        val projectUrl = "https://github.com/oss-review-toolkit/ort/tree/da7e3a814fc0e6301bf3ed394eba1a661e4d88d7/" +
+        val projectUrl = "https://github.com/oss-review-toolkit/ort/blob/da7e3a814fc0e6301bf3ed394eba1a661e4d88d7/" +
                 "README.md"
 
         "correctly get the user or organization name" {
@@ -118,7 +119,7 @@ class VcsHostTest : WordSpec({
     }
 
     "The GitLab implementation" should {
-        val projectUrl = "https://gitlab.com/mbunkus/mkvtoolnix/tree/ec80478f87f1941fe52f15c5f4fa7ee6a70d7006/NEWS.md"
+        val projectUrl = "https://gitlab.com/mbunkus/mkvtoolnix/-/blob/ec80478f87f1941fe52f15c5f4fa7ee6a70d7006/NEWS.md"
 
         "correctly get the user or organization name" {
             GITLAB.getUserOrOrganization(projectUrl) shouldBe "mbunkus"

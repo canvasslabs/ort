@@ -50,8 +50,10 @@ import org.ossreviewtoolkit.model.licenses.orEmpty
 import org.ossreviewtoolkit.model.readValue
 import org.ossreviewtoolkit.model.utils.DefaultResolutionProvider
 import org.ossreviewtoolkit.reporter.DefaultLicenseTextProvider
+import org.ossreviewtoolkit.reporter.HowToFixTextProvider
 import org.ossreviewtoolkit.reporter.Reporter
 import org.ossreviewtoolkit.reporter.ReporterInput
+import org.ossreviewtoolkit.utils.ORT_REPO_CONFIG_FILENAME
 import org.ossreviewtoolkit.utils.PackageConfigurationOption
 import org.ossreviewtoolkit.utils.collectMessagesAsString
 import org.ossreviewtoolkit.utils.createProvider
@@ -59,6 +61,7 @@ import org.ossreviewtoolkit.utils.expandTilde
 import org.ossreviewtoolkit.utils.log
 import org.ossreviewtoolkit.utils.safeMkdirs
 import org.ossreviewtoolkit.utils.showStackTrace
+import org.ossreviewtoolkit.utils.storage.FileArchiver
 
 class ReporterCommand : CliktCommand(
     name = "report",
@@ -71,22 +74,23 @@ class ReporterCommand : CliktCommand(
         help = "The ORT result file to use."
     ).convert { it.expandTilde() }
         .file(mustExist = true, canBeFile = true, canBeDir = false, mustBeWritable = false, mustBeReadable = true)
+        .convert { it.absoluteFile.normalize() }
         .required()
 
-    private val packageConfigurationOption by mutuallyExclusiveOptions<PackageConfigurationOption>(
+    private val packageConfigurationOption by mutuallyExclusiveOptions(
         option(
             "--package-configuration-dir",
             help = "The directory containing the package configuration files to read as input. It is searched " +
                     "recursively."
         ).convert { it.expandTilde() }
             .file(mustExist = true, canBeFile = false, canBeDir = true, mustBeWritable = false, mustBeReadable = true)
-            .convert { PackageConfigurationOption.Dir(it) },
+            .convert { PackageConfigurationOption.Dir(it.absoluteFile.normalize()) },
         option(
             "--package-configuration-file",
             help = "The file containing the package configurations to read as input."
         ).convert { it.expandTilde() }
             .file(mustExist = true, canBeFile = true, canBeDir = false, mustBeWritable = false, mustBeReadable = true)
-            .convert { PackageConfigurationOption.File(it) }
+            .convert { PackageConfigurationOption.File(it.absoluteFile.normalize()) }
     ).single()
 
     private val outputDir by option(
@@ -94,6 +98,7 @@ class ReporterCommand : CliktCommand(
         help = "The output directory to store the generated reports in."
     ).convert { it.expandTilde() }
         .file(mustExist = false, canBeFile = false, canBeDir = true, mustBeWritable = false, mustBeReadable = false)
+        .convert { it.absoluteFile.normalize() }
         .required()
 
     private val reportFormats by option(
@@ -124,19 +129,22 @@ class ReporterCommand : CliktCommand(
         help = "A file containing error resolutions."
     ).convert { it.expandTilde() }
         .file(mustExist = true, canBeFile = true, canBeDir = false, mustBeWritable = false, mustBeReadable = true)
+        .convert { it.absoluteFile.normalize() }
 
     private val copyrightGarbageFile by option(
         "--copyright-garbage-file",
         help = "A file containing garbage copyright statements entries which are to be ignored."
     ).convert { it.expandTilde() }
         .file(mustExist = true, canBeFile = true, canBeDir = false, mustBeWritable = false, mustBeReadable = true)
+        .convert { it.absoluteFile.normalize() }
 
     private val repositoryConfigurationFile by option(
         "--repository-configuration-file",
-        help = "A file containing the repository configuration. If set the .ort.yml overrides the repository " +
-                "configuration contained in the ort result from the input file."
+        help = "A file containing the repository configuration. If set the '$ORT_REPO_CONFIG_FILENAME' overrides the " +
+                "repository configuration contained in the ort result from the input file."
     ).convert { it.expandTilde() }
         .file(mustExist = true, canBeFile = true, canBeDir = false, mustBeWritable = false, mustBeReadable = true)
+        .convert { it.absoluteFile.normalize() }
 
     private val customLicenseTextsDir by option(
         "--custom-license-texts-dir",
@@ -145,18 +153,26 @@ class ReporterCommand : CliktCommand(
                 "'LicenseRef-' prefix and if the respective license text is not known by ORT."
     ).convert { it.expandTilde() }
         .file(mustExist = false, canBeFile = false, canBeDir = true, mustBeWritable = false, mustBeReadable = false)
+        .convert { it.absoluteFile.normalize() }
 
     private val licenseConfigurationFile by option(
         "--license-configuration-file",
         help = "A file containing the license configuration."
     ).convert { it.expandTilde() }
         .file(mustExist = true, canBeFile = true, canBeDir = false, mustBeWritable = false, mustBeReadable = true)
+        .convert { it.absoluteFile.normalize() }
+
+    private val howToFixTextProviderScript by option(
+        "--how-to-fix-text-provider-script",
+        help = "The path to a Kotlin script which returns an instance of a 'HowToFixTextProvider'. That provider " +
+                "injects how-to-fix texts in Markdown format for ORT issues."
+    ).convert { it.expandTilde() }
+        .file(mustExist = true, canBeFile = true, canBeDir = false, mustBeWritable = false, mustBeReadable = true)
+        .convert { it.absoluteFile.normalize() }
 
     private val config by requireObject<OrtConfiguration>()
 
     override fun run() {
-        val absoluteOutputDir = outputDir.normalize()
-
         var ortResult = ortFile.readValue<OrtResult>()
         repositoryConfigurationFile?.let {
             ortResult = ortResult.replaceConfig(it.readValue())
@@ -172,12 +188,17 @@ class ReporterCommand : CliktCommand(
 
         val licenseInfoResolver = LicenseInfoResolver(
             provider = DefaultLicenseInfoProvider(ortResult, packageConfigurationProvider),
-            copyrightGarbage = copyrightGarbage
+            copyrightGarbage = copyrightGarbage,
+            archiver = config.scanner?.archive?.createFileArchiver() ?: FileArchiver.DEFAULT
         )
 
         val licenseConfiguration = licenseConfigurationFile?.readValue<LicenseConfiguration>().orEmpty()
 
-        absoluteOutputDir.safeMkdirs()
+        val howToFixTextProvider =
+            howToFixTextProviderScript?.let { HowToFixTextProvider.fromKotlinScript(it.readText(), ortResult) }
+                ?: HowToFixTextProvider.NONE
+
+        outputDir.safeMkdirs()
 
         val input = ReporterInput(
             ortResult,
@@ -187,7 +208,8 @@ class ReporterCommand : CliktCommand(
             DefaultLicenseTextProvider(customLicenseTextsDir),
             copyrightGarbage,
             licenseInfoResolver,
-            licenseConfiguration
+            licenseConfiguration,
+            howToFixTextProvider
         )
 
         val reportOptionsMap = mutableMapOf<String, MutableMap<String, String>>()
@@ -208,7 +230,7 @@ class ReporterCommand : CliktCommand(
             @Suppress("TooGenericExceptionCaught")
             try {
                 reportDurationMap[reporter] = measureTimedValue {
-                    reporter.generateReport(input, absoluteOutputDir, options)
+                    reporter.generateReport(input, outputDir, options)
                 }
             } catch (e: Exception) {
                 e.showStackTrace()

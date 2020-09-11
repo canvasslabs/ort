@@ -128,9 +128,9 @@ dependencies {
     implementation(project(":utils"))
 
     implementation("com.fasterxml.jackson.module:jackson-module-kotlin:$jacksonVersion")
-    implementation("com.github.ajalt:clikt:$cliktVersion")
+    implementation("com.github.ajalt.clikt:clikt:$cliktVersion")
     implementation("org.apache.logging.log4j:log4j-core:$log4jCoreVersion")
-    implementation("org.jetbrains.kotlin:kotlin-stdlib-jdk8")
+    implementation("org.apache.logging.log4j:log4j-slf4j-impl:$log4jCoreVersion")
     implementation("org.jetbrains.kotlin:kotlin-reflect")
     implementation("org.postgresql:postgresql:$postgresVersion")
     implementation("org.reflections:reflections:$reflectionsVersion")

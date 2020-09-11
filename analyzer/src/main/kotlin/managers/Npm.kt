@@ -359,7 +359,7 @@ open class Npm(
             val url = repo.textValue() ?: repo["url"].textValueOrEmpty()
             val path = repo["directory"].textValueOrEmpty()
             VcsInfo(VcsType(type), expandNpmShortcutURL(url), head, path = path)
-        } ?: VcsInfo(VcsType.NONE, "", head)
+        } ?: VcsInfo(VcsType.UNKNOWN, "", head)
     }
 
     private fun getPackageReferenceForMissingModule(moduleName: String, rootModuleDir: File): PackageReference {
@@ -415,12 +415,10 @@ open class Npm(
             Identifier(packageType, namespace, name, moduleInfo.version)
         }
 
-        if (ancestorModuleIds.contains(moduleId)) {
-            val cycle = ancestorModuleIds.toList().let {
-                val cycleStartIndex = it.indexOf(moduleId)
-                it.subList(cycleStartIndex, it.size) + moduleId
-            }.joinToString(" -> ")
-
+        val cycleStartIndex = ancestorModuleIds.indexOf(moduleId)
+        if (cycleStartIndex >= 0) {
+            val cycle = (ancestorModuleIds.subList(cycleStartIndex, ancestorModuleIds.size) + moduleId)
+                .joinToString(" -> ")
             log.debug { "Not adding dependency '$moduleId' to avoid cycle: $cycle." }
             return null
         }
@@ -520,7 +518,7 @@ open class Npm(
             scopes = scopes
         )
 
-        return ProjectAnalyzerResult(project, packages.mapTo(sortedSetOf()) { it.toCuratedPackage() })
+        return ProjectAnalyzerResult(project, packages)
     }
 
     /**

@@ -49,6 +49,7 @@ import org.ossreviewtoolkit.model.config.Curations
 import org.ossreviewtoolkit.model.config.Excludes
 import org.ossreviewtoolkit.model.config.IssueResolution
 import org.ossreviewtoolkit.model.config.LicenseFindingCuration
+import org.ossreviewtoolkit.model.config.PackageConfiguration
 import org.ossreviewtoolkit.model.config.PathExclude
 import org.ossreviewtoolkit.model.config.RepositoryConfiguration
 import org.ossreviewtoolkit.model.config.Resolutions
@@ -153,7 +154,7 @@ internal fun <K, V> greedySetCover(sets: Map<K, Set<V>>): Set<K> {
     val queue = sets.entries.toMutableSet()
 
     while (queue.isNotEmpty()) {
-        val maxCover = queue.maxBy { it.value.intersect(uncovered).size }!!
+        val maxCover = queue.maxByOrNull { it.value.intersect(uncovered).size }!!
 
         if (uncovered.intersect(maxCover.value).isNotEmpty()) {
             uncovered.removeAll(maxCover.value)
@@ -228,8 +229,8 @@ internal data class ProcessedCopyrightStatement(
 
 /**
  * Return the processed copyright statements of all packages and projects contained in this [OrtResult]. The statements
- * are processed for each package and license separately for consistency with the [NoticeByPackageReporter].
- * Statements contained in the given [copyrightGarbage] are omitted.
+ * are processed for each package and license separately for consistency with the notice reporter. Statements contained
+ * in the given [copyrightGarbage] are omitted.
  */
 internal fun OrtResult.processAllCopyrightStatements(
     omitExcluded: Boolean = true,
@@ -733,3 +734,11 @@ internal fun RepositoryConfiguration.merge(
             ruleViolations = resolutions.ruleViolations.mergeRuleViolationResolutions(other.resolutions.ruleViolations)
         )
     )
+
+/**
+ * Serialize a [PackageConfiguration] as YAML to the given target [File].
+ */
+internal fun PackageConfiguration.writeAsYaml(targetFile: File) {
+    targetFile.absoluteFile.parentFile.safeMkdirs()
+    yamlMapper.writeValue(targetFile, this)
+}

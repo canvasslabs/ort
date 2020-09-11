@@ -31,13 +31,25 @@ import org.ossreviewtoolkit.model.config.Excludes
 import org.ossreviewtoolkit.model.config.ScopeExclude
 import org.ossreviewtoolkit.model.licenses.LicenseInfoResolver
 import org.ossreviewtoolkit.model.utils.ResolutionProvider
+import org.ossreviewtoolkit.reporter.HowToFixTextProvider
 import org.ossreviewtoolkit.reporter.utils.ReportTableModel.DependencyRow
 import org.ossreviewtoolkit.reporter.utils.ReportTableModel.IssueRow
 import org.ossreviewtoolkit.reporter.utils.ReportTableModel.IssueTable
 import org.ossreviewtoolkit.reporter.utils.ReportTableModel.ProjectTable
 import org.ossreviewtoolkit.reporter.utils.ReportTableModel.ResolvableIssue
+import org.ossreviewtoolkit.reporter.utils.ReportTableModel.ResolvableViolation
 import org.ossreviewtoolkit.reporter.utils.ReportTableModel.SummaryRow
 import org.ossreviewtoolkit.reporter.utils.ReportTableModel.SummaryTable
+
+private val VIOLATION_COMPARATOR = compareBy<ResolvableViolation>(
+    { it.isResolved },
+    { it.violation.severity },
+    { it.violation.rule },
+    { it.violation.pkg },
+    { it.violation.license.toString() },
+    { it.violation.message },
+    { it.resolutionDescription }
+)
 
 private fun Collection<ResolvableIssue>.filterUnresolved() = filter { !it.isResolved }
 
@@ -58,20 +70,9 @@ private fun Project.getScopesForDependencies(excludes: Excludes): Map<Identifier
  * A mapper which converts an [OrtIssue] to a [ReportTableModel] view model.
  */
 class ReportTableModelMapper(
-    private val resolutionProvider: ResolutionProvider
+    private val resolutionProvider: ResolutionProvider,
+    private val howToFixTextProvider: HowToFixTextProvider
 ) {
-    companion object {
-        private val VIOLATION_COMPARATOR = compareBy<ReportTableModel.ResolvableViolation>(
-            { it.isResolved },
-            { it.violation.severity },
-            { it.violation.rule },
-            { it.violation.pkg },
-            { it.violation.license.toString() },
-            { it.violation.message },
-            { it.resolutionDescription }
-        )
-    }
-
     private fun OrtIssue.toResolvableIssue(): ResolvableIssue {
         val resolutions = resolutionProvider.getIssueResolutionsFor(this)
         return ResolvableIssue(
@@ -85,13 +86,14 @@ class ReportTableModelMapper(
                 }
             },
             isResolved = resolutions.isNotEmpty(),
-            severity = severity
+            severity = severity,
+            howToFix = howToFixTextProvider.getHowToFixText(this).orEmpty()
         )
     }
 
-    private fun RuleViolation.toResolvableEvaluatorIssue(): ReportTableModel.ResolvableViolation {
+    private fun RuleViolation.toResolvableViolation(): ResolvableViolation {
         val resolutions = resolutionProvider.getRuleViolationResolutionsFor(this)
-        return ReportTableModel.ResolvableViolation(
+        return ResolvableViolation(
             violation = this,
             resolutionDescription = buildString {
                 if (resolutions.isNotEmpty()) {
@@ -225,16 +227,12 @@ class ReportTableModelMapper(
             summaryRows.values.toList().sortedWith(compareBy({ ortResult.isExcluded(it.id) }, { it.id }))
         )
 
-        val metadata = mutableMapOf<String, String>()
-        (ortResult.data["job_parameters"] as? Map<*, *>)?.let {
-            it.entries.associateTo(metadata) { (key, value) -> key.toString() to value.toString() }
-        }
-        (ortResult.data["process_parameters"] as? Map<*, *>)?.let {
-            it.entries.associateTo(metadata) { (key, value) -> key.toString() to value.toString() }
-        }
+        // TODO: Use the prefixes up until the first '.' (which below get discarded) for some visual grouping in the
+        // report.
+        val metadata = ortResult.labels.mapKeys { it.key.substringAfter(".") }
 
         val ruleViolations = ortResult.getRuleViolations()
-            .map { it.toResolvableEvaluatorIssue() }
+            .map { it.toResolvableViolation() }
             .sortedWith(VIOLATION_COMPARATOR)
 
         return ReportTableModel(

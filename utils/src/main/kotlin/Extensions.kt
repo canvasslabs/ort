@@ -22,8 +22,6 @@
 package org.ossreviewtoolkit.utils
 
 import com.fasterxml.jackson.databind.JsonNode
-import com.fasterxml.jackson.databind.type.CollectionType
-import com.fasterxml.jackson.databind.type.TypeFactory
 import com.fasterxml.jackson.databind.util.ClassUtil
 
 import com.vdurmont.semver4j.Semver
@@ -43,7 +41,6 @@ import java.nio.file.SimpleFileVisitor
 import java.nio.file.StandardCopyOption
 import java.nio.file.attribute.BasicFileAttributes
 import java.security.MessageDigest
-import java.util.TreeSet
 
 /**
  * Return a string of hexadecimal digits representing the bytes in the array.
@@ -232,7 +229,17 @@ inline fun <K, V, W> Map<K, V>.zipWithDefault(other: Map<K, V>, default: V, oper
 /**
  * Return the string encoded for safe use as a file name or "unknown", if the string is empty.
  */
-fun String.encodeOrUnknown() = fileSystemEncode().takeUnless { it.isEmpty() } ?: "unknown"
+fun String.encodeOrUnknown(): String = encodeOr("unknown")
+
+/**
+ * Return the string encoded for safe use as a file name or [emptyValue] encoded for safe use as a file name, if this
+ * string is empty. Throws an exception if [emptyValue] is empty.
+ */
+fun String.encodeOr(emptyValue: String): String {
+    require(emptyValue.isNotEmpty())
+
+    return ifEmpty { emptyValue }.fileSystemEncode()
+}
 
 /**
  * If the SHELL environment variable is set, return the string with a leading "~" expanded to the current user's home
@@ -323,7 +330,7 @@ fun Throwable.collectMessages(): List<String> {
     val messages = mutableListOf<String>()
     var cause: Throwable? = this
     while (cause != null) {
-        val suppressed = cause.suppressed.joinToString { "\nSuppressed: ${it.javaClass.simpleName}: ${it.message}" }
+        val suppressed = cause.suppressed.joinToString("") { "\nSuppressed: ${it.javaClass.simpleName}: ${it.message}" }
         messages += "${cause.javaClass.simpleName}: ${cause.message}$suppressed"
         cause = cause.cause
     }
@@ -343,12 +350,6 @@ fun Throwable.showStackTrace() {
     // https://discuss.kotlinlang.org/t/if-operator-in-function-expression/7227.
     if (printStackTrace) printStackTrace()
 }
-
-/**
- * Function for constructing a [TreeSet] [CollectionType].
- */
-fun TypeFactory.constructTreeSetType(elementClass: Class<*>): CollectionType =
-    constructCollectionType(TreeSet::class.java, elementClass)
 
 /**
  * Check whether the URI has a fragment that looks like a VCS revision.

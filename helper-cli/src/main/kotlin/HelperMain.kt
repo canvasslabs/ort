@@ -34,6 +34,7 @@ import org.ossreviewtoolkit.helper.commands.ExportLicenseFindingCurationsCommand
 import org.ossreviewtoolkit.helper.commands.ExportPathExcludesCommand
 import org.ossreviewtoolkit.helper.commands.ExtractRepositoryConfigurationCommand
 import org.ossreviewtoolkit.helper.commands.FormatRepositoryConfigurationCommand
+import org.ossreviewtoolkit.helper.commands.GeneratePackageConfigurationsCommand
 import org.ossreviewtoolkit.helper.commands.GenerateProjectExcludesCommand
 import org.ossreviewtoolkit.helper.commands.GenerateRuleViolationResolutionsCommand
 import org.ossreviewtoolkit.helper.commands.GenerateScopeExcludesCommand
@@ -49,6 +50,7 @@ import org.ossreviewtoolkit.helper.commands.MapCopyrightsCommand
 import org.ossreviewtoolkit.helper.commands.MergeRepositoryConfigurationsCommand
 import org.ossreviewtoolkit.helper.commands.RemoveConfigurationEntriesCommand
 import org.ossreviewtoolkit.helper.commands.SortRepositoryConfigurationCommand
+import org.ossreviewtoolkit.helper.commands.SubtractScanResultsCommand
 import org.ossreviewtoolkit.helper.commands.VerifySourceArtifactCurationsCommand
 import org.ossreviewtoolkit.helper.common.ORTH_NAME
 import org.ossreviewtoolkit.utils.printStackTrace
@@ -78,6 +80,7 @@ internal class HelperMain : CliktCommand(name = ORTH_NAME, epilog = "* denotes r
             ExportPathExcludesCommand(),
             ExtractRepositoryConfigurationCommand(),
             FormatRepositoryConfigurationCommand(),
+            GeneratePackageConfigurationsCommand(),
             GenerateProjectExcludesCommand(),
             GenerateRuleViolationResolutionsCommand(),
             GenerateScopeExcludesCommand(),
@@ -93,6 +96,7 @@ internal class HelperMain : CliktCommand(name = ORTH_NAME, epilog = "* denotes r
             MergeRepositoryConfigurationsCommand(),
             RemoveConfigurationEntriesCommand(),
             SortRepositoryConfigurationCommand(),
+            SubtractScanResultsCommand(),
             VerifySourceArtifactCurationsCommand()
         )
     }
