@@ -64,9 +64,9 @@ class CanvassLabs(name: String, config: ScannerConfiguration) : LocalScanner(nam
     override fun command(workingDir: File?) =
         listOfNotNull(workingDir, if (Os.isWindows) "ORTClient.exe" else "ORTClient").joinToString(File.separator)
 
-    override fun transformVersion(output: String) =
-        // "lc --version" returns a string like "licensechecker version 1.1.1", so simply remove the prefix.
-        output.removePrefix("ORTClient version ")
+    // override fun transformVersion(output: String) = output.removePrefix("ORTClient version ")
+
+    override fun transformVersion(output: String) = output.removePrefix("ORTClient version ").dropLastWhile { 0 != it.compareTo(',') }.dropLast(1)
 
     override fun bootstrap(): File {
         val platform = when {
@@ -76,9 +76,11 @@ class CanvassLabs(name: String, config: ScannerConfiguration) : LocalScanner(nam
             else -> throw IllegalArgumentException("Unsupported operating system.")
         }
 
-        //TODO: remove the nested folders from aws
-        val archive = "ORTClient-$scannerVersion-$platform.zip"
-        //val url = "https://ortclient.s3-us-west-2.amazonaws.com/v1.3.1/x86_64-unknown-linux/$archive"
+        // val archive = "ORTClient-$scannerVersion-$platform.zip"
+	// TODO: Ask ORT to add GoDaddy Root CA, otherwise we need to continue using AWS.
+	// val url = "https://rivera.canvasslabs.com:5000/lian_ort/download/$archive"
+
+        val archive = "ORTClient-$scannerVersion-$platform-ir.zip"
         val url = "https://ortclient.s3-us-west-2.amazonaws.com/$archive"
 
         log.info { "Downloading $scannerName from $url... " }
@@ -165,6 +167,7 @@ class CanvassLabs(name: String, config: ScannerConfiguration) : LocalScanner(nam
             assertion downstream.
         */
         result.flatMapTo(licenseFindings) { file ->
+            //val filePath = File(file["local_file_path"].textValue().removePrefix("/home/charlie/Development/ort/"))
             val filePath = File(file["local_file_path"].textValue())
             file["matches"].mapNotNull {   
                 it -> if(!it["matched_type"].textValue().equals("copyright"))
@@ -181,6 +184,7 @@ class CanvassLabs(name: String, config: ScannerConfiguration) : LocalScanner(nam
         }
 
         result.flatMapTo(copyrightFindings) { file ->
+            //val filePath = File(file["local_file_path"].textValue().removePrefix("/home/charlie/Development/ort/"))
             val filePath = File(file["local_file_path"].textValue())
             file["matches"].mapNotNull {   
                 it -> if(it["matched_type"].textValue().equals("copyright"))
