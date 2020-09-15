@@ -80,7 +80,7 @@ class CanvassLabs(name: String, config: ScannerConfiguration) : LocalScanner(nam
 	// TODO: Ask ORT to add GoDaddy Root CA, otherwise we need to continue using AWS.
 	// val url = "https://rivera.canvasslabs.com:5000/lian_ort/download/$archive"
 
-        val archive = "ORTClient-$scannerVersion-$platform-ir.zip"
+        val archive = "ORTClient-$scannerVersion-$platform.zip"
         val url = "https://ortclient.s3-us-west-2.amazonaws.com/$archive"
 
         log.info { "Downloading $scannerName from $url... " }
