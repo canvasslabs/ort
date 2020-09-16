@@ -48,6 +48,9 @@ import org.ossreviewtoolkit.utils.ProcessCapture
 import org.ossreviewtoolkit.utils.log
 import org.ossreviewtoolkit.utils.unpack
 
+import java.util.UUID
+
+
 
 class CanvassLabs(name: String, config: ScannerConfiguration) : LocalScanner(name, config) {
     class Factory : AbstractScannerFactory<CanvassLabs>("CanvassLabs") {
@@ -57,6 +60,7 @@ class CanvassLabs(name: String, config: ScannerConfiguration) : LocalScanner(nam
     companion object {
         val CONFIGURATION_OPTIONS = listOf("")
     }
+    var meta_job_id = UUID.randomUUID()
 
     override val scannerVersion = "1.3.1"
     override val resultFileExt = "json"
@@ -121,7 +125,8 @@ class CanvassLabs(name: String, config: ScannerConfiguration) : LocalScanner(nam
             scannerPath.absolutePath,
             //*CONFIGURATION_OPTIONS.toTypedArray(),
             "-o", resultsFile.absolutePath,
-            "-i", path.absolutePath
+            "-i", path.absolutePath,
+	    "-u", "$meta_job_id"
         )
 
         val endTime = Instant.now()
