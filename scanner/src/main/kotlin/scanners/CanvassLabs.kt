@@ -82,7 +82,7 @@ class CanvassLabs(name: String, config: ScannerConfiguration) : LocalScanner(nam
 
         // val archive = "ORTClient-$scannerVersion-$platform.zip"
 	// TODO: Ask ORT to add GoDaddy Root CA, otherwise we need to continue using AWS.
-	// val url = "https://rivera.canvasslabs.com:5000/lian_ort/download/$archive"
+	// val url = "https://rivera.canvasslabs.com:5000/client/download/$archive"
 
         val archive = "ORTClient-$scannerVersion-$platform.zip"
         val url = "https://ortclient.s3-us-west-2.amazonaws.com/$archive"
@@ -172,7 +172,7 @@ class CanvassLabs(name: String, config: ScannerConfiguration) : LocalScanner(nam
             assertion downstream.
         */
         result.flatMapTo(licenseFindings) { file ->
-            //val filePath = File(file["local_file_path"].textValue().removePrefix("/home/charlie/Development/ort/"))
+            //val filePath = File(file["local_file_path"].textValue().removePrefix(""))
             val filePath = File(file["local_file_path"].textValue())
             file["matches"].mapNotNull {   
                 it -> if(!it["matched_type"].textValue().equals("copyright"))
@@ -189,7 +189,7 @@ class CanvassLabs(name: String, config: ScannerConfiguration) : LocalScanner(nam
         }
 
         result.flatMapTo(copyrightFindings) { file ->
-            //val filePath = File(file["local_file_path"].textValue().removePrefix("/home/charlie/Development/ort/"))
+            //val filePath = File(file["local_file_path"].textValue().removePrefix(""))
             val filePath = File(file["local_file_path"].textValue())
             file["matches"].mapNotNull {   
                 it -> if(it["matched_type"].textValue().equals("copyright"))
