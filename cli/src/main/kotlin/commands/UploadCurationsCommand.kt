@@ -33,8 +33,6 @@ import com.github.ajalt.clikt.parameters.types.file
 import java.io.IOException
 import java.net.URL
 
-import org.ossreviewtoolkit.analyzer.curation.toClearlyDefinedCoordinates
-import org.ossreviewtoolkit.analyzer.curation.toClearlyDefinedSourceLocation
 import org.ossreviewtoolkit.clearlydefined.ClearlyDefinedService
 import org.ossreviewtoolkit.clearlydefined.ClearlyDefinedService.ContributionInfo
 import org.ossreviewtoolkit.clearlydefined.ClearlyDefinedService.ContributionPatch
@@ -50,6 +48,8 @@ import org.ossreviewtoolkit.clearlydefined.string
 import org.ossreviewtoolkit.model.PackageCuration
 import org.ossreviewtoolkit.model.jsonMapper
 import org.ossreviewtoolkit.model.readValue
+import org.ossreviewtoolkit.model.utils.toClearlyDefinedCoordinates
+import org.ossreviewtoolkit.model.utils.toClearlyDefinedSourceLocation
 import org.ossreviewtoolkit.utils.OkHttpClientHelper
 import org.ossreviewtoolkit.utils.collectMessagesAsString
 import org.ossreviewtoolkit.utils.expandTilde
@@ -69,6 +69,7 @@ class UploadCurationsCommand : CliktCommand(
         .file(mustExist = true, canBeFile = true, canBeDir = false, mustBeWritable = false, mustBeReadable = true)
         .convert { it.absoluteFile.normalize() }
         .required()
+        .inputGroup()
 
     private val server by option(
         "--server", "-s",
@@ -113,9 +114,11 @@ class UploadCurationsCommand : CliktCommand(
         }
 
     private fun putCuration(curation: PackageCuration): ClearlyDefinedService.ContributionSummary? =
-        executeApiCall(service.putCuration(curation.toContributionPatch())).getOrElse {
-            log.error { it.collectMessagesAsString() }
-            null
+        curation.toContributionPatch()?.let { patch ->
+            executeApiCall(service.putCuration(patch)).getOrElse {
+                log.error { it.collectMessagesAsString() }
+                null
+            }
         }
 
     override fun run() {
@@ -168,12 +171,14 @@ class UploadCurationsCommand : CliktCommand(
     }
 }
 
-private fun PackageCuration.toContributionPatch(): ContributionPatch {
+private fun PackageCuration.toContributionPatch(): ContributionPatch? {
+    val coordinates = id.toClearlyDefinedCoordinates() ?: return null
+
     val info = ContributionInfo(
         // The exact values to use here are unclear; use what is mostly used at
         // https://github.com/clearlydefined/curated-data/pulls.
         type = ContributionType.OTHER,
-        summary = "Curation for component ${id.toClearlyDefinedCoordinates()}.",
+        summary = "Curation for component $coordinates.",
         details = "Imported from curation data of the " +
                 "[OSS Review Toolkit](https://github.com/oss-review-toolkit/ort) via the " +
                 "[clearly-defined](https://github.com/oss-review-toolkit/ort/tree/master/clearly-defined) " +
@@ -186,7 +191,7 @@ private fun PackageCuration.toContributionPatch(): ContributionPatch {
 
     val described = Described(
         projectWebsite = data.homepageUrl?.let { URL(it) },
-        sourceLocation = toClearlyDefinedSourceLocation(id, data.vcs, data.sourceArtifact)
+        sourceLocation = id.toClearlyDefinedSourceLocation(data.vcs, data.sourceArtifact)
     )
 
     val curation = Curation(
@@ -195,7 +200,7 @@ private fun PackageCuration.toContributionPatch(): ContributionPatch {
     )
 
     val patch = Patch(
-        coordinates = id.toClearlyDefinedCoordinates(),
+        coordinates = coordinates,
         revisions = mapOf(id.version to curation)
     )
 

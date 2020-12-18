@@ -19,11 +19,13 @@
 
 package org.ossreviewtoolkit.utils.test
 
-import io.kotest.matchers.Matcher
-import io.kotest.matchers.maps.MapContainsMatcher
 import io.kotest.matchers.nulls.shouldNotBeNull
 
-fun <K, V> containExactly(vararg expected: Pair<K, V>): Matcher<Map<K, V>> = MapContainsMatcher(expected.toMap())
+import java.net.InetSocketAddress
+import java.net.Proxy
+
+fun Proxy.toGenericString() =
+    (address() as? InetSocketAddress)?.let { address -> "${type()} @ ${address.hostString}:${address.port}" }
 
 infix fun <T> T?.shouldNotBeNull(block: T.() -> Unit) {
     this.shouldNotBeNull()

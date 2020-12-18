@@ -48,6 +48,7 @@ import org.ossreviewtoolkit.utils.ORT_CONFIG_FILENAME
 import org.ossreviewtoolkit.utils.ORT_DATA_DIR_ENV_NAME
 import org.ossreviewtoolkit.utils.ORT_NAME
 import org.ossreviewtoolkit.utils.Os
+import org.ossreviewtoolkit.utils.PERFORMANCE
 import org.ossreviewtoolkit.utils.expandTilde
 import org.ossreviewtoolkit.utils.ortConfigDirectory
 import org.ossreviewtoolkit.utils.ortDataDirectory
@@ -61,6 +62,14 @@ sealed class GroupTypes {
     data class StringType(val string: String) : GroupTypes()
 }
 
+/**
+ * Helper class for collecting options that can be passed to subcommands.
+ */
+data class GlobalOptions(
+    val config: OrtConfiguration,
+    val forceOverwrite: Boolean
+)
+
 class OrtMain : CliktCommand(name = ORT_NAME, epilog = "* denotes required options.") {
     private val configFile by option("--config", "-c", help = "The path to a configuration file.")
         .convert { it.expandTilde() }
@@ -69,6 +78,7 @@ class OrtMain : CliktCommand(name = ORT_NAME, epilog = "* denotes required optio
 
     private val logLevel by option(help = "Set the verbosity level of log output.").switch(
         "--info" to Level.INFO,
+        "--performance" to PERFORMANCE,
         "--debug" to Level.DEBUG
     ).default(Level.WARN)
 
@@ -77,8 +87,13 @@ class OrtMain : CliktCommand(name = ORT_NAME, epilog = "* denotes required optio
     private val configArguments by option(
         "-P",
         help = "Override a key-value pair in the configuration file. For example: " +
-                "-P scanner.postgresStorage.schema=testSchema"
+                "-P ort.scanner.storages.postgresStorage.schema=testSchema"
     ).associate()
+
+    private val forceOverwrite by option(
+        "--force-overwrite",
+        help = "Overwrite any output files if they already exist."
+    ).flag()
 
     private val env = Environment()
 
@@ -104,6 +119,7 @@ class OrtMain : CliktCommand(name = ORT_NAME, epilog = "* denotes required optio
         }
 
         subcommands(
+            AdvisorCommand(),
             AnalyzerCommand(),
             DownloaderCommand(),
             EvaluatorCommand(),
@@ -111,7 +127,8 @@ class OrtMain : CliktCommand(name = ORT_NAME, epilog = "* denotes required optio
             RequirementsCommand(),
             ScannerCommand(),
             UploadCurationsCommand(),
-            UploadResultCommand()
+            UploadResultToPostgresCommand(),
+            UploadResultToSw360Command()
         )
 
         versionOption(
@@ -128,11 +145,11 @@ class OrtMain : CliktCommand(name = ORT_NAME, epilog = "* denotes required optio
         // Make the parameter globally available.
         printStackTrace = stacktrace
 
-        // Make the OrtConfiguration available to subcommands.
+        // Make options available to subcommands.
         currentContext.findOrSetObject {
-            OrtConfiguration.load(
-                configArguments,
-                configFile
+            GlobalOptions(
+                OrtConfiguration.load(configArguments, configFile),
+                forceOverwrite
             )
         }
 
@@ -149,24 +166,22 @@ class OrtMain : CliktCommand(name = ORT_NAME, epilog = "* denotes required optio
 
         val commandName = currentContext.invokedSubcommand?.commandName
         val command = commandName?.let { " '$commandName'" }.orEmpty()
-        val with = if (variables.isNotEmpty()) " with" else "."
-
-        var variableIndex = 0
 
         val header = mutableListOf<String>()
+        val maxMemInMib = env.maxMemory / (1024 * 1024)
+
         """
             ________ _____________________
             \_____  \\______   \__    ___/ the OSS Review Toolkit, version $version.
-             /   |   \|       _/ |    |    Running$command under Java ${env.javaVersion} on ${env.os}$with
-            /    |    \    |   \ |    |    ${variables.getOrElse(variableIndex++) { "" }}
-            \_______  /____|_  / |____|    ${variables.getOrElse(variableIndex++) { "" }}
+             /   |   \|       _/ |    |
+            /    |    \    |   \ |    |    Running$command under Java ${env.javaVersion} on ${env.os} with
+            \_______  /____|_  / |____|    ${env.processors} CPUs and a maximum of $maxMemInMib MiB of memory.
                     \/       \/
         """.trimIndent().lines().mapTo(header) { it.trimEnd() }
 
-        val moreVariables = variables.drop(variableIndex)
-        if (moreVariables.isNotEmpty()) {
-            header += "More environment variables:"
-            header += moreVariables
+        if (variables.isNotEmpty()) {
+            header += "Environment variables:"
+            header += variables
         }
 
         return header.joinToString("\n", postfix = "\n")

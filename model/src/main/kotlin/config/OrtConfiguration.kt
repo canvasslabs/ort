@@ -19,11 +19,17 @@
 
 package org.ossreviewtoolkit.model.config
 
-import com.typesafe.config.ConfigFactory
-
-import io.github.config4k.extract
+import com.sksamuel.hoplite.ConfigLoader
+import com.sksamuel.hoplite.ConfigResult
+import com.sksamuel.hoplite.Node
+import com.sksamuel.hoplite.PropertySource
+import com.sksamuel.hoplite.fp.getOrElse
+import com.sksamuel.hoplite.fp.valid
+import com.sksamuel.hoplite.parsers.toNode
 
 import java.io.File
+
+import org.ossreviewtoolkit.utils.log
 
 /**
  * The configuration model for all ORT components.
@@ -32,7 +38,12 @@ data class OrtConfiguration(
     /**
      * The configuration of the scanner.
      */
-    val scanner: ScannerConfiguration? = null
+    val scanner: ScannerConfiguration? = null,
+
+    /**
+     * The configuration of the advisors, using the advisor's name as the key.
+     */
+    val advisor: Map<String, AdvisorConfiguration>? = null
 ) {
     companion object {
         /**
@@ -41,21 +52,55 @@ data class OrtConfiguration(
          * 1. [Command line arguments][args]
          * 2. [Configuration file][configFile]
          * 3. default.conf from resources
+         *
+         * The configuration file is optional and does not have to exist. However, if it exists, but does not
+         * contain a valid configuration, an [IllegalArgumentException] is thrown.
          */
-        fun load(args: Map<String, String> = emptyMap(), configFile: File? = null): OrtConfiguration {
-            val argsConfig = ConfigFactory.parseMap(args, "Command line").withOnlyPath("ort")
-            val fileConfig = configFile?.let {
-                ConfigFactory.parseFile(it).withOnlyPath("ort")
+        fun load(args: Map<String, String> = emptyMap(), configFile: File): OrtConfiguration {
+            if (configFile.isFile) {
+                log.info { "Using ORT configuration file at '$configFile'." }
             }
-            val defaultConfig = ConfigFactory.parseResources("default.conf")
 
-            var combinedConfig = argsConfig
-            if (fileConfig != null) {
-                combinedConfig = combinedConfig.withFallback(fileConfig)
+            val result = ConfigLoader.Builder()
+                .addSource(argumentsSource(args))
+                .addSource(PropertySource.file(configFile, optional = true))
+                .addSource(PropertySource.resource("/default.conf"))
+                .build()
+                .loadConfig<OrtConfigurationWrapper>()
+
+            return result.map { it.ort }.getOrElse { failure ->
+                if (configFile.isFile) {
+                    throw IllegalArgumentException(
+                        "Failed to load configuration from ${configFile.absolutePath}: ${failure.description()}"
+                    )
+                }
+
+                if (args.keys.any { it.startsWith("ort.") }) {
+                    throw java.lang.IllegalArgumentException(
+                        "Failed to load configuration from arguments $args: ${failure.description()}"
+                    )
+                }
+
+                OrtConfiguration()
             }
-            combinedConfig = combinedConfig.withFallback(defaultConfig).resolve()
+        }
 
-            return combinedConfig.extract("ort")
+        /**
+         * Generate a [PropertySource] providing access to the [args] the user has passed on the command line.
+         */
+        private fun argumentsSource(args: Map<String, String>): PropertySource {
+            val node = args.toProperties().toNode("arguments").valid()
+            return object : PropertySource {
+                override fun node(): ConfigResult<Node> = node
+            }
         }
     }
 }
+
+/**
+ * An internal wrapper class to hold an [OrtConfiguration]. This class is needed to correctly map the _ort_
+ * prefix in configuration files when they are processed by the underlying configuration library.
+ */
+internal data class OrtConfigurationWrapper(
+    val ort: OrtConfiguration
+)

@@ -35,6 +35,7 @@ import org.ossreviewtoolkit.model.ProjectAnalyzerResult
 import org.ossreviewtoolkit.model.RemoteArtifact
 import org.ossreviewtoolkit.model.Scope
 import org.ossreviewtoolkit.model.VcsInfo
+import org.ossreviewtoolkit.model.VcsType
 import org.ossreviewtoolkit.model.config.AnalyzerConfiguration
 import org.ossreviewtoolkit.model.config.RepositoryConfiguration
 import org.ossreviewtoolkit.utils.CommandLineTool
@@ -88,14 +89,17 @@ class GoMod(
     override fun resolveDependencies(definitionFile: File): List<ProjectAnalyzerResult> {
         val projectDir = definitionFile.parentFile
 
-        stashDirectories(File(projectDir, "vendor")).use {
+        stashDirectories(projectDir.resolve("vendor")).use {
             val edges = getDependencyGraph(projectDir)
             val vendorModules = getVendorModules(projectDir)
 
-            val projectName = edges.getNodes().filter { it.version.isBlank() }.distinct().let { idsWithoutVersion ->
+            val projectName = edges.getNodes().filterTo(mutableSetOf()) {
+                it.version.isBlank()
+            }.let { idsWithoutVersion ->
                 require(idsWithoutVersion.size == 1) {
                     "Expected exactly one unique package without version but got ${idsWithoutVersion.joinToString()}."
                 }
+
                 idsWithoutVersion.first()
             }.name
 
@@ -173,22 +177,33 @@ class GoMod(
             val parent = parsePackageEntry(columns[0])
             val child = parsePackageEntry(columns[1])
 
-            result.add(Edge(parent, child))
+            result += Edge(parent, child)
         }
 
         return result
     }
 
-    private fun createPackage(id: Identifier) =
-        Package(
+    private fun createPackage(id: Identifier): Package {
+        val vcsFromId = if (id.name.startsWith("github.com")) {
+            VcsInfo(
+                type = VcsType.GIT,
+                url = "https://${id.name.removeSuffix("/")}.git",
+                revision = id.version
+            )
+        } else {
+            VcsInfo.EMPTY
+        }
+
+        return Package(
             id = Identifier(managerName, "", id.name, id.version),
             declaredLicenses = sortedSetOf(), // Go mod doesn't support declared licenses.
             description = "",
             homepageUrl = "",
             binaryArtifact = RemoteArtifact.EMPTY,
             sourceArtifact = getSourceArtifactForPackage(id),
-            vcs = VcsInfo.EMPTY
+            vcs = vcsFromId
         )
+    }
 
     private fun getSourceArtifactForPackage(id: Identifier): RemoteArtifact {
         /**
@@ -244,8 +259,8 @@ private fun Collection<Edge>.toPackageReferenceForest(
         val target = addNode(edge.target)
 
         if (source != null && target != null) {
-            source.outgoingEdges.add(target.id)
-            target.incomingEdges.add(source.id)
+            source.outgoingEdges += target.id
+            target.incomingEdges += source.id
         }
     }
 

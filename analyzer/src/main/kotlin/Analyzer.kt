@@ -59,7 +59,7 @@ class Analyzer(private val config: AnalyzerConfiguration) {
         val startTime = Instant.now()
 
         val actualRepositoryConfigurationFile = repositoryConfigurationFile
-            ?: File(absoluteProjectPath, ORT_REPO_CONFIG_FILENAME)
+            ?: absoluteProjectPath.resolve(ORT_REPO_CONFIG_FILENAME)
 
         val repositoryConfiguration = if (actualRepositoryConfigurationFile.isFile) {
             log.info { "Using configuration file '${actualRepositoryConfigurationFile.absolutePath}'." }
@@ -71,7 +71,7 @@ class Analyzer(private val config: AnalyzerConfiguration) {
 
         log.debug { "Using the following configuration settings:\n$repositoryConfiguration" }
 
-        // Map files by the package manager factory that manages them.
+        // Associate files by the package manager factory that manages them.
         val factoryFiles = if (packageManagers.size == 1 && absoluteProjectPath.isFile) {
             // If only one package manager is activated, treat the given path as definition file for that package
             // manager despite its name.
@@ -80,6 +80,7 @@ class Analyzer(private val config: AnalyzerConfiguration) {
             PackageManager.findManagedFiles(absoluteProjectPath, packageManagers).toMutableMap()
         }
 
+        // Associate mapped files by the package manager that manages them.
         val managedFiles = factoryFiles.mapNotNull { (factory, files) ->
             val manager = factory.create(absoluteProjectPath, config, repositoryConfiguration)
             val mappedFiles = manager.mapDefinitionFiles(files)
@@ -100,9 +101,9 @@ class Analyzer(private val config: AnalyzerConfiguration) {
             // Log the summary of projects found per package manager.
             managedFiles.forEach { (manager, files) ->
                 // No need to use curly-braces-syntax for logging here as the log level check is already done above.
-                log.info("${manager.managerName} projects found in:")
+                log.info { "${manager.managerName} projects found in:" }
                 files.forEach { file ->
-                    log.info("\t${file.toRelativeString(absoluteProjectPath).takeIf { it.isNotEmpty() } ?: "."}")
+                    log.info { "\t${file.toRelativeString(absoluteProjectPath).takeIf { it.isNotEmpty() } ?: "."}" }
                 }
             }
         }

@@ -33,19 +33,12 @@ import org.apache.logging.log4j.Level
  */
 class OrtAuthenticator(private val original: Authenticator? = null) : Authenticator() {
     companion object {
-        private fun getDefaultAuthenticator(): Authenticator? {
-            // The getDefault() method is only available as of Java 9, see
-            // https://docs.oracle.com/javase/9/docs/api/java/net/Authenticator.html#getDefault--
-            val method = runCatching { Authenticator::class.java.getMethod("getDefault") }.getOrNull()
-            return method?.invoke(null) as? Authenticator
-        }
-
         /**
          * Install this authenticator as the global default.
          */
         @Synchronized
         fun install(): OrtAuthenticator {
-            val current = getDefaultAuthenticator()
+            val current = getDefault()
             return if (current is OrtAuthenticator) {
                 logOnce(Level.INFO) { "Authenticator is already installed." }
                 current
@@ -62,7 +55,7 @@ class OrtAuthenticator(private val original: Authenticator? = null) : Authentica
          */
         @Synchronized
         fun uninstall(): Authenticator? {
-            val current = getDefaultAuthenticator()
+            val current = getDefault()
             return if (current is OrtAuthenticator) {
                 current.original.also {
                     setDefault(it)
@@ -86,7 +79,7 @@ class OrtAuthenticator(private val original: Authenticator? = null) : Authentica
             RequestorType.PROXY -> {
                 val proxySelector = ProxySelector.getDefault()
                 if (proxySelector is OrtProxySelector) {
-                    val type = requestingProtocol.toProxyType() ?: return null
+                    val type = requestingProtocol.toProxyType() ?: return super.getPasswordAuthentication()
                     val proxy = Proxy(type, InetSocketAddress(requestingHost, requestingPort))
                     return proxySelector.getProxyAuthentication(proxy)
                 }
@@ -95,6 +88,7 @@ class OrtAuthenticator(private val original: Authenticator? = null) : Authentica
             RequestorType.SERVER -> {
                 serverAuthentication[requestingHost]?.let { return it }
 
+                // First look for (potentially machine-specific) credentials in a netrc-style file.
                 netrcFileNames.forEach { name ->
                     val netrcFile = Os.userHomeDirectory.resolve(name)
                     if (netrcFile.isFile) {
@@ -105,6 +99,13 @@ class OrtAuthenticator(private val original: Authenticator? = null) : Authentica
                             return it
                         }
                     }
+                }
+
+                // Then look for generic credentials passed as environment variables.
+                val usernameFromEnv = Os.env["ORT_HTTP_USERNAME"]
+                val passwordFromEnv = Os.env["ORT_HTTP_PASSWORD"]
+                if (usernameFromEnv != null && passwordFromEnv != null) {
+                    return PasswordAuthentication(usernameFromEnv, passwordFromEnv.toCharArray())
                 }
             }
 
@@ -124,22 +125,33 @@ fun getNetrcAuthentication(contents: String, machine: String): PasswordAuthentic
         line.trim().takeUnless { it.startsWith('#') }
     }
 
-    val iterator = lines.joinToString(" ").split(Regex("\\s")).iterator()
+    val iterator = lines.joinToString(" ").split(Regex("\\s+")).iterator()
 
-    var machineFound = false
     var login: String? = null
     var password: String? = null
+    var currentMachine: String? = null
+    val credentialsPerMachine = mutableMapOf<String, Pair<String, String>>()
 
     while (iterator.hasNext()) {
         when (iterator.next()) {
-            "machine" -> machineFound = iterator.hasNext() && iterator.next() == machine
-            "login" -> login = if (machineFound && iterator.hasNext()) iterator.next() else null
-            "password" -> password = if (machineFound && iterator.hasNext()) iterator.next() else null
-            "default" -> machineFound = true
+            "machine" -> currentMachine = iterator.next()
+            "login" -> login = iterator.next()
+            "password" -> password = iterator.next()
+            "default" -> currentMachine = "default"
         }
 
-        if (login != null && password != null) return PasswordAuthentication(login, password.toCharArray())
+        if (currentMachine != null && login != null && password != null) {
+            credentialsPerMachine[currentMachine] = login to password
+        }
     }
 
-    return null
+    credentialsPerMachine[machine]?.let {
+        OrtAuthenticator.log.debug { "Found .netrc entry for $machine." }
+        return PasswordAuthentication(it.first, it.second.toCharArray())
+    }
+
+    return credentialsPerMachine["default"]?.let {
+        OrtAuthenticator.log.debug { "Using default .netrc entry for $machine." }
+        PasswordAuthentication(it.first, it.second.toCharArray())
+    }
 }

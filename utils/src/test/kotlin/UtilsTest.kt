@@ -22,6 +22,8 @@ package org.ossreviewtoolkit.utils
 import io.kotest.core.spec.style.WordSpec
 import io.kotest.inspectors.forAll
 import io.kotest.matchers.collections.beEmpty
+import io.kotest.matchers.collections.containExactly
+import io.kotest.matchers.collections.shouldBeIn
 import io.kotest.matchers.nulls.shouldBeNull
 import io.kotest.matchers.nulls.shouldNotBeNull
 import io.kotest.matchers.should
@@ -243,7 +245,7 @@ class UtilsTest : WordSpec({
 
         "find system executables on non-Windows".config(enabled = !Os.isWindows) {
             getPathFromEnvironment("sh").shouldNotBeNull()
-            getPathFromEnvironment("sh") shouldBe File("/bin/sh")
+            getPathFromEnvironment("sh").toString() shouldBeIn listOf("/bin/sh", "/usr/bin/sh")
 
             getPathFromEnvironment("").shouldBeNull()
             getPathFromEnvironment("/").shouldBeNull()
@@ -398,6 +400,16 @@ class UtilsTest : WordSpec({
             packages.entries.forAll { (actualUrl, expectedUrl) ->
                 normalizeVcsUrl(actualUrl) shouldBe expectedUrl
             }
+        }
+    }
+
+    "getAllAncestorDirectories" should {
+        "return all ancestor directories ordered along the path to root" {
+            getAllAncestorDirectories("/a/b/c") should containExactly(
+                "/a/b",
+                "/a",
+                "/"
+            )
         }
     }
 })

@@ -30,6 +30,8 @@ import java.util.ServiceLoader
 
 import kotlin.time.measureTime
 
+import org.apache.maven.project.ProjectBuildingException
+
 import org.ossreviewtoolkit.downloader.VcsHost
 import org.ossreviewtoolkit.downloader.VersionControlSystem
 import org.ossreviewtoolkit.model.Identifier
@@ -40,6 +42,7 @@ import org.ossreviewtoolkit.model.VcsType
 import org.ossreviewtoolkit.model.config.AnalyzerConfiguration
 import org.ossreviewtoolkit.model.config.RepositoryConfiguration
 import org.ossreviewtoolkit.model.createAndLogIssue
+import org.ossreviewtoolkit.spdx.VCS_DIRECTORIES
 import org.ossreviewtoolkit.utils.collectMessagesAsString
 import org.ossreviewtoolkit.utils.isSymbolicLink
 import org.ossreviewtoolkit.utils.log
@@ -68,13 +71,7 @@ abstract class PackageManager(
          */
         val ALL by lazy { LOADER.iterator().asSequence().toList() }
 
-        private val IGNORED_DIRECTORY_MATCHERS = listOf(
-            // Ignore VCS configuration directories.
-            ".git",
-            ".hg",
-            ".repo",
-            ".svn",
-            "CVS",
+        private val PACKAGE_MANAGER_DIRECTORIES = listOf(
             // Ignore intermediate build system directories.
             ".gradle",
             "node_modules",
@@ -84,7 +81,9 @@ abstract class PackageManager(
             // Ignore virtual environments in Python.
             "lib/python2.*/dist-packages",
             "lib/python3.*/site-packages"
-        ).map {
+        )
+
+        private val IGNORED_DIRECTORY_MATCHERS = (VCS_DIRECTORIES + PACKAGE_MANAGER_DIRECTORIES).map {
             FileSystems.getDefault().getPathMatcher("glob:**/$it")
         }
 
@@ -231,9 +230,14 @@ abstract class PackageManager(
                 } catch (e: Exception) {
                     e.showStackTrace()
 
-                    val relativePath = definitionFile.absoluteFile.relativeTo(analysisRoot).invariantSeparatorsPath
+                    // In case of Maven we might be able to do better than inferring the name from the path.
+                    val id = if (e is ProjectBuildingException && e.projectId?.isEmpty() == false) {
+                        Identifier("Maven:${e.projectId}")
+                    } else {
+                        val relativePath = definitionFile.absoluteFile.relativeTo(analysisRoot).invariantSeparatorsPath
+                        Identifier.EMPTY.copy(type = managerName, name = relativePath)
+                    }
 
-                    val id = Identifier.EMPTY.copy(type = managerName, name = relativePath)
                     val errorProject = Project.EMPTY.copy(
                         id = id,
                         definitionFilePath = VersionControlSystem.getPathInfo(definitionFile).path,

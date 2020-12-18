@@ -213,7 +213,7 @@
     "id" : "Gradle:org.ossreviewtoolkit.gradle.example:lib:1.0.0",
     "is_project" : true,
     "definition_file_path" : "analyzer/src/funTest/assets/projects/synthetic/gradle/lib/build.gradle",
-    "purl" : "pkg:gradle/org.ossreviewtoolkit.gradle.example/lib@1.0.0",
+    "purl" : "pkg:maven/org.ossreviewtoolkit.gradle.example/lib@1.0.0",
     "declared_licenses_processed" : { },
     "detected_licenses" : [ 0, 1, 2, 3, 4 ],
     "binary_artifact" : {
@@ -248,56 +248,56 @@
     "findings" : [ {
       "type" : "LICENSE",
       "license" : 0,
-      "path" : "src/code.cpp",
+      "path" : "analyzer/src/funTest/assets/projects/synthetic/gradle/lib/src/code.cpp",
       "start_line" : 1,
       "end_line" : 1,
       "scan_result" : 0
     }, {
       "type" : "LICENSE",
       "license" : 1,
-      "path" : "src/code.cpp",
+      "path" : "analyzer/src/funTest/assets/projects/synthetic/gradle/lib/src/code.cpp",
       "start_line" : 1,
       "end_line" : 1,
       "scan_result" : 0
     }, {
       "type" : "LICENSE",
       "license" : 2,
-      "path" : "src/code.cpp",
+      "path" : "analyzer/src/funTest/assets/projects/synthetic/gradle/lib/src/code.cpp",
       "start_line" : 1,
       "end_line" : 1,
       "scan_result" : 0
     }, {
       "type" : "COPYRIGHT",
       "copyright" : 0,
-      "path" : "build.gradle",
+      "path" : "analyzer/src/funTest/assets/projects/synthetic/gradle/lib/build.gradle",
       "start_line" : 20,
       "end_line" : 20,
       "scan_result" : 0
     }, {
       "type" : "LICENSE",
       "license" : 3,
-      "path" : "build.gradle",
+      "path" : "analyzer/src/funTest/assets/projects/synthetic/gradle/lib/build.gradle",
       "start_line" : 19,
       "end_line" : 20,
       "scan_result" : 0
     }, {
       "type" : "COPYRIGHT",
       "copyright" : 0,
-      "path" : "build.gradle",
+      "path" : "analyzer/src/funTest/assets/projects/synthetic/gradle/lib/build.gradle",
       "start_line" : 20,
       "end_line" : 20,
       "scan_result" : 0
     }, {
       "type" : "LICENSE",
       "license" : 4,
-      "path" : "build.gradle",
+      "path" : "analyzer/src/funTest/assets/projects/synthetic/gradle/lib/build.gradle",
       "start_line" : 19,
       "end_line" : 19,
       "scan_result" : 0
     }, {
       "type" : "LICENSE",
       "license" : 4,
-      "path" : "build.gradle",
+      "path" : "analyzer/src/funTest/assets/projects/synthetic/gradle/lib/build.gradle",
       "start_line" : 20,
       "end_line" : 20,
       "scan_result" : 0
@@ -308,7 +308,7 @@
     "id" : "Gradle:org.ossreviewtoolkit:nested-fake-project:1.0.0",
     "is_project" : true,
     "definition_file_path" : "project/build.gradle",
-    "purl" : "pkg:gradle/org.ossreviewtoolkit/nested-fake-project@1.0.0",
+    "purl" : "pkg:maven/org.ossreviewtoolkit/nested-fake-project@1.0.0",
     "declared_licenses" : [ 5 ],
     "declared_licenses_processed" : {
       "spdx_expression" : "GPL-3.0-only WITH GCC-exception-3.1 AND CC-BY-NC-3.0",

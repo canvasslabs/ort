@@ -32,11 +32,14 @@ import io.kotest.matchers.shouldBe
 
 import java.io.File
 
+import kotlin.io.path.createTempDirectory
+
 import org.ossreviewtoolkit.utils.ORT_NAME
 import org.ossreviewtoolkit.utils.ProtocolProxyMap
 import org.ossreviewtoolkit.utils.safeDeleteRecursively
 import org.ossreviewtoolkit.utils.safeMkdirs
 import org.ossreviewtoolkit.utils.test.containExactly as containExactlyEntries
+import org.ossreviewtoolkit.utils.test.toGenericString
 
 class NodeSupportTest : WordSpec() {
     companion object {
@@ -205,7 +208,7 @@ class NodeSupportTest : WordSpec() {
                     mapValues { (_, proxies) ->
                         val (proxy, authentication) = proxies.single()
                         listOfNotNull(
-                            proxy.toString(),
+                            proxy.toGenericString(),
                             authentication?.userName,
                             authentication?.password?.let { String(it) }
                         )
@@ -262,7 +265,7 @@ class NodeSupportTest : WordSpec() {
 
     override fun beforeTest(testCase: TestCase) {
         super.beforeTest(testCase)
-        tempDir = createTempDir(ORT_NAME, javaClass.simpleName)
+        tempDir = createTempDirectory("$ORT_NAME-${javaClass.simpleName}").toFile()
         definitionFiles.clear()
     }
 
@@ -283,7 +286,7 @@ class NodeSupportTest : WordSpec() {
 
         val definitionFile = projectDir.resolve("package.json")
         definitionFile.writeText(createPackageJson(matchers, flattenWorkspaceDefinition))
-        definitionFiles.add(definitionFile)
+        definitionFiles += definitionFile
 
         if (hasNpmLockFile) projectDir.resolve("package-lock.json").createNewFile()
         if (hasYarnLockFile) projectDir.resolve("yarn.lock").createNewFile()

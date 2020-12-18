@@ -25,7 +25,9 @@ import java.util.SortedSet
 import org.ossreviewtoolkit.analyzer.AbstractPackageManagerFactory
 import org.ossreviewtoolkit.analyzer.PackageManager
 import org.ossreviewtoolkit.downloader.VersionControlSystem
+import org.ossreviewtoolkit.model.Hash
 import org.ossreviewtoolkit.model.Identifier
+import org.ossreviewtoolkit.model.OrtIssue
 import org.ossreviewtoolkit.model.Package
 import org.ossreviewtoolkit.model.PackageReference
 import org.ossreviewtoolkit.model.Project
@@ -35,7 +37,9 @@ import org.ossreviewtoolkit.model.Scope
 import org.ossreviewtoolkit.model.VcsInfo
 import org.ossreviewtoolkit.model.config.AnalyzerConfiguration
 import org.ossreviewtoolkit.model.config.RepositoryConfiguration
+import org.ossreviewtoolkit.model.createAndLogIssue
 import org.ossreviewtoolkit.spdx.SpdxConstants
+import org.ossreviewtoolkit.spdx.SpdxExpression
 import org.ossreviewtoolkit.spdx.SpdxModelMapper
 import org.ossreviewtoolkit.spdx.model.SpdxDocument
 import org.ossreviewtoolkit.spdx.model.SpdxPackage
@@ -74,7 +78,7 @@ class SpdxDocumentFile(
 
     private fun String.extractOrganization() =
         lineSequence().mapNotNull { line ->
-            line.removePrefix("Organization: ").takeIf { it != line }
+            line.removePrefix(SpdxConstants.ORGANIZATION).takeIf { it != line }
         }.firstOrNull()
 
     private fun String.mapNotPresentToEmpty() = takeUnless { SpdxConstants.isNotPresent(it) }.orEmpty()
@@ -84,7 +88,8 @@ class SpdxDocumentFile(
      */
     private fun getDependencies(pkg: SpdxPackage, doc: SpdxDocument): SortedSet<PackageReference> =
         getDependencies(pkg, doc, SpdxRelationship.Type.DEPENDENCY_OF) { target ->
-            val dependency = doc.packages.single { it.spdxId == target }
+            val dependency = doc.packages.singleOrNull { it.spdxId == target }
+                ?: throw IllegalArgumentException("No single package with target ID '$target' found.")
             PackageReference(
                 id = dependency.toIdentifier(),
                 dependencies = getDependencies(dependency, doc)
@@ -102,10 +107,20 @@ class SpdxDocumentFile(
         dependsOnCase: (String) -> PackageReference? = { null }
     ): SortedSet<PackageReference> =
         doc.relationships.mapNotNullTo(sortedSetOf()) { (source, target, relation) ->
+            val issues = mutableListOf<OrtIssue>()
+
             when {
                 // Dependencies can either be defined on the target...
-                target == pkg.spdxId && relation == dependencyOfRelation -> {
-                    val dependency = doc.packages.single { it.spdxId == source }
+                pkg.spdxId.equals(target, ignoreCase = true) && relation == dependencyOfRelation -> {
+                    if (pkg.spdxId != target) {
+                        issues += createAndLogIssue(
+                            source = managerName,
+                            message = "Source '${pkg.spdxId}' has to match target '$target' case-sensitively."
+                        )
+                    }
+
+                    val dependency = doc.packages.singleOrNull { it.spdxId == source }
+                        ?: throw IllegalArgumentException("No single package with source ID '$source' found.")
                     PackageReference(
                         id = dependency.toIdentifier(),
                         dependencies = getDependencies(
@@ -113,13 +128,22 @@ class SpdxDocumentFile(
                             doc,
                             SpdxRelationship.Type.DEPENDENCY_OF,
                             dependsOnCase
-                        )
+                        ),
+                        issues = issues
                     )
                 }
 
                 // ...or on the source.
-                source == pkg.spdxId && relation == SpdxRelationship.Type.DEPENDS_ON -> {
-                    dependsOnCase(target)
+                pkg.spdxId.equals(source, ignoreCase = true) && relation == SpdxRelationship.Type.DEPENDS_ON -> {
+                    if (pkg.spdxId != source) {
+                        issues += createAndLogIssue(
+                            source = managerName,
+                            message = "Source '$source' has to match target '${pkg.spdxId}' case-sensitively."
+                        )
+                    }
+
+                    val pkgRef = dependsOnCase(target)
+                    pkgRef?.copy(issues = issues + pkgRef.issues)
                 }
 
                 else -> null
@@ -146,6 +170,8 @@ class SpdxDocumentFile(
         val workingDir = definitionFile.parentFile
         val spdxDocument = SpdxModelMapper.read(definitionFile, SpdxDocument::class.java)
 
+        // Distinguish whether we have a project-style SPDX document that describes a project and its dependencies, or a
+        // package-style SPDX document that describes a single (dependency-)package.
         val projectPackage = spdxDocument.packages.singleOrNull { it.packageFilename.isEmpty() }
 
         val project = if (projectPackage != null) {
@@ -174,7 +200,7 @@ class SpdxDocumentFile(
         } else {
             // TODO: Add support for "package.spdx.yml" files. How to deal with relationships between SPDX packages if
             //       we do not have a project to attach dependencies to?
-            Project.EMPTY
+            Project.EMPTY.copy(id = Identifier.EMPTY.copy(type = managerName))
         }
 
         val nonProjectPackages = if (projectPackage != null) {
@@ -190,15 +216,36 @@ class SpdxDocumentFile(
             Package(
                 id = pkg.toIdentifier(),
                 declaredLicenses = sortedSetOf(pkg.licenseDeclared),
-                concludedLicense = pkg.licenseConcluded.toSpdx(),
+                concludedLicense = getConcludedLicense(pkg),
                 description = packageDescription,
                 homepageUrl = pkg.homepage.mapNotPresentToEmpty(),
                 binaryArtifact = RemoteArtifact.EMPTY, // TODO: Use "downloadLocation" or "externalRefs"?
-                sourceArtifact = RemoteArtifact.EMPTY, // TODO: Use "sourceInfo" or "externalRefs"?
+                sourceArtifact = getSourceArtifact(pkg),
                 vcs = VersionControlSystem.forDirectory(packageDir)?.getInfo() ?: VcsInfo.EMPTY
             )
         }
 
         return listOf(ProjectAnalyzerResult(project, packages))
+    }
+
+    /**
+     * Return the concluded license to be used in ORT's data model, which expects a not present value to be null instead
+     * of NONE or NOASSERTION.
+     */
+    private fun getConcludedLicense(pkg: SpdxPackage): SpdxExpression? =
+        pkg.licenseConcluded.takeIf { SpdxConstants.isPresent(it) }?.toSpdx()
+
+    /**
+     * Return a [RemoteArtifact] created from the downloadLocation of the given package [SpdxPackage] if it is a local
+     * file, or return an [RemoteArtifact.EMPTY].
+     *
+     * TODO: Consider also taking "sourceInfo" or "externalRefs" into account.
+     */
+    private fun getSourceArtifact(pkg: SpdxPackage): RemoteArtifact {
+        return if (pkg.downloadLocation.startsWith("file:/")) {
+            RemoteArtifact(pkg.downloadLocation, Hash.NONE)
+        } else {
+            RemoteArtifact.EMPTY
+        }
     }
 }

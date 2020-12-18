@@ -26,7 +26,7 @@ import java.io.FileNotFoundException
 import java.net.URL
 import java.time.Year
 
-import org.jetbrains.kotlin.gradle.dsl.KotlinCompile
+import org.jetbrains.kotlin.gradle.tasks.KotlinCompile
 
 import org.ossreviewtoolkit.gradle.*
 
@@ -46,7 +46,7 @@ val generateGrammarSource by tasks.existing(AntlrTask::class) {
     arguments = arguments + listOf("-visitor")
 }
 
-tasks.withType(KotlinCompile::class) {
+tasks.withType<KotlinCompile>().configureEach {
     dependsOn(generateGrammarSource)
 }
 
@@ -358,7 +358,10 @@ val generateLicenseRefTextResources by tasks.registering {
         licensesDir.walk().maxDepth(1).filter {
             it.isFile && it.extension == "yml" && !it.nameWithoutExtension.endsWith("-exception")
         }.forEach { file ->
-            val isSpdxLicense = file.readLines().any { it.startsWith("spdx_license_key: ") }
+            val isSpdxLicense = file.readLines().any {
+                it.startsWith("spdx_license_key: ") && !it.contains("LicenseRef-")
+            }
+
             if (!isSpdxLicense) {
                 // The base name of a ScanCode license YML file matches the ScanCode-internal license key.
                 val baseName = file.nameWithoutExtension
@@ -367,9 +370,12 @@ val generateLicenseRefTextResources by tasks.registering {
                     val lines = licenseFile.readLines().map { it.trimEnd() }.asReversed().dropWhile { it.isEmpty() }
                         .asReversed().dropWhile { it.isEmpty() }
 
+                    // Underscores are not allowed in SPDX 'LicenseRef-*' identifiers, so turn them into dashes.
+                    val normalizedBaseName = baseName.replace('_', '-')
+
                     // Use a "namespaced" LicenseRef ID string as the file name, similar to ScanCode itself does for
                     // SPDX output formats, see https://github.com/nexB/scancode-toolkit/pull/1307.
-                    val resourceFile = resourcesDir.resolve("LicenseRef-scancode-$baseName")
+                    val resourceFile = resourcesDir.resolve("LicenseRef-scancode-$normalizedBaseName")
                     resourceFile.writeText(lines.joinToString("\n", postfix = "\n"))
                 } else {
                     logger.warn("No license text found for license '$baseName'.")

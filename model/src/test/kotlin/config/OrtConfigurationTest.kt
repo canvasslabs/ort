@@ -19,18 +19,22 @@
 
 package org.ossreviewtoolkit.model.config
 
-import com.typesafe.config.ConfigFactory
-
-import io.github.config4k.extract
-
+import io.kotest.assertions.throwables.shouldThrow
 import io.kotest.core.spec.style.WordSpec
+import io.kotest.extensions.system.withEnvironment
 import io.kotest.matchers.collections.containExactly
+import io.kotest.matchers.collections.shouldContainExactly
+import io.kotest.matchers.collections.shouldContainExactlyInAnyOrder
 import io.kotest.matchers.nulls.shouldBeNull
 import io.kotest.matchers.nulls.shouldNotBeNull
 import io.kotest.matchers.should
 import io.kotest.matchers.shouldBe
+import io.kotest.matchers.types.shouldBeInstanceOf
 
 import java.io.File
+import java.lang.IllegalArgumentException
+
+import kotlin.io.path.createTempFile
 
 import org.ossreviewtoolkit.utils.ORT_NAME
 import org.ossreviewtoolkit.utils.test.containExactly as containExactlyEntries
@@ -39,10 +43,8 @@ import org.ossreviewtoolkit.utils.test.shouldNotBeNull
 class OrtConfigurationTest : WordSpec({
     "OrtConfiguration" should {
         "be deserializable from HOCON" {
-            val hocon = javaClass.getResource("/reference.conf").readText()
-
-            val config = ConfigFactory.parseString(hocon)
-            val ortConfig = config.extract<OrtConfiguration>("ort")
+            val refConfig = File("src/test/assets/reference.conf")
+            val ortConfig = OrtConfiguration.load(configFile = refConfig)
 
             ortConfig.scanner shouldNotBeNull {
                 archive shouldNotBeNull {
@@ -53,61 +55,185 @@ class OrtConfigurationTest : WordSpec({
                     }
                 }
 
-                fileBasedStorage shouldNotBeNull {
-                    backend.httpFileStorage shouldNotBeNull {
+                storages shouldNotBeNull {
+                    keys shouldContainExactlyInAnyOrder setOf("local", "http", "clearlyDefined", "postgres")
+                    val httpStorage = this["http"]
+                    httpStorage.shouldBeInstanceOf<FileBasedStorageConfiguration>()
+                    httpStorage.backend.httpFileStorage shouldNotBeNull {
                         url shouldBe "https://your-http-server"
                         headers should containExactlyEntries("key1" to "value1", "key2" to "value2")
                     }
 
-                    backend.localFileStorage shouldNotBeNull {
+                    val localStorage = this["local"]
+                    localStorage.shouldBeInstanceOf<FileBasedStorageConfiguration>()
+                    localStorage.backend.localFileStorage shouldNotBeNull {
                         directory shouldBe File("~/.ort/scanner/results")
                     }
-                }
 
-                postgresStorage shouldNotBeNull {
-                    url shouldBe "jdbc:postgresql://your-postgresql-server:5444/your-database"
-                    schema shouldBe "schema"
-                    username shouldBe "username"
-                    password shouldBe "password"
-                    sslmode shouldBe "required"
-                    sslcert shouldBe "/defaultdir/postgresql.crt"
-                    sslkey shouldBe "/defaultdir/postgresql.pk8"
-                    sslrootcert shouldBe "/defaultdir/root.crt"
+                    val postgresStorage = this["postgres"]
+                    postgresStorage.shouldBeInstanceOf<PostgresStorageConfiguration>()
+                    postgresStorage.url shouldBe "jdbc:postgresql://your-postgresql-server:5444/your-database"
+                    postgresStorage.schema shouldBe "schema"
+                    postgresStorage.username shouldBe "username"
+                    postgresStorage.password shouldBe "password"
+                    postgresStorage.sslmode shouldBe "required"
+                    postgresStorage.sslcert shouldBe "/defaultdir/postgresql.crt"
+                    postgresStorage.sslkey shouldBe "/defaultdir/postgresql.pk8"
+                    postgresStorage.sslrootcert shouldBe "/defaultdir/root.crt"
+
+                    val cdStorage = this["clearlyDefined"]
+                    cdStorage.shouldBeInstanceOf<ClearlyDefinedStorageConfiguration>()
+                    cdStorage.serverUrl shouldBe "https://api.clearlydefined.io"
                 }
 
                 options.shouldNotBeNull()
+                storageReaders shouldContainExactly listOf("local", "postgres", "http", "clearlyDefined")
+                storageWriters shouldContainExactly listOf("postgres")
             }
         }
 
         "correctly prioritize the sources" {
-            val configFile = createTempFile(ORT_NAME, javaClass.simpleName).apply { deleteOnExit() }
-
-            configFile.writeText(
+            val configFile = createTestConfig(
                 """
                 ort {
                   scanner {
-                    postgresStorage {
-                      url = "postgresql://your-postgresql-server:5444/your-database"
-                      schema = schema
-                      username = username
-                      password = password
+                    storages {
+                      postgresStorage {
+                        url = "postgresql://your-postgresql-server:5444/your-database"
+                        schema = schema
+                        username = username
+                        password = password
+                      }
                     }
                   }
                 }
                 """.trimIndent()
             )
 
-            val config = OrtConfiguration.load(
-                args = mapOf("ort.scanner.postgresStorage.schema" to "argsSchema"),
-                configFile = configFile
+            val env = mapOf("ort.scanner.storages.postgresStorage.password" to "envPassword")
+
+            withEnvironment(env) {
+                val config = OrtConfiguration.load(
+                    args = mapOf(
+                        "ort.scanner.storages.postgresStorage.schema" to "argsSchema",
+                        "ort.scanner.storages.postgresStorage.password" to "argsPassword",
+                        "other.property" to "someValue"
+                    ),
+                    configFile = configFile
+                )
+
+                config.scanner?.storages shouldNotBeNull {
+                    val postgresStorage = this["postgresStorage"]
+                    postgresStorage.shouldBeInstanceOf<PostgresStorageConfiguration>()
+                    postgresStorage.username shouldBe "username"
+                    postgresStorage.schema shouldBe "argsSchema"
+                    postgresStorage.password shouldBe "envPassword"
+                }
+            }
+        }
+
+        "fail for an invalid configuration" {
+            val configFile = createTestConfig(
+                """
+                ort {
+                  scanner {
+                    storages {
+                      foo = baz
+                    }
+                  }
+                }
+                """.trimIndent()
             )
 
-            config.scanner shouldNotBeNull {
-                postgresStorage shouldNotBeNull {
-                    username shouldBe "username"
-                    schema shouldBe "argsSchema"
+            shouldThrow<IllegalArgumentException> {
+                OrtConfiguration.load(configFile = configFile)
+            }
+        }
+
+        "fail for invalid properties in the map with arguments" {
+            val file = File("anotherNonExistingConfig.conf")
+            val args = mapOf("ort.scanner.storages.new" to "test")
+
+            shouldThrow<IllegalArgumentException> {
+                OrtConfiguration.load(configFile = file, args = args)
+            }
+        }
+
+        "ignore a non-existing configuration file" {
+            val args = mapOf("foo" to "bar")
+            val file = File("nonExistingConfig.conf")
+
+            val config = OrtConfiguration.load(configFile = file, args = args)
+
+            config.scanner.shouldBeNull()
+        }
+
+        "support references to environment variables" {
+            val configFile = createTestConfig(
+                """
+                ort {
+                  scanner {
+                    storages {
+                      postgresStorage {
+                        url = "postgresql://your-postgresql-server:5444/your-database"
+                        schema = schema
+                        username = ${'$'}{POSTGRES_USERNAME}
+                        password = ${'$'}{POSTGRES_PASSWORD}
+                      }
+                    }
+                  }
+                }
+                """.trimIndent()
+            )
+            val user = "scott"
+            val password = "tiger"
+            val env = mapOf("POSTGRES_USERNAME" to user, "POSTGRES_PASSWORD" to password)
+
+            withEnvironment(env) {
+                val config = OrtConfiguration.load(configFile = configFile)
+
+                config.scanner?.storages shouldNotBeNull {
+                    val postgresStorage = this["postgresStorage"]
+                    postgresStorage.shouldBeInstanceOf<PostgresStorageConfiguration>()
+                    postgresStorage.username shouldBe user
+                    postgresStorage.password shouldBe password
+                }
+            }
+        }
+
+        "support environmental variables" {
+            val user = "user"
+            val password = "password"
+            val url = "url"
+            val schema = "schema"
+            val env = mapOf(
+                "ort.scanner.storages.postgresStorage.username" to user,
+                "ort.scanner.storages.postgresStorage.url" to url,
+                "ort__scanner__storages__postgresStorage__schema" to schema,
+                "ort__scanner__storages__postgresStorage__password" to password
+            )
+
+            withEnvironment(env) {
+                val config = OrtConfiguration.load(configFile = File("dummyPath"))
+
+                config.scanner?.storages shouldNotBeNull {
+                    val postgresStorage = this["postgresStorage"]
+                    postgresStorage.shouldBeInstanceOf<PostgresStorageConfiguration>()
+                    postgresStorage.username shouldBe user
+                    postgresStorage.password shouldBe password
+                    postgresStorage.url shouldBe url
+                    postgresStorage.schema shouldBe schema
                 }
             }
         }
     }
 })
+
+/**
+ * Create a test configuration with the [data] specified.
+ */
+private fun createTestConfig(data: String): File =
+    createTempFile(ORT_NAME, ".conf").toFile().apply {
+        writeText(data)
+        deleteOnExit()
+    }

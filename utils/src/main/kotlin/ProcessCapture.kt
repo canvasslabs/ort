@@ -22,6 +22,8 @@ package org.ossreviewtoolkit.utils
 import java.io.File
 import java.io.IOException
 
+import kotlin.io.path.createTempDirectory
+
 /**
  * An (almost) drop-in replacement for ProcessBuilder that is able to capture huge outputs to the standard output and
  * standard error streams by redirecting output to temporary files.
@@ -54,11 +56,11 @@ class ProcessCapture(vararg command: String, workingDir: File? = null, environme
         }
     }
 
-    private val tempDir = createTempDir(ORT_NAME, "process").apply { deleteOnExit() }
+    private val tempDir = createTempDirectory("$ORT_NAME-process").toFile().apply { deleteOnExit() }
     private val tempPrefix = command.first().substringAfterLast(File.separatorChar)
 
-    val stdoutFile = File(tempDir, "$tempPrefix.stdout").apply { deleteOnExit() }
-    val stderrFile = File(tempDir, "$tempPrefix.stderr").apply { deleteOnExit() }
+    val stdoutFile = tempDir.resolve("$tempPrefix.stdout").apply { deleteOnExit() }
+    val stderrFile = tempDir.resolve("$tempPrefix.stderr").apply { deleteOnExit() }
 
     /**
      * Get the standard output stream of the terminated process as a string.

@@ -36,6 +36,31 @@ object SpdxConstants {
     const val NOASSERTION = "NOASSERTION"
 
     /**
+     * A prefix used in fields like "originator", "supplier", or "annotator" to describe a person.
+     */
+    const val PERSON = "Person: "
+
+    /**
+     * A prefix used in fields like "originator", "supplier", or "annotator" to describe an organization.
+     */
+    const val ORGANIZATION = "Organization: "
+
+    /**
+     * A prefix used in fields like "annotator" to describe a tool.
+     */
+    const val TOOL = "Tool: "
+
+    /**
+     * The prefix to be used for SPDX document IDs or references.
+     */
+    const val REF_PREFIX = "SPDXRef-"
+
+    /**
+     * The URL that points to list of SPDX licenses.
+     */
+    const val LICENSE_LIST_URL = "https://spdx.org/licenses/"
+
+    /**
      * Return true if and only if the given value equals [NONE] or [NOASSERTION].
      */
     fun isNotPresent(value: String) = value in setOf(NONE, NOASSERTION)

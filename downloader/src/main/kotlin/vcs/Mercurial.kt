@@ -28,7 +28,6 @@ import org.ossreviewtoolkit.downloader.WorkingTree
 import org.ossreviewtoolkit.model.VcsInfo
 import org.ossreviewtoolkit.model.VcsType
 import org.ossreviewtoolkit.utils.CommandLineTool
-import org.ossreviewtoolkit.utils.FileMatcher
 import org.ossreviewtoolkit.utils.ProcessCapture
 import org.ossreviewtoolkit.utils.collectMessagesAsString
 import org.ossreviewtoolkit.utils.log
@@ -110,7 +109,7 @@ class Mercurial : VersionControlSystem(), CommandLineTool {
         }
 
         run(targetDir, "init")
-        File(targetDir, ".hg/hgrc").writeText(
+        targetDir.resolve(".hg/hgrc").writeText(
             """
                 [paths]
                 default = ${vcs.url}
@@ -121,10 +120,11 @@ class Mercurial : VersionControlSystem(), CommandLineTool {
 
         if (MERCURIAL_SPARSE_EXTENSION in extensionsList) {
             log.info { "Configuring Mercurial to do sparse checkout of path '${vcs.path}'." }
-            run(
-                targetDir, "debugsparse", "-I", "${vcs.path}/**",
-                *FileMatcher.LICENSE_FILE_MATCHER.patterns.flatMap { listOf("-I", it) }.toTypedArray()
-            )
+
+            // Mercurial does not accept absolute paths.
+            val globPatterns = getLicenseFileGlobPatterns() + "${vcs.path}/**"
+
+            run(targetDir, "debugsparse", *globPatterns.flatMap { listOf("-I", it) }.toTypedArray())
         }
 
         return getWorkingTree(targetDir)

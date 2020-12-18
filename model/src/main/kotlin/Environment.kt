@@ -19,6 +19,8 @@
 
 package org.ossreviewtoolkit.model
 
+import java.lang.Runtime
+
 import org.ossreviewtoolkit.utils.Os
 
 /**
@@ -41,6 +43,16 @@ data class Environment(
     val os: String = Os.name,
 
     /**
+     * The number of logical processors available.
+     */
+    val processors: Int = Runtime.getRuntime().availableProcessors(),
+
+    /**
+     * The maximum amount of memory available.
+     */
+    val maxMemory: Long = Runtime.getRuntime().maxMemory(),
+
+    /**
      * Map of selected environment variables that might be relevant for debugging.
      */
     val variables: Map<String, String> = RELEVANT_VARIABLES.mapNotNull { key ->
@@ -56,7 +68,7 @@ data class Environment(
         /**
          * The version of the OSS Review Toolkit as a string.
          */
-        val ORT_VERSION = this::class.java.getResource("/VERSION").readText()
+        val ORT_VERSION by lazy { this::class.java.`package`.implementationVersion ?: "IDE-SNAPSHOT" }
 
         private val RELEVANT_VARIABLES = listOf(
             // Windows variables.

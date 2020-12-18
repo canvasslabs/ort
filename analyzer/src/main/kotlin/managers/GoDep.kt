@@ -26,6 +26,8 @@ import java.io.IOException
 import java.net.URI
 import java.nio.file.Paths
 
+import kotlin.io.path.createTempDirectory
+
 import org.ossreviewtoolkit.analyzer.AbstractPackageManagerFactory
 import org.ossreviewtoolkit.analyzer.PackageManager
 import org.ossreviewtoolkit.downloader.VersionControlSystem
@@ -94,7 +96,7 @@ class GoDep(
     override fun resolveDependencies(definitionFile: File): List<ProjectAnalyzerResult> {
         val projectDir = resolveProjectRoot(definitionFile)
         val projectVcs = processProjectVcs(projectDir)
-        val gopath = createTempDir(ORT_NAME, "${projectDir.name}-gopath")
+        val gopath = createTempDirectory("$ORT_NAME-${projectDir.name}-gopath").toFile()
         val workingDir = setUpWorkspace(projectDir, projectVcs, gopath)
 
         GO_LEGACY_MANIFESTS[definitionFile.name]?.let { lockfileName ->
@@ -197,7 +199,7 @@ class GoDep(
         }
 
     private fun importLegacyManifest(lockfileName: String, workingDir: File, gopath: File) {
-        requireLockfile(workingDir) { lockfileName.isEmpty() || File(workingDir, lockfileName).isFile }
+        requireLockfile(workingDir) { lockfileName.isEmpty() || workingDir.resolve(lockfileName).isFile }
 
         run("init", workingDir = workingDir, environment = mapOf("GOPATH" to gopath.realFile().path))
     }
@@ -220,7 +222,7 @@ class GoDep(
     }
 
     private fun parseProjects(workingDir: File, gopath: File): List<Map<String, String>> {
-        val lockfile = File(workingDir, "Gopkg.lock")
+        val lockfile = workingDir.resolve("Gopkg.lock")
         if (!lockfile.isFile) {
             require(analyzerConfig.allowDynamicVersions) {
                 "No lockfile found in ${workingDir.invariantSeparatorsPath}, dependency versions are unstable."

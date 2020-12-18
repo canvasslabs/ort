@@ -130,8 +130,8 @@ class StaticHtmlReporter : Reporter {
                         +", version ${Environment().ortVersion} on ${Instant.now()}."
                     }
 
-                    if (reportTableModel.metadata.isNotEmpty()) {
-                        metadataTable(reportTableModel.metadata)
+                    if (reportTableModel.labels.isNotEmpty()) {
+                        labelsTable(reportTableModel.labels)
                     }
 
                     index(reportTableModel)
@@ -156,14 +156,14 @@ class StaticHtmlReporter : Reporter {
         return document.serialize().normalizeLineBreaks()
     }
 
-    private fun DIV.metadataTable(metadata: Map<String, String>) {
-        h2 { +"Metadata" }
-        table("ort-report-metadata") {
-            tbody { metadata.forEach { (key, value) -> metadataRow(key, value) } }
+    private fun DIV.labelsTable(labels: Map<String, String>) {
+        h2 { +"Labels" }
+        table("ort-report-labels") {
+            tbody { labels.forEach { (key, value) -> labelRow(key, value) } }
         }
     }
 
-    private fun TBODY.metadataRow(key: String, value: String) {
+    private fun TBODY.labelRow(key: String, value: String) {
         tr {
             td { +key }
             td { if (value.isValidUrl()) a(value) { +value } else +value }
@@ -426,7 +426,7 @@ class StaticHtmlReporter : Reporter {
         project.vcsProcessed.let { vcsInfo ->
             h3(excludedClass) { +"VCS Information" }
 
-            table("ort-report-metadata $excludedClass") {
+            table("ort-report-labels $excludedClass") {
                 tbody {
                     tr {
                         td { +"Type" }
@@ -638,40 +638,29 @@ private fun DIV.permalink(permalink: String, count: Int) {
 }
 
 private fun ResolvedLicenseLocation.permalink(id: Identifier): String? {
-    val sourceArtifact = provenance.sourceArtifact
     val vcsInfo = provenance.vcsInfo
+    if (vcsInfo != null && vcsInfo != VcsInfo.EMPTY) {
+        return VcsHost.toPermalink(
+            vcsInfo.copy(path = location.path),
+            location.startLine, location.endLine
+        )
+    }
 
-    return when {
-        sourceArtifact != null && sourceArtifact != RemoteArtifact.EMPTY -> {
-            val mavenCentralPattern = Regex("https?://repo[^/]+maven[^/]+org/.*")
-            when {
-                sourceArtifact.url.matches(mavenCentralPattern) -> {
-                    // At least for source artifacts on Maven Central, use the "proxy" from Sonatype which has the
-                    // Archive Browser plugin installed to link to the files with findings.
-                    with(id) {
-                        val group = namespace.replace('.', '/')
-                        "https://repository.sonatype.org/" +
-                                "service/local/repositories/central-proxy/" +
-                                "archive/$group/$name/$version/$name-$version-sources.jar/" +
-                                "!/${location.path}"
-                    }
-                }
-                else -> null
+    val sourceArtifact = provenance.sourceArtifact
+    if (sourceArtifact != null && sourceArtifact != RemoteArtifact.EMPTY) {
+        val mavenCentralPattern = Regex("https?://repo[^/]+maven[^/]+org/.*")
+        if (sourceArtifact.url.matches(mavenCentralPattern)) {
+            // At least for source artifacts on Maven Central, use the "proxy" from Sonatype which has the
+            // Archive Browser plugin installed to link to the files with findings.
+            return with(id) {
+                val group = namespace.replace('.', '/')
+                "https://repository.sonatype.org/" +
+                        "service/local/repositories/central-proxy/" +
+                        "archive/$group/$name/$version/$name-$version-sources.jar/" +
+                        "!/${location.path}"
             }
         }
-
-        vcsInfo != null && vcsInfo != VcsInfo.EMPTY -> {
-            val path = listOfNotNull(
-                vcsInfo.path.takeIf { it.isNotEmpty() },
-                location.path
-            ).joinToString("/")
-
-            VcsHost.toPermalink(
-                vcsInfo.copy(path = path),
-                location.startLine, location.endLine
-            )
-        }
-
-        else -> null
     }
+
+    return null
 }

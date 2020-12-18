@@ -28,10 +28,10 @@ import org.ossreviewtoolkit.model.OrtResult
 import org.ossreviewtoolkit.model.ScanResult
 import org.ossreviewtoolkit.model.VcsInfo
 import org.ossreviewtoolkit.model.VcsType
-import org.ossreviewtoolkit.model.utils.PackageConfigurationProvider
-import org.ossreviewtoolkit.model.utils.getDetectedLicensesWithCopyrights
+import org.ossreviewtoolkit.model.licenses.LicenseInfoResolver
 import org.ossreviewtoolkit.reporter.LicenseTextProvider
 import org.ossreviewtoolkit.spdx.SpdxConstants
+import org.ossreviewtoolkit.spdx.SpdxConstants.REF_PREFIX
 import org.ossreviewtoolkit.spdx.SpdxExpression
 import org.ossreviewtoolkit.spdx.SpdxLicense
 import org.ossreviewtoolkit.spdx.SpdxLicenseException
@@ -57,7 +57,7 @@ object SpdxDocumentModelMapper {
 
     fun map(
         ortResult: OrtResult,
-        packageConfigurationProvider: PackageConfigurationProvider,
+        licenseInfoResolver: LicenseInfoResolver,
         licenseTextProvider: LicenseTextProvider,
         params: SpdxDocumentParams
     ): SpdxDocument {
@@ -75,14 +75,15 @@ object SpdxDocumentModelMapper {
             licenseDeclared = SpdxConstants.NOASSERTION,
             name = "Root package"
         )
-        packages.add(rootPackage)
+
+        packages += rootPackage
 
         ortResult.getPackages(omitExcluded = true).forEach { curatedPackage ->
             val pkg = curatedPackage.pkg
 
             val binaryPackage = SpdxPackage(
                 spdxId = spdxPackageIdGenerator.nextId(pkg.id.name),
-                copyrightText = getSpdxCopyrightText(ortResult, packageConfigurationProvider, pkg.id),
+                copyrightText = getSpdxCopyrightText(licenseInfoResolver, pkg.id),
                 downloadLocation = pkg.binaryArtifact.url.nullOrBlankToSpdxNone(),
                 filesAnalyzed = false,
                 homepage = pkg.homepageUrl.nullOrBlankToSpdxNone(),
@@ -99,8 +100,8 @@ object SpdxDocumentModelMapper {
                 relationshipType = SpdxRelationship.Type.DEPENDENCY_OF
             )
 
-            packages.add(binaryPackage)
-            relationships.add(binaryPackageRelationship)
+            packages += binaryPackage
+            relationships += binaryPackageRelationship
 
             if (pkg.vcsProcessed.url.isNotBlank()) {
                 val vcsScanResult =
@@ -122,8 +123,8 @@ object SpdxDocumentModelMapper {
                     relationshipType = SpdxRelationship.Type.GENERATED_FROM
                 )
 
-                packages.add(vcsPackage)
-                relationships.add(vcsPackageRelationShip)
+                packages += vcsPackage
+                relationships += vcsPackageRelationShip
             }
 
             if (pkg.sourceArtifact.url.isNotBlank()) {
@@ -146,8 +147,8 @@ object SpdxDocumentModelMapper {
                     relationshipType = SpdxRelationship.Type.GENERATED_FROM
                 )
 
-                packages.add(sourceArtifactPackage)
-                relationships.add(sourceArtifactPackageRelationship)
+                packages += sourceArtifactPackage
+                relationships += sourceArtifactPackageRelationship
             }
         }
 
@@ -156,7 +157,7 @@ object SpdxDocumentModelMapper {
             creationInfo = SpdxCreationInfo(
                 comment = params.creationInfoComment,
                 created = Instant.now(),
-                creators = listOf("Tool: $ORT_FULL_NAME - ${Environment().ortVersion}"),
+                creators = listOf("${SpdxConstants.TOOL}$ORT_FULL_NAME - ${Environment().ortVersion}"),
                 licenseListVersion = SpdxLicense.LICENSE_LIST_VERSION.substringBefore("-")
             ),
             documentNamespace = "spdx://${UUID.randomUUID()}",
@@ -173,7 +174,7 @@ private class SpdxPackageIdGenerator {
 
     fun nextId(name: String): String =
         buildString {
-            append("SPDXRef-Package-${nextPackageIndex++}")
+            append("${REF_PREFIX}Package-${nextPackageIndex++}")
             if (name.isNotBlank()) {
                 append("-$name")
             }
@@ -181,14 +182,10 @@ private class SpdxPackageIdGenerator {
 }
 
 private fun getSpdxCopyrightText(
-    ortResult: OrtResult,
-    packageConfigurationProvider: PackageConfigurationProvider,
+    licenseInfoResolver: LicenseInfoResolver,
     id: Identifier
 ): String {
-    val copyrightStatements = ortResult.getDetectedLicensesWithCopyrights(id, packageConfigurationProvider)
-        .flatMap { it.value }
-        .distinct()
-        .sorted()
+    val copyrightStatements = licenseInfoResolver.resolveLicenseInfo(id).flatMapTo(sortedSetOf()) { it.getCopyrights() }
 
     return if (copyrightStatements.isNotEmpty()) {
         copyrightStatements.joinToString("\n")

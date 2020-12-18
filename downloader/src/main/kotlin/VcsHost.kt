@@ -225,7 +225,7 @@ enum class VcsHost(
                             if (startLine > 0) {
                                 permalink += "#L$startLine"
 
-                                // SourceHut does not support an end line in permalinks to Mercural repos.
+                                // SourceHut does not support an end line in permalinks to Mercurial repos.
                             }
                         }
                     }
@@ -238,14 +238,16 @@ enum class VcsHost(
     };
 
     companion object {
+        private val SVN_BRANCH_OR_TAG_PATTERN = Regex("(.*svn.*)/(branches|tags)/([^/]+)/?(.*)")
+        private val SVN_TRUNK_PATTERN = Regex("(.*svn.*)/(trunk)/?(.*)")
+        private val GIT_REVISION_FRAGMENT = Regex("git.+#[a-fA-F0-9]{7,}")
+
         /**
          * Return all [VcsInfo] that can be parsed from [projectUrl] without actually making a network request.
          */
         fun toVcsInfo(projectUrl: String): VcsInfo {
             val vcs = try {
-                URI(projectUrl).let {
-                    values().find { host -> host.isApplicable(it) }?.toVcsInfoInternal(it)
-                }
+                URI(projectUrl).let { toVcsHost(it)?.toVcsInfoInternal(it) }
             } catch (e: URISyntaxException) {
                 null
             }
@@ -253,11 +255,8 @@ enum class VcsHost(
             if (vcs != null) return vcs
 
             // Fall back to generic URL detection for unknown VCS hosts.
-            val svnBranchOrTagPattern = Regex("(.*svn.*)/(branches|tags)/([^/]+)/?(.*)")
-            val svnBranchOrTagMatch = svnBranchOrTagPattern.matchEntire(projectUrl)
-
-            val svnTrunkPattern = Regex("(.*svn.*)/(trunk)/?(.*)")
-            val svnTrunkMatch = svnTrunkPattern.matchEntire(projectUrl)
+            val svnBranchOrTagMatch = SVN_BRANCH_OR_TAG_PATTERN.matchEntire(projectUrl)
+            val svnTrunkMatch = SVN_TRUNK_PATTERN.matchEntire(projectUrl)
 
             return when {
                 svnBranchOrTagMatch != null -> {
@@ -288,7 +287,7 @@ enum class VcsHost(
                     VcsInfo(VcsType.GIT, "$url.git", "", null, path)
                 }
 
-                projectUrl.contains(".git#") || Regex("git.+#[a-fA-F0-9]{7,}").matches(projectUrl) -> {
+                projectUrl.contains(".git#") || GIT_REVISION_FRAGMENT.matches(projectUrl) -> {
                     val url = normalizeVcsUrl(projectUrl.substringBeforeLast('#'))
                     val revision = projectUrl.substringAfterLast('#')
                     VcsInfo(VcsType.GIT, url, revision, null, "")
@@ -307,6 +306,11 @@ enum class VcsHost(
             return values().find { host -> host.isApplicable(vcsInfo) }
                 ?.toPermalinkInternal(vcsInfo.normalize(), startLine, endLine)
         }
+
+        /**
+         * Return the [VcsHost] for a [vcsUrl].
+         */
+        fun toVcsHost(vcsUrl: URI): VcsHost? = values().find { host -> host.isApplicable(vcsUrl) }
     }
 
     private val supportedTypes = supportedTypes.asList()

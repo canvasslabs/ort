@@ -19,9 +19,10 @@
  * License-Filename: LICENSE
  */
 
-val antennaVersion: String by project
 val apachePoiVersion: String by project
 val apachePoiSchemasVersion: String by project
+val asciidoctorjVersion: String by project
+val asciidoctorjPdfVersion: String by project
 val commonsCompressVersion: String by project
 val cyclonedxCoreJavaVersion: String by project
 val flexmarkVersion: String by project
@@ -55,26 +56,6 @@ sourceSets.named("main") {
 }
 
 repositories {
-    exclusiveContent {
-        forRepository {
-            maven("http://www.robotooling.com/maven/")
-        }
-
-        filter {
-            includeGroup("bad.robot")
-        }
-    }
-
-    exclusiveContent {
-        forRepository {
-            maven("https://download.eclipse.org/antenna/releases/")
-        }
-
-        filter {
-            includeGroup("org.eclipse.sw360.antenna")
-        }
-    }
-
     exclusiveContent {
         forRepository {
             maven("https://jitpack.io")
@@ -111,16 +92,13 @@ dependencies {
     implementation("org.apache.commons:commons-compress:$commonsCompressVersion")
     implementation("org.apache.poi:ooxml-schemas:$apachePoiSchemasVersion")
     implementation("org.apache.poi:poi-ooxml:$apachePoiVersion")
+    implementation("org.asciidoctor:asciidoctorj:$asciidoctorjVersion")
+    implementation("org.asciidoctor:asciidoctorj-pdf:$asciidoctorjPdfVersion")
     implementation("org.cyclonedx:cyclonedx-core-java:$cyclonedxCoreJavaVersion")
-    implementation("org.eclipse.sw360.antenna:attribution-document-core:$antennaVersion")
-    implementation("org.eclipse.sw360.antenna:attribution-document-basic-bundle:$antennaVersion")
     implementation("org.freemarker:freemarker:$freemarkerVersion")
     implementation("org.jetbrains.kotlinx:kotlinx-html-jvm:$kotlinxHtmlVersion")
 
     // This is required to not depend on the version of Apache Xalan bundled with the JDK. Otherwise the formatting of
     // the HTML generated in StaticHtmlReporter is slightly different with different Java versions.
     implementation("xalan:xalan:$xalanVersion")
-
-    funTestImplementation("bad.robot:simple-excel:$simpleExcelVersion")
-    funTestImplementation("org.hamcrest:hamcrest-core:$hamcrestCoreVersion")
 }

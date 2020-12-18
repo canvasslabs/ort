@@ -4,7 +4,7 @@ The team behind the [OSS Review Toolkit](https://github.com/oss-review-toolkit/o
 [pull requests](https://help.github.com/articles/about-pull-requests/) filed against the
 [GitHub project](https://github.com/oss-review-toolkit/ort/pulls).
 
-# Signing each Commit
+# Signing off each Commit
 
 As part of filing a pull request we ask you to sign off the
 [Developer Certificate of Origin](https://developercertificate.org/) (DCO) in each commit.
@@ -15,7 +15,7 @@ A DCO is lightweight way for a contributor to confirm that they wrote or otherwi
 to submit code or documentation to a project. Simply add `Signed-off-by` as shown in the example below
 to indicate that you agree with the DCO.
 
-An example signed commit message:
+Example for a commit message with a sign-off:
 
 ```
     spdx-utils: Add sanity checks for values of the mapping objects
@@ -23,13 +23,20 @@ An example signed commit message:
     Signed-off-by: John Doe <john.doe@oss-review-toolkit.org>
 ```
 
-Git has the `-s` flag that can sign a commit for you, see example below:
+Git has the `-s` option (lower case) for `commit` that can sign off a commit for you, see example below:
 
 `$ git commit -s -m 'spdx-utils: Add sanity checks for values of the mapping objects'`
 
 ## Git History
 
 In order to maintain a high software quality standard, we strongly prefer contributions to follow these rules:
+
+- [Ensure that your commit messages will make your mom proud](https://www.robertcooper.me/git-commit-messages) :wink:
+
+- Each commit in a pull request should be atomic, in the sense that it passes all checks (build, static code analysis,
+  tests) individually, and deals with one thing at a time while being self-contained. Do not add commits to a pull
+  request that (partly) undo changes from an earlier commit in the same pull request, as that makes a reviewer's life
+  harder (consider squashing diff hunks in this case).
 
 - We pay more attention to the quality of commit messages than most other projects on GitHub do.
   In general, we share the view on how commit messages should be written with
@@ -70,7 +77,22 @@ In order to maintain a high software quality standard, we strongly prefer contri
 
 ## Coding Conventions
 
+Here are some rules of thumb in no particular order:
+
+- Do not use wildcard imports (with a few [exceptions](https://github.com/oss-review-toolkit/ort/blob/master/.detekt.yml)).
+- Sort references (like imports, dependencies etc.) strictly alphabetically (ASCII order, i.e. capital letters first),
+  with blank lines between imports from different top-level packages.
+- Group code logically using blank lines, e.g. before and after code blocks enclosed by curly braces, or before return
+  statements.
+- Do not use blank lines directly after opening curly braces.
+- Do not use duplicate blank lines.
+- Use proper spelling, grammar, and punctuation in *all* documentation, code comments (incl. TODOs) and commit messages.
+- Do not commit out-commented code.
 - Use `println()` only in CLI modules and `log` in library modules.
+
+We aim to have automated checks for these rules, but are bound to what [detekt](https://github.com/detekt/detekt) /
+[ktlint](https://github.com/pinterest/ktlint) support. In any case, please [run the `detekt` task](./README.md#development)
+locally before contributing.
 
 ## Governance
 

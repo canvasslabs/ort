@@ -20,14 +20,19 @@
 package org.ossreviewtoolkit.utils
 
 import io.kotest.assertions.assertSoftly
+import io.kotest.assertions.throwables.shouldNotThrow
 import io.kotest.assertions.throwables.shouldThrow
 import io.kotest.core.spec.style.WordSpec
+import io.kotest.matchers.nulls.shouldBeNull
 import io.kotest.matchers.nulls.shouldNotBeNull
 import io.kotest.matchers.should
 import io.kotest.matchers.shouldBe
 
 import java.io.File
 import java.io.IOException
+
+import kotlin.io.path.createTempDirectory
+import kotlin.io.path.createTempFile
 
 import org.ossreviewtoolkit.utils.test.containExactly
 
@@ -50,7 +55,7 @@ class ExtensionsTest : WordSpec({
 
     "File.hash" should {
         "calculate the correct SHA1" {
-            val file = createTempFile(ORT_NAME, javaClass.simpleName).apply {
+            val file = createTempFile(ORT_NAME, javaClass.simpleName).toFile().apply {
                 writeText("test")
                 deleteOnExit()
             }
@@ -60,7 +65,7 @@ class ExtensionsTest : WordSpec({
     }
 
     "File.isSymbolicLink" should {
-        val tempDir = createTempDir(ORT_NAME, javaClass.simpleName)
+        val tempDir = createTempDirectory("$ORT_NAME-${javaClass.simpleName}").toFile()
         val file = tempDir.resolve("file").apply { createNewFile() }
         val directory = tempDir.resolve("directory").apply { safeMkdirs() }
 
@@ -120,6 +125,28 @@ class ExtensionsTest : WordSpec({
         tempDir.safeDeleteRecursively()
     }
 
+    "File.searchUpwardsForFile" should {
+        "find the README.md file case insensitive" {
+            val readmeFile = File(".").searchUpwardsForFile("ReadMe.MD", true)
+
+            readmeFile.shouldNotBeNull()
+            readmeFile shouldBe File("..").absoluteFile.normalize().resolve("README.md")
+        }
+
+        "find the README.md file case sensitive" {
+            val readmeFile = File(".").searchUpwardsForFile("README.md", false)
+
+            readmeFile.shouldNotBeNull()
+            readmeFile shouldBe File("..").absoluteFile.normalize().resolve("README.md")
+        }
+
+        "not find the README.md with wrong cases" {
+            val readmeFile = File(".").searchUpwardsForFile("ReadMe.MD", false)
+
+            readmeFile.shouldBeNull()
+        }
+    }
+
     "File.searchUpwardsForSubdirectory" should {
         "find the root Git directory" {
             val gitRoot = File(".").searchUpwardsForSubdirectory(".git")
@@ -131,19 +158,19 @@ class ExtensionsTest : WordSpec({
 
     "File.safeMkDirs" should {
         "succeed if directory already exists" {
-            val directory = createTempDir(ORT_NAME, javaClass.simpleName).apply { deleteOnExit() }
+            val directory = createTempDirectory("$ORT_NAME-${javaClass.simpleName}").toFile().apply { deleteOnExit() }
 
             directory.isDirectory shouldBe true
-            directory.safeMkdirs() // should not throw exception
+            shouldNotThrow<IOException> { directory.safeMkdirs() }
             directory.isDirectory shouldBe true // should still be a directory afterwards
         }
 
         "succeed if directory could be created" {
-            val parent = createTempDir(ORT_NAME, javaClass.simpleName).apply { deleteOnExit() }
+            val parent = createTempDirectory("$ORT_NAME-${javaClass.simpleName}").toFile().apply { deleteOnExit() }
             val child = File(parent, "child").apply { deleteOnExit() }
 
             parent.isDirectory shouldBe true
-            child.safeMkdirs() // should not throw exception
+            shouldNotThrow<IOException> { child.safeMkdirs() }
             child.isDirectory shouldBe true
         }
 
@@ -151,19 +178,19 @@ class ExtensionsTest : WordSpec({
             // Test case for an unexpected behaviour of File.mkdirs() which returns false for
             // File(File("parent1/parent2"), "/").mkdirs() if both "parent" directories do not exist, even when the
             // directory was successfully created.
-            val parent = createTempDir(ORT_NAME, javaClass.simpleName).apply { deleteOnExit() }
+            val parent = createTempDirectory("$ORT_NAME-${javaClass.simpleName}").toFile().apply { deleteOnExit() }
             val nonExistingParent = File(parent, "parent1/parent2").apply { deleteOnExit() }
             val child = File(nonExistingParent, "/").apply { deleteOnExit() }
 
             parent.isDirectory shouldBe true
             nonExistingParent.exists() shouldBe false
             child.exists() shouldBe false
-            child.safeMkdirs() // should not throw exception
+            shouldNotThrow<IOException> { child.safeMkdirs() }
             child.isDirectory shouldBe true
         }
 
         "throw exception if file is not a directory" {
-            val file = createTempFile(ORT_NAME, javaClass.simpleName).apply { deleteOnExit() }
+            val file = createTempFile(ORT_NAME, javaClass.simpleName).toFile().apply { deleteOnExit() }
 
             file.isFile shouldBe true
             shouldThrow<IOException> { file.safeMkdirs() }
@@ -245,13 +272,11 @@ class ExtensionsTest : WordSpec({
         }
 
         "create a valid file name" {
-            val tempDir = createTempDir(ORT_NAME, javaClass.simpleName)
-            val fileFromStr = File(tempDir, str.fileSystemEncode()).apply { writeText("dummy") }
+            val tempDir = createTempDirectory("$ORT_NAME-${javaClass.simpleName}").toFile()
+            val fileFromStr = tempDir.resolve(str.fileSystemEncode()).apply { writeText("dummy") }
 
             fileFromStr.isFile shouldBe true
-
-            // This should not throw an IOException.
-            tempDir.safeDeleteRecursively(force = true)
+            shouldNotThrow<IOException> { tempDir.safeDeleteRecursively(force = true) }
         }
     }
 

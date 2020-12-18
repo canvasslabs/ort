@@ -31,6 +31,8 @@ import java.lang.NumberFormatException
 import java.net.HttpURLConnection
 import java.util.SortedSet
 
+import kotlin.io.path.createTempDirectory
+
 import okhttp3.Request
 
 import org.ossreviewtoolkit.analyzer.AbstractPackageManagerFactory
@@ -90,8 +92,10 @@ object VirtualEnv : CommandLineTool {
         // virtualenv 20.0.14 from /usr/local/lib/python2.7/dist-packages/virtualenv/__init__.pyc
         output.removePrefix("virtualenv ").substringBefore(' ')
 
-    // Allow to use versions that are known to work. Note that virtualenv bundles a version of pip.
-    override fun getVersionRequirement(): Requirement = Requirement.buildIvy("[15.1,20.1[")
+    // Allow to use versions that are known to work. Note that virtualenv bundles a version of pip. Exclude version 20.3
+    // for now as is comes with a new dependency resolver that we yet need to test, see
+    // http://pyfound.blogspot.com/2020/11/pip-20-3-new-resolver.html.
+    override fun getVersionRequirement(): Requirement = Requirement.buildIvy("[15.1,20.3[")
 }
 
 object PythonVersion : CommandLineTool {
@@ -153,6 +157,7 @@ object PythonVersion : CommandLineTool {
  * [install_requires vs requirements files](https://packaging.python.org/discussions/install-requires-vs-requirements/)
  * and [setup.py vs. requirements.txt](https://caremad.io/posts/2013/07/setup-vs-requirement/).
  */
+@Suppress("TooManyFunctions")
 class Pip(
     name: String,
     analysisRoot: File,
@@ -204,7 +209,7 @@ class Pip(
     private fun runInVirtualEnv(virtualEnvDir: File, workingDir: File, commandName: String, vararg commandArgs: String):
             ProcessCapture {
         val binDir = if (Os.isWindows) "Scripts" else "bin"
-        var command = File(virtualEnvDir, binDir + File.separator + commandName)
+        var command = virtualEnvDir.resolve(binDir + File.separator + commandName)
 
         if (Os.isWindows && command.extension.isEmpty()) {
             // On Windows specifying the extension is optional, so try them in order.
@@ -261,7 +266,7 @@ class Pip(
         var declaredLicenses: SortedSet<String> = sortedSetOf<String>()
 
         // First try to get meta-data from "setup.py" in any case, even for "requirements.txt" projects.
-        val (setupName, setupVersion, setupHomepage) = if (File(workingDir, "setup.py").isFile) {
+        val (setupName, setupVersion, setupHomepage) = if (workingDir.resolve("setup.py").isFile) {
             val pydep = if (Os.isWindows) {
                 // On Windows, the script itself is not executable, so we need to wrap the call by "python".
                 runInVirtualEnv(
@@ -421,23 +426,23 @@ class Pip(
         val declaredLicenses = sortedSetOf<String>()
 
         // Use the top-level license field as well as the license classifiers as the declared licenses.
-        setOf(pkgInfo["license"]).mapNotNullTo(declaredLicenses) { license ->
-            license?.textValue()?.let {
-                // Work-around for projects that declare licenses in classifier-style syntax.
-                getLicenseFromClassifier(it) ?: it
-            }?.takeUnless {
-                it.isBlank() || it == "UNKNOWN"
-            }
-        }
-
-        // Example license classifier:
-        // "License :: OSI Approved :: GNU Library or Lesser General Public License (LGPL)"
+        getLicenseFromLicenseField(pkgInfo["license"]?.textValue())?.let { declaredLicenses += it }
         pkgInfo["classifiers"]?.mapNotNullTo(declaredLicenses) { getLicenseFromClassifier(it.textValue()) }
 
         return declaredLicenses
     }
 
+    private fun getLicenseFromLicenseField(value: String?): String? =
+        value?.let {
+            // Work-around for projects that declare licenses in classifier-style syntax.
+            getLicenseFromClassifier(it) ?: it
+        }?.takeUnless {
+            it.isBlank() || it == "UNKNOWN"
+        }
+
     private fun getLicenseFromClassifier(classifier: String): String? =
+        // Example license classifier:
+        // "License :: OSI Approved :: GNU Library or Lesser General Public License (LGPL)"
         classifier.split(" :: ").takeIf { it.first() == "License" }?.last()?.takeUnless { it == "OSI Approved" }
 
     private fun setupVirtualEnv(workingDir: File, definitionFile: File): File {
@@ -485,7 +490,7 @@ class Pip(
     }
 
     private fun createVirtualEnv(workingDir: File, pythonVersion: Int): File {
-        val virtualEnvDir = createTempDir(ORT_NAME, "${workingDir.name}-virtualenv")
+        val virtualEnvDir = createTempDirectory("$ORT_NAME-${workingDir.name}-virtualenv").toFile()
 
         val pythonInterpreter = PythonVersion.getPythonInterpreter(pythonVersion)
         ProcessCapture(workingDir, "virtualenv", virtualEnvDir.path, "-p", pythonInterpreter).requireSuccess()
@@ -692,7 +697,7 @@ class Pip(
         }
 
         val declaredLicenses = sortedSetOf<String>()
-        map["License"]?.let { declaredLicenses.add(it.single()) }
+        getLicenseFromLicenseField(map["License"]?.single())?.let { declaredLicenses += it }
         map["Classifiers"]?.mapNotNullTo(declaredLicenses) { getLicenseFromClassifier(it) }
 
         return Package(

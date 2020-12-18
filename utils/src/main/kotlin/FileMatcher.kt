@@ -19,9 +19,7 @@
 
 package org.ossreviewtoolkit.utils
 
-import java.nio.file.FileSystems
-import java.nio.file.InvalidPathException
-import java.nio.file.Paths
+import org.springframework.util.AntPathMatcher
 
 /**
  * A class to determine whether a path is matched by any of the given globs.
@@ -32,29 +30,22 @@ class FileMatcher(
      *
      * [1]: https://docs.oracle.com/javase/tutorial/essential/io/fileOps.html#glob
      */
-    val patterns: List<String>
+    val patterns: List<String>,
+
+    /**
+     * Toggle the case-sensitivity of the matching.
+     */
+    ignoreCase: Boolean = false
 ) {
-    companion object {
-        /**
-         * A matcher which uses the default license file names.
-         */
-        val LICENSE_FILE_MATCHER = FileMatcher(LICENSE_FILENAMES + ROOT_LICENSE_FILENAMES)
-    }
+    constructor(vararg patterns: String, ignoreCase: Boolean = false) : this(patterns.asList(), ignoreCase)
 
-    constructor(vararg patterns: String) : this(patterns.asList())
-
-    private val matchers = patterns.map {
-        FileSystems.getDefault().getPathMatcher("glob:$it")
+    private val matcher = AntPathMatcher().apply {
+        setCaseSensitive(!ignoreCase)
     }
 
     /**
      * Return true if and only if the given [path] is matched by any of the file globs passed to the
-     * constructor.
+     * constructor. The [path] must use '/' as separators, if it contains any.
      */
-    fun matches(path: String): Boolean =
-        try {
-            matchers.any { it.matches(Paths.get(path)) }
-        } catch (e: InvalidPathException) {
-            false
-        }
+    fun matches(path: String): Boolean = patterns.any { pattern -> matcher.match(pattern, path) }
 }

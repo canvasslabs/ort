@@ -123,6 +123,24 @@ class IdentifierTest : WordSpec({
             purl shouldNotContain "%"
         }
 
+        "ignore case in type" {
+            val purl = Identifier("MaVeN", "namespace", "name", "version").toPurl()
+
+            purl shouldBe purl.toLowerCase()
+        }
+
+        "Use PURL type instead of package manager type" {
+            val purl = Identifier("gradle", "namespace", "name", "version").toPurl()
+
+            purl shouldStartWith "pkg:maven"
+        }
+
+        "Use given type if it is not a known package manager" {
+            val purl = Identifier("PyPI", "namespace", "name", "version").toPurl()
+
+            purl shouldStartWith "pkg:pypi"
+        }
+
         "not use '/' for empty namespaces" {
             val purl = Identifier("type", "", "name", "version").toPurl()
 

@@ -48,6 +48,11 @@ import java.security.MessageDigest
 fun ByteArray.toHexString(): String = joinToString("") { String.format("%02x", it) }
 
 /**
+ * Format this [Double] as a string with the provided number of [decimalPlaces].
+ */
+fun Double.format(decimalPlaces: Int = 2) = "%.${decimalPlaces}f".format(this)
+
+/**
  * If the SHELL environment variable is set, return the absolute file with a leading "~" expanded to the current user's
  * home directory, otherwise return just the absolute file.
  */
@@ -129,11 +134,12 @@ fun File.safeCopyRecursively(target: File, overwrite: Boolean = false) {
 }
 
 /**
- * Delete files recursively without following symbolic links (Unix) or junctions (Windows). If [force] is `true`, it is
- * tried to make undeletable files writable before trying again to delete them. Throws an [IOException] if a file could
- * not be deleted.
+ * Delete files recursively without following symbolic links (Unix) or junctions (Windows). If [force] is `true`, files
+ * which were not deleted in the first attempt are set to be writable and then tried to be deleted again. If
+ * [baseDirectory] is given, all empty parent directories along the path to [baseDirectory] are also deleted;
+ * [baseDirectory] itself is not deleted. Throws an [IOException] if a file could not be deleted.
  */
-fun File.safeDeleteRecursively(force: Boolean = false) {
+fun File.safeDeleteRecursively(force: Boolean = false, baseDirectory: File? = null) {
     if (isDirectory && !isSymbolicLink()) {
         Files.newDirectoryStream(toPath()).use { stream ->
             stream.forEach { path ->
@@ -145,6 +151,13 @@ fun File.safeDeleteRecursively(force: Boolean = false) {
     if (!delete() && force && setWritable(true)) {
         // Try again.
         delete()
+    }
+
+    if (baseDirectory != null) {
+        var parent = parentFile
+        while (parent != null && parent != baseDirectory && parent.delete()) {
+            parent = parent.parentFile
+        }
     }
 
     if (exists()) throw IOException("Could not delete file '$absolutePath'.")
@@ -167,6 +180,31 @@ fun File.safeMkdirs() {
 }
 
 /**
+ * Search [this] directory upwards towards the root until a file called [searchFileName] is found and return this file,
+ * or return null if no such file is found.
+ */
+fun File.searchUpwardsForFile(searchFileName: String, ignoreCase: Boolean = false): File? {
+    fun resolveFile(dir: File, fileName: String, ignoreCase: Boolean): File? {
+        val files = dir.list() ?: return null
+
+        return files.filter { it.equals(fileName, ignoreCase = ignoreCase) }
+            .map { dir.resolve(it) }
+            .find { it.isFile }
+    }
+
+    if (!isDirectory) return null
+
+    var currentDir: File? = absoluteFile
+    var currentFile = currentDir?.let { resolveFile(it, searchFileName, ignoreCase) }
+    while (currentDir != null && currentFile == null) {
+        currentDir = currentDir.parentFile ?: break
+        currentFile = resolveFile(currentDir, searchFileName, ignoreCase)
+    }
+
+    return currentFile
+}
+
+/**
  * Search [this] directory upwards towards the root until a contained sub-directory called [searchDirName] is found and
  * return the parent of [searchDirName], or return null if no such directory is found.
  */
@@ -175,12 +213,17 @@ fun File.searchUpwardsForSubdirectory(searchDirName: String): File? {
 
     var currentDir: File? = absoluteFile
 
-    while (currentDir != null && !File(currentDir, searchDirName).isDirectory) {
+    while (currentDir != null && !currentDir.resolve(searchDirName).isDirectory) {
         currentDir = currentDir.parentFile
     }
 
     return currentDir
 }
+
+/**
+ * Get the size of this [File] in mebibytes (MiB) with two decimal places as [String].
+ */
+val File.formatSizeInMib: String get() = "${length().bytesToMib().format()} MiB"
 
 /**
  * Construct a "file:" URI in a safe way by never using a null authority for wider compatibility.
@@ -225,6 +268,11 @@ inline fun <K, V, W> Map<K, V>.zipWithDefault(other: Map<K, V>, default: V, oper
     (this.keys + other.keys).associateWith { key ->
         operation(this[key] ?: default, other[key] ?: default)
     }
+
+/**
+ * Converts this [Number] from bytes to mebibytes (MiB).
+ */
+fun Number.bytesToMib(): Double = toDouble() / (1024 * 1024)
 
 /**
  * Return the string encoded for safe use as a file name or "unknown", if the string is empty.

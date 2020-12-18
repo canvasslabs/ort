@@ -24,13 +24,18 @@ import java.io.IOException
 import java.net.URI
 import java.time.Instant
 
+import kotlin.io.path.createTempDirectory
+import kotlin.io.path.createTempFile
+import kotlin.time.TimeSource
+
 import okhttp3.Request
 
 import okio.buffer
 import okio.sink
 
 import org.ossreviewtoolkit.downloader.vcs.GitRepo
-import org.ossreviewtoolkit.model.Identifier
+import org.ossreviewtoolkit.model.Environment
+import org.ossreviewtoolkit.model.HashAlgorithm
 import org.ossreviewtoolkit.model.Package
 import org.ossreviewtoolkit.model.Project
 import org.ossreviewtoolkit.model.RemoteArtifact
@@ -41,6 +46,7 @@ import org.ossreviewtoolkit.utils.ORT_NAME
 import org.ossreviewtoolkit.utils.OkHttpClientHelper
 import org.ossreviewtoolkit.utils.collectMessagesAsString
 import org.ossreviewtoolkit.utils.log
+import org.ossreviewtoolkit.utils.perf
 import org.ossreviewtoolkit.utils.safeDeleteRecursively
 import org.ossreviewtoolkit.utils.safeMkdirs
 import org.ossreviewtoolkit.utils.stripCredentialsFromUrl
@@ -50,21 +56,6 @@ import org.ossreviewtoolkit.utils.unpack
  * The class to download source code. The signatures of public functions in this class define the library API.
  */
 object Downloader {
-    /**
-     * The choice of data entities to download.
-     */
-    enum class DataEntity {
-        /**
-         * Identifier for package entities.
-         */
-        PACKAGES,
-
-        /**
-         * Identifier for project entities.
-         */
-        PROJECTS;
-    }
-
     /**
      * This class describes what was downloaded by any of the download functions.
      */
@@ -99,39 +90,58 @@ object Downloader {
     ) {
         init {
             require(sourceArtifact == null || vcsInfo == null) {
-                "Not both sourceArtifact and vcsInfo may be set."
+                "Not both 'sourceArtifact' and 'vcsInfo' may be set, as otherwise it is ambiguous which one to use."
             }
         }
     }
 
-    /**
-     * Download the source code of [package][pkg] to a sub-directory inside [outputDirectory]. The sub-directory
-     * hierarchy is inferred from the [name][Identifier.name] and [version][Identifier.version] of the package. The
-     * [allowMovingRevisions] parameter indicates whether VCS downloads accept symbolic names, like branches, instead of
-     * only fixed revisions. A [DownloadResult] is returned on success or a [DownloadException] is thrown in case of
-     * failure.
-     */
-    fun download(pkg: Package, outputDirectory: File, allowMovingRevisions: Boolean = false): DownloadResult {
+    private fun verifyOutputDirectory(outputDirectory: File) {
         require(!outputDirectory.exists() || outputDirectory.list().isEmpty()) {
             "The output directory '$outputDirectory' must not contain any files yet."
         }
 
         outputDirectory.apply { safeMkdirs() }
+    }
+
+    /**
+     * Download the source code of the [package][pkg] to the [outputDirectory]. The [allowMovingRevisions] parameter
+     * indicates whether VCS downloads accept symbolic names, like branches, instead of only fixed revisions. A
+     * [DownloadResult] is returned on success or a [DownloadException] is thrown in case of failure.
+     */
+    fun download(pkg: Package, outputDirectory: File, allowMovingRevisions: Boolean = false): DownloadResult {
+        verifyOutputDirectory(outputDirectory)
 
         if (pkg.isMetaDataOnly) return DownloadResult(dateTime = Instant.now(), downloadDirectory = outputDirectory)
 
         val exception = DownloadException("Download failed for '${pkg.id.toCoordinates()}'.")
 
         // Try downloading from VCS.
+        val vcsMark = TimeSource.Monotonic.markNow()
+
         try {
-            // Cargo in general builds from source tarballs, so we prefer source artifacts to VCS.
-            if (pkg.id.type != "Cargo" || pkg.sourceArtifact == RemoteArtifact.EMPTY) {
-                return downloadFromVcs(pkg, outputDirectory, allowMovingRevisions)
+            // Cargo in general builds from source tarballs, so we prefer source artifacts over VCS, but still use VCS
+            // if no source artifact is given.
+            val isCargoPackageWithSourceArtifact = pkg.id.type == "Cargo" && pkg.sourceArtifact != RemoteArtifact.EMPTY
+
+            if (!isCargoPackageWithSourceArtifact) {
+                val result = downloadFromVcs(pkg, outputDirectory, allowMovingRevisions)
+
+                log.perf {
+                    "Downloaded source code for '${pkg.id.toCoordinates()}' from ${result.vcsInfo} in " +
+                            "${vcsMark.elapsedNow().inMilliseconds}ms."
+                }
+
+                return result
             } else {
                 log.info { "Skipping VCS download for Cargo package '${pkg.id.toCoordinates()}'." }
             }
         } catch (e: DownloadException) {
             log.debug { "VCS download failed for '${pkg.id.toCoordinates()}': ${e.collectMessagesAsString()}" }
+
+            log.perf {
+                "Failed attempt to download source code for '${pkg.id.toCoordinates()}' from ${pkg.vcsProcessed} " +
+                        "took ${vcsMark.elapsedNow().inMilliseconds}ms."
+            }
 
             // Clean up any left-over files (force to delete read-only files in ".git" directories on Windows).
             outputDirectory.safeDeleteRecursively(force = true)
@@ -141,11 +151,25 @@ object Downloader {
         }
 
         // Try downloading the source artifact.
+        val sourceArtifactMark = TimeSource.Monotonic.markNow()
+
         try {
-            return downloadSourceArtifact(pkg, outputDirectory)
+            val result = downloadSourceArtifact(pkg, outputDirectory)
+
+            log.perf {
+                "Downloaded source code for '${pkg.id.toCoordinates()}' from ${pkg.sourceArtifact} in " +
+                        "${sourceArtifactMark.elapsedNow().inMilliseconds}ms."
+            }
+
+            return result
         } catch (e: DownloadException) {
             log.debug {
                 "Source artifact download failed for '${pkg.id.toCoordinates()}': ${e.collectMessagesAsString()}"
+            }
+
+            log.perf {
+                "Failed attempt to download source code for '${pkg.id.toCoordinates()}' from ${pkg.sourceArtifact} " +
+                        "took ${sourceArtifactMark.elapsedNow().inMilliseconds}ms."
             }
 
             // Clean up any left-over files.
@@ -158,7 +182,15 @@ object Downloader {
         throw exception
     }
 
-    private fun downloadFromVcs(pkg: Package, outputDirectory: File, allowMovingRevisions: Boolean): DownloadResult {
+    /**
+     * Download the source code of the [package][pkg] to the [outputDirectory] using it's VCS information. The
+     * [allowMovingRevisions] parameter indicates whether the download accepts symbolic names, like branches, instead of
+     * only fixed revisions. A [DownloadResult] is returned on success or a [DownloadException] is thrown in case of
+     * failure.
+     */
+    fun downloadFromVcs(pkg: Package, outputDirectory: File, allowMovingRevisions: Boolean): DownloadResult {
+        verifyOutputDirectory(outputDirectory)
+
         log.info {
             "Trying to download '${pkg.id.toCoordinates()}' sources to '${outputDirectory.absolutePath}' from VCS..."
         }
@@ -253,7 +285,13 @@ object Downloader {
             originalVcsInfo = pkg.vcsProcessed.takeIf { it != vcsInfo })
     }
 
-    private fun downloadSourceArtifact(pkg: Package, outputDirectory: File): DownloadResult {
+    /**
+     * Download the source code of the [package][pkg] to the [outputDirectory] using it's source artifact. A
+     * [DownloadResult] is returned on success or a [DownloadException] is thrown in case of failure.
+     */
+    fun downloadSourceArtifact(pkg: Package, outputDirectory: File): DownloadResult {
+        verifyOutputDirectory(outputDirectory)
+
         log.info {
             "Trying to download source artifact for '${pkg.id.toCoordinates()}' from ${pkg.sourceArtifact.url}..."
         }
@@ -273,7 +311,8 @@ object Downloader {
                 // find a tar.gz file, thus failing to unpack the archive.
                 // See https://github.com/square/okhttp/blob/parent-3.10.0/okhttp/src/main/java/okhttp3/internal/ \
                 // http/BridgeInterceptor.java#L79
-                .addHeader("Accept-Encoding", "identity")
+                .header("Accept-Encoding", "identity")
+                .header("User-Agent", "$ORT_NAME/${Environment.ORT_VERSION}")
                 .get()
                 .url(pkg.sourceArtifact.url)
                 .build()
@@ -284,6 +323,8 @@ object Downloader {
                     if (!response.isSuccessful || body == null) {
                         throw DownloadException("Failed to download source artifact: $response")
                     }
+
+                    val candidateNames = mutableSetOf<String>()
 
                     // Depending on the package manager / registry, we may only get a useful source artifact file name
                     // when looking at the response header or at a redirected URL. For example for Cargo, we want to
@@ -299,21 +340,19 @@ object Downloader {
                     //
                     // So first look for a dedicated header in the response, but then also try both redirected and
                     // original URLs to find a name which has a recognized archive type extension.
-                    val candidateNamesFromHeaders = response.headers("Content-disposition").mapNotNull { value ->
+                    response.headers("Content-disposition").mapNotNullTo(candidateNames) { value ->
                         value.removePrefix("attachment; filename=").takeIf { it != value }
                     }
 
-                    val candidateNamesFromUrls = listOf(response.request.url, request.url).map {
+                    listOf(response.request.url, request.url).mapTo(candidateNames) {
                         it.pathSegments.last()
                     }
-
-                    val candidateNames = candidateNamesFromHeaders + candidateNamesFromUrls
 
                     val tempFileName = candidateNames.find {
                         ArchiveType.getType(it) != ArchiveType.NONE
                     } ?: candidateNames.first()
 
-                    createTempFile(ORT_NAME, tempFileName).also { tempFile ->
+                    createTempFile(ORT_NAME, tempFileName).toFile().also { tempFile ->
                         tempFile.sink().buffer().use { it.writeAll(body.source()) }
                         tempFile.deleteOnExit()
                     }
@@ -323,22 +362,23 @@ object Downloader {
             }
         }
 
-        if (!pkg.sourceArtifact.hash.canVerify) {
-            log.warn {
-                "Cannot verify source artifact hash ${pkg.sourceArtifact.hash}, skipping verification."
+        if (pkg.sourceArtifact.hash.algorithm != HashAlgorithm.NONE) {
+            if (pkg.sourceArtifact.hash.algorithm == HashAlgorithm.UNKNOWN) {
+                log.warn {
+                    "Cannot verify source artifact with ${pkg.sourceArtifact.hash}, skipping verification."
+                }
+            } else if (!pkg.sourceArtifact.hash.verify(sourceArchive)) {
+                throw DownloadException(
+                    "Source artifact does not match expected ${pkg.sourceArtifact.hash}."
+                )
             }
-        } else if (!pkg.sourceArtifact.hash.verify(sourceArchive)) {
-            throw DownloadException(
-                "Source artifact does not match expected ${pkg.sourceArtifact.hash.algorithm} hash " +
-                        "'${pkg.sourceArtifact.hash.value}'."
-            )
         }
 
         try {
             if (sourceArchive.extension == "gem") {
                 // Unpack the nested data archive for Ruby Gems.
-                val gemDirectory = createTempDir(ORT_NAME, "gem")
-                val dataFile = File(gemDirectory, "data.tar.gz")
+                val gemDirectory = createTempDirectory("$ORT_NAME-gem").toFile()
+                val dataFile = gemDirectory.resolve("data.tar.gz")
 
                 try {
                     sourceArchive.unpack(gemDirectory)

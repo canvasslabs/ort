@@ -23,6 +23,7 @@ import com.github.ajalt.clikt.core.BadParameterValue
 import com.github.ajalt.clikt.core.CliktCommand
 import com.github.ajalt.clikt.core.ProgramResult
 import com.github.ajalt.clikt.core.UsageError
+import com.github.ajalt.clikt.core.requireObject
 import com.github.ajalt.clikt.parameters.options.associate
 import com.github.ajalt.clikt.parameters.options.convert
 import com.github.ajalt.clikt.parameters.options.default
@@ -33,8 +34,9 @@ import com.github.ajalt.clikt.parameters.options.split
 import com.github.ajalt.clikt.parameters.types.enum
 import com.github.ajalt.clikt.parameters.types.file
 
-import java.io.File
+import kotlin.time.measureTime
 
+import org.ossreviewtoolkit.GlobalOptions
 import org.ossreviewtoolkit.analyzer.Analyzer
 import org.ossreviewtoolkit.analyzer.PackageManager
 import org.ossreviewtoolkit.analyzer.curation.ClearlyDefinedPackageCurationProvider
@@ -44,13 +46,79 @@ import org.ossreviewtoolkit.model.FileFormat
 import org.ossreviewtoolkit.model.config.AnalyzerConfiguration
 import org.ossreviewtoolkit.model.mapper
 import org.ossreviewtoolkit.model.utils.mergeLabels
+import org.ossreviewtoolkit.utils.ORT_CURATIONS_FILENAME
 import org.ossreviewtoolkit.utils.ORT_REPO_CONFIG_FILENAME
 import org.ossreviewtoolkit.utils.expandTilde
+import org.ossreviewtoolkit.utils.formatSizeInMib
+import org.ossreviewtoolkit.utils.log
 import org.ossreviewtoolkit.utils.ortConfigDirectory
+import org.ossreviewtoolkit.utils.perf
 import org.ossreviewtoolkit.utils.safeMkdirs
 
 class AnalyzerCommand : CliktCommand(name = "analyze", help = "Determine dependencies of a software project.") {
     private val allPackageManagersByName = PackageManager.ALL.associateBy { it.managerName.toUpperCase() }
+
+    private val inputDir by option(
+        "--input-dir", "-i",
+        help = "The project directory to analyze."
+    ).convert { it.expandTilde() }
+        .file(mustExist = true, canBeFile = false, canBeDir = true, mustBeWritable = false, mustBeReadable = true)
+        .convert { it.absoluteFile.normalize() }
+        .required()
+        .inputGroup()
+
+    private val outputDir by option(
+        "--output-dir", "-o",
+        help = "The directory to write the analyzer result as ORT result file(s) to, in the specified output format(s)."
+    ).convert { it.expandTilde() }
+        .file(mustExist = false, canBeFile = false, canBeDir = true, mustBeWritable = false, mustBeReadable = false)
+        .convert { it.absoluteFile.normalize() }
+        .required()
+        .outputGroup()
+
+    private val outputFormats by option(
+        "--output-formats", "-f",
+        help = "The list of output formats to be used for the ORT result file(s)."
+    ).enum<FileFormat>().split(",").default(listOf(FileFormat.YAML)).outputGroup()
+
+    private val packageCurationsFile by option(
+        "--package-curations-file",
+        help = "A file containing package curation data."
+    ).convert { it.expandTilde() }
+        .file(mustExist = true, canBeFile = true, canBeDir = false, mustBeWritable = false, mustBeReadable = true)
+        .convert { it.absoluteFile.normalize() }
+        .default(ortConfigDirectory.resolve(ORT_CURATIONS_FILENAME))
+        .configurationGroup()
+
+    private val repositoryConfigurationFile by option(
+        "--repository-configuration-file",
+        help = "A file containing the repository configuration. If set, the '$ORT_REPO_CONFIG_FILENAME' file from " +
+                "the repository is ignored."
+    ).convert { it.expandTilde() }
+        .file(mustExist = true, canBeFile = true, canBeDir = false, mustBeWritable = false, mustBeReadable = true)
+        .convert { it.absoluteFile.normalize() }
+        .configurationGroup()
+
+    private val allowDynamicVersions by option(
+        "--allow-dynamic-versions",
+        help = "Allow dynamic versions of dependencies. This can result in unstable results when dependencies use " +
+                "version ranges. This option only affects package managers that support lock files, like NPM."
+    ).flag()
+
+    private val useClearlyDefinedCurations by option(
+        "--clearly-defined-curations",
+        help = "Whether to fall back to package curation data from the ClearlyDefine service or not."
+    ).flag()
+
+    private val ignoreToolVersions by option(
+        "--ignore-tool-versions",
+        help = "Ignore versions of required tools. NOTE: This may lead to erroneous results."
+    ).flag()
+
+    private val labels by option(
+        "--label", "-l",
+        help = "Add a label to the ORT result. Can be used multiple times. For example: --label distribution=external"
+    ).associate()
 
     private val packageManagers by option(
         "--package-managers", "-m",
@@ -60,75 +128,26 @@ class AnalyzerCommand : CliktCommand(name = "analyze", help = "Determine depende
             ?: throw BadParameterValue("Package managers must be one or more of ${allPackageManagersByName.keys}.")
     }.split(",").default(PackageManager.ALL)
 
-    private val inputDir by option(
-        "--input-dir", "-i",
-        help = "The project directory to analyze."
-    ).convert { it.expandTilde() }
-        .file(mustExist = true, canBeFile = false, canBeDir = true, mustBeWritable = false, mustBeReadable = true)
-        .convert { it.absoluteFile.normalize() }
-        .required()
-
-    private val outputDir by option(
-        "--output-dir", "-o",
-        help = "The directory to write the analyzer result as ORT result file(s) to, in the specified output format(s)."
-    ).convert { it.expandTilde() }
-        .file(mustExist = false, canBeFile = false, canBeDir = true, mustBeWritable = false, mustBeReadable = false)
-        .convert { it.absoluteFile.normalize() }
-        .required()
-
-    private val outputFormats by option(
-        "--output-formats", "-f",
-        help = "The list of output formats to be used for the ORT result file(s)."
-    ).enum<FileFormat>().split(",").default(listOf(FileFormat.YAML))
-
-    private val ignoreToolVersions by option(
-        "--ignore-tool-versions",
-        help = "Ignore versions of required tools. NOTE: This may lead to erroneous results."
-    ).flag()
-
-    private val allowDynamicVersions by option(
-        "--allow-dynamic-versions",
-        help = "Allow dynamic versions of dependencies. This can result in unstable results when dependencies use " +
-                "version ranges. This option only affects package managers that support lock files, like NPM."
-    ).flag()
-
-    private val packageCurationsFile by option(
-        "--package-curations-file",
-        help = "A file containing package curation data."
-    ).convert { it.expandTilde() }
-        .file(mustExist = true, canBeFile = true, canBeDir = false, mustBeWritable = false, mustBeReadable = true)
-        .convert { it.absoluteFile.normalize() }
-
-    private val useClearlyDefinedCurations by option(
-        "--clearly-defined-curations",
-        help = "Whether to fall back to package curation data from the ClearlyDefine service or not."
-    ).flag()
-
-    private val repositoryConfigurationFile by option(
-        "--repository-configuration-file",
-        help = "A file containing the repository configuration. If set the '$ORT_REPO_CONFIG_FILENAME' file from the " +
-                "repository will be ignored."
-    ).convert { it.expandTilde() }
-        .file(mustExist = true, canBeFile = true, canBeDir = false, mustBeWritable = false, mustBeReadable = true)
-        .convert { it.absoluteFile.normalize() }
-
-    private val labels by option(
-        "--label", "-l",
-        help = "Add a label to the ORT result. Can be used multiple times. For example: --label distribution=external"
-    ).associate()
+    private val globalOptionsForSubcommands by requireObject<GlobalOptions>()
 
     override fun run() {
-        val outputFiles = outputFormats.distinct().map { format ->
-            File(outputDir, "analyzer-result.${format.fileExtension}")
+        val outputFiles = outputFormats.mapTo(mutableSetOf()) { format ->
+            outputDir.resolve("analyzer-result.${format.fileExtension}")
         }
 
-        val existingOutputFiles = outputFiles.filter { it.exists() }
-        if (existingOutputFiles.isNotEmpty()) {
-            throw UsageError("None of the output files $existingOutputFiles must exist yet.")
+        if (!globalOptionsForSubcommands.forceOverwrite) {
+            val existingOutputFiles = outputFiles.filter { it.exists() }
+            if (existingOutputFiles.isNotEmpty()) {
+                throw UsageError("None of the output files $existingOutputFiles must exist yet.", statusCode = 2)
+            }
         }
+
+        val configurationFiles = listOfNotNull(packageCurationsFile, repositoryConfigurationFile)
+                .map { it.absolutePath }
+        println("The following configuration files are used:")
+        println("\t" + configurationFiles.joinToString("\n\t"))
 
         val distinctPackageManagers = packageManagers.distinct()
-
         println("The following package managers are activated:")
         println("\t" + distinctPackageManagers.joinToString(", "))
 
@@ -137,11 +156,9 @@ class AnalyzerCommand : CliktCommand(name = "analyze", help = "Determine depende
         val analyzerConfig = AnalyzerConfiguration(ignoreToolVersions, allowDynamicVersions)
         val analyzer = Analyzer(analyzerConfig)
 
-        val globalPackageCurationsFile = ortConfigDirectory.resolve("curations.yml")
         val curationProvider = FallbackPackageCurationProvider(
             listOfNotNull(
-                packageCurationsFile?.let { FilePackageCurationProvider(it) },
-                globalPackageCurationsFile.takeIf { it.isFile }?.let { FilePackageCurationProvider(it) },
+                packageCurationsFile.takeIf { it.isFile }?.let { FilePackageCurationProvider(it) },
                 ClearlyDefinedPackageCurationProvider().takeIf { useClearlyDefinedCurations }
             )
         )
@@ -156,7 +173,11 @@ class AnalyzerCommand : CliktCommand(name = "analyze", help = "Determine depende
 
         outputFiles.forEach { file ->
             println("Writing analyzer result to '$file'.")
-            file.mapper().writerWithDefaultPrettyPrinter().writeValue(file, ortResult)
+            val duration = measureTime { file.mapper().writerWithDefaultPrettyPrinter().writeValue(file, ortResult) }
+
+            log.perf {
+                "Wrote ORT result to '${file.name}' (${file.formatSizeInMib}) in ${duration.inMilliseconds}ms."
+            }
         }
 
         val analyzerResult = ortResult.analyzer?.result

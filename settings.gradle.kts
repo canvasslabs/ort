@@ -1,6 +1,7 @@
 /*
  * Copyright (C) 2017-2019 HERE Europe B.V.
  * Copyright (C) 2019 Bosch Software Innovations GmbH
+ * Copyright (C) 2020 Bosch.IO GmbH
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -44,20 +45,23 @@ pluginManagement {
 
 rootProject.name = "oss-review-toolkit"
 
-include("analyzer")
-include("clearly-defined")
-include("cli")
-include("detekt-rules")
-include("downloader")
-include("evaluator")
-include("helper-cli")
-include("model")
-include("reporter")
-include("reporter-web-app")
-include("scanner")
-include("spdx-utils")
-include("test-utils")
-include("utils")
+include(":advisor")
+include(":analyzer")
+include(":cli")
+include(":clients:clearly-defined")
+include(":clients:fossid-webapp")
+include(":clients:nexus-iq")
+include(":detekt-rules")
+include(":downloader")
+include(":evaluator")
+include(":helper-cli")
+include(":model")
+include(":reporter")
+include(":reporter-web-app")
+include(":scanner")
+include(":spdx-utils")
+include(":test-utils")
+include(":utils")
 
 val buildCacheRetentionDays: String by settings
 

@@ -119,7 +119,7 @@ open class Npm(
     override fun resolveDependencies(definitionFile: File): List<ProjectAnalyzerResult> {
         val workingDir = definitionFile.parentFile
 
-        stashDirectories(File(workingDir, "node_modules")).use {
+        stashDirectories(workingDir.resolve("node_modules")).use {
             // Actually installing the dependencies is the easiest way to get the meta-data of all transitive
             // dependencies (i.e. their respective "package.json" files). As NPM uses a global cache, the same
             // dependency is only ever downloaded once.
@@ -185,7 +185,7 @@ open class Npm(
 
     private fun parseInstalledModules(rootDirectory: File): Map<String, Package> {
         val packages = mutableMapOf<String, Package>()
-        val nodeModulesDir = File(rootDirectory, "node_modules")
+        val nodeModulesDir = rootDirectory.resolve("node_modules")
 
         log.info { "Searching for 'package.json' files in '$nodeModulesDir'..." }
 
@@ -439,7 +439,7 @@ open class Npm(
                     ancestorModuleDirs = dependencyModuleDirPath.subList(1, dependencyModuleDirPath.size),
                     ancestorModuleIds = ancestorModuleIds + moduleId,
                     packageType = "NPM"
-                )?.let { dependencies.add(it) }
+                )?.let { dependencies += it }
 
                 return@forEach
             }
@@ -461,9 +461,23 @@ open class Npm(
         val packageJsonFile = moduleDir.resolve("package.json")
         val json = jsonMapper.readTree(packageJsonFile)
 
+        val name = json["name"].textValueOrEmpty()
+        if (name.isBlank()) {
+            log.warn {
+                "The '$packageJsonFile' does not set a name, which is only allowed for unpublished packages."
+            }
+        }
+
+        val version = json["version"].textValueOrEmpty()
+        if (version.isBlank()) {
+            log.warn {
+                "The '$packageJsonFile' does not set a version, which is only allowed for unpublished packages."
+            }
+        }
+
         return ModuleInfo(
-            name = json["name"].textValue(),
-            version = json["version"].textValue(),
+            name = name,
+            version = version,
             dependencyNames = scopes.map { scope ->
                 json[scope]?.fieldNames()?.asSequence()?.toSet().orEmpty()
             }.flatten().toSet()

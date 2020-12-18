@@ -29,11 +29,11 @@ import org.ossreviewtoolkit.model.Identifier
 import org.ossreviewtoolkit.model.LicenseSource
 import org.ossreviewtoolkit.model.OrtResult
 import org.ossreviewtoolkit.model.Severity
-import org.ossreviewtoolkit.model.utils.SimplePackageConfigurationProvider
+import org.ossreviewtoolkit.model.utils.createLicenseInfoResolver
 import org.ossreviewtoolkit.spdx.toSpdx
 
 class EvaluatorTest : WordSpec() {
-    private fun createEvaluator() = Evaluator(OrtResult.EMPTY, SimplePackageConfigurationProvider())
+    private fun createEvaluator() = Evaluator(OrtResult.EMPTY, ortResult.createLicenseInfoResolver())
 
     init {
         "checkSyntax" should {
@@ -51,7 +51,6 @@ class EvaluatorTest : WordSpec() {
                     broken script
                     """.trimIndent()
                 )
-                println()
 
                 result shouldBe false
             }
@@ -68,7 +67,8 @@ class EvaluatorTest : WordSpec() {
                 val result = createEvaluator().run(
                     """
                     require(ortResult == OrtResult.EMPTY) { "Could not verify the ORT result to be empty." }
-                    """.trimIndent())
+                    """.trimIndent()
+                )
 
                 result.violations should beEmpty()
             }

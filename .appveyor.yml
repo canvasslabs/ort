@@ -21,12 +21,17 @@ cache:
   - $(HOME)\.gradle\caches
   - $(HOME)\.gradle\wrapper\dists -> gradle\wrapper\gradle-wrapper.properties
   - $(HOME)\.ivy2
-  - $(HOME)\.m2\repository
   - $(HOME)\.ort\cache
 
 clone_depth: 50
 
 install:
+  - ps: |
+      $range = "$env:APPVEYOR_REPO_BRANCH..$env:APPVEYOR_PULL_REQUEST_HEAD_COMMIT"
+      if (-not (git diff --name-only --diff-filter=d $range | Where-Object { $_ -NotMatch "\.md$" })) {
+        Write-Host "Only Markdown files were modified, skipping CI run."
+        Exit-AppVeyorBuild
+      }
   - git submodule update --init --recursive
   - npm install -g npm@%NPM_VERSION%
   - npm install -g bower@%BOWER_VERSION% yarn@%YARN_VERSION%
@@ -63,8 +68,8 @@ build_script:
   - echo org.gradle.java.home=C:/Program Files/Java/jdk11>>"%HOME%\.gradle\gradle.properties"
   - ps: |
       $file = 'gradle\wrapper\gradle-wrapper.properties'
-      get-content $file | %{ $_ -replace '(^distributionUrl=)(.+)-all\.zip$', '$1$2-bin.zip' } | set-content "${file}.new"
-      mv -force "${file}.new" $file
+      Get-Content $file | %{ $_ -replace '(^distributionUrl=)(.+)-all\.zip$', '$1$2-bin.zip' } | Set-Content "${file}.new"
+      Move-Item -Force "${file}.new" $file
   - gradlew --stacktrace detekt
 
 test_script:

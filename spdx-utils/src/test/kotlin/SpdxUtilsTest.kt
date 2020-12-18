@@ -33,23 +33,23 @@ import io.kotest.matchers.string.startWith
 
 import java.io.File
 
+import kotlin.io.path.createTempDirectory
+
 import org.ossreviewtoolkit.utils.ORT_NAME
 
 class SpdxUtilsTest : WordSpec() {
-    private var tempDir: File? = null
+    private lateinit var tempDir: File
 
-    private fun setupTempFile(filename: String, content: String): File {
-        if (tempDir == null) {
-            tempDir = createTempDir(ORT_NAME, javaClass.simpleName)
-        }
-
-        return File(tempDir, filename).apply { writeText(content) }
+    override fun beforeTest(testCase: TestCase) {
+        tempDir = createTempDirectory("$ORT_NAME-${javaClass.simpleName}").toFile()
     }
 
     override fun afterTest(testCase: TestCase, result: TestResult) {
-        tempDir?.deleteRecursively()
-        tempDir = null
+        tempDir.deleteRecursively()
     }
+
+    private fun setupTempFile(filename: String, content: String) =
+        tempDir.resolve(filename).apply { writeText(content) }
 
     init {
         "calculatePackageVerificationCode" should {
@@ -115,22 +115,22 @@ class SpdxUtilsTest : WordSpec() {
                 setupTempFile("fileA", "fileA")
                 setupTempFile("fileB", "fileB")
                 setupTempFile("package.spdx", "content")
-                tempDir!!.resolve("dir").mkdir()
+                tempDir.resolve("dir").mkdir()
                 setupTempFile("dir/fileC", "fileC")
                 setupTempFile("dir/package.spdx", "content")
 
-                calculatePackageVerificationCode(tempDir!!) shouldBe
+                calculatePackageVerificationCode(tempDir) shouldBe
                         "15d3fa138d9302ec9a1584180b5eba0d342b60fa (excludes: ./package.spdx, ./dir/package.spdx)"
             }
 
             "exclude VCS directories" {
                 setupTempFile("file", "file")
                 VCS_DIRECTORIES.forEach {
-                    tempDir!!.resolve(it).mkdir()
+                    tempDir.resolve(it).mkdir()
                     setupTempFile("$it/dummy", "dummy")
                 }
 
-                calculatePackageVerificationCode(tempDir!!) shouldBe
+                calculatePackageVerificationCode(tempDir) shouldBe
                         "81e250a78cc6386afc25fa57ad6eaee31394019b"
             }
         }

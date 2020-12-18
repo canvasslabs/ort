@@ -45,7 +45,6 @@ import org.ossreviewtoolkit.downloader.WorkingTree
 import org.ossreviewtoolkit.model.VcsInfo
 import org.ossreviewtoolkit.model.VcsType
 import org.ossreviewtoolkit.utils.CommandLineTool
-import org.ossreviewtoolkit.utils.FileMatcher
 import org.ossreviewtoolkit.utils.Os
 import org.ossreviewtoolkit.utils.collectMessagesAsString
 import org.ossreviewtoolkit.utils.installAuthenticatorAndProxySelector
@@ -119,6 +118,8 @@ class Git : VersionControlSystem(), CommandLineTool {
     override fun isApplicableUrlInternal(vcsUrl: String): Boolean =
         runCatching {
             LsRemoteCommand(null).setRemote(vcsUrl).call().isNotEmpty()
+        }.onFailure {
+            log.debug { "Failed to check whether $type is applicable for $vcsUrl: ${it.collectMessagesAsString()}" }
         }.isSuccess
 
     override fun initWorkingTree(targetDir: File, vcs: VcsInfo): WorkingTree {
@@ -142,10 +143,11 @@ class Git : VersionControlSystem(), CommandLineTool {
 
                     git.repository.config.setBoolean("core", null, "sparseCheckout", true)
 
-                    val gitInfoDir = File(targetDir, ".git/info").apply { safeMkdirs() }
+                    val gitInfoDir = targetDir.resolve(".git/info").apply { safeMkdirs() }
                     val path = vcs.path.let { if (it.startsWith("/")) it else "/$it" }
-                    File(gitInfoDir, "sparse-checkout").writeText("$path\n" +
-                            FileMatcher.LICENSE_FILE_MATCHER.patterns.joinToString("\n") { "/$it" })
+                    val globPatterns = getLicenseFileGlobPatterns() + path
+
+                    gitInfoDir.resolve("sparse-checkout").writeText(globPatterns.joinToString("\n"))
                 }
 
                 git.repository.config.save()
@@ -226,7 +228,7 @@ class Git : VersionControlSystem(), CommandLineTool {
 
     private fun updateSubmodules(workingTree: WorkingTree) =
         try {
-            !File(workingTree.workingDir, ".gitmodules").isFile
+            !workingTree.workingDir.resolve(".gitmodules").isFile
                     || run(workingTree.workingDir, "submodule", "update", "--init", "--recursive").isSuccess
         } catch (e: IOException) {
             e.showStackTrace()

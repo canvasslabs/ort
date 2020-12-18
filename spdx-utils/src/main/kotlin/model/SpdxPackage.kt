@@ -110,7 +110,7 @@ data class SpdxPackage(
     @JsonInclude(JsonInclude.Include.NON_EMPTY)
     val licenseComments: String = "",
 
-    /*
+    /**
      * The concluded license for the package as SPDX expression. To represent a not present value [SpdxConstants.NONE]
      * or [SpdxConstants.NOASSERTION] must be used.
      */
@@ -187,7 +187,9 @@ data class SpdxPackage(
     val versionInfo: String = ""
 ) {
     init {
-        require(spdxId.isNotBlank()) { "The SPDX-Id must not be blank." }
+        require(spdxId.startsWith(SpdxConstants.REF_PREFIX)) {
+            "The SPDX ID '$spdxId' has to start with '${SpdxConstants.REF_PREFIX}'."
+        }
 
         require(copyrightText.isNotBlank()) { "The copyright text must not be blank." }
 
@@ -196,6 +198,16 @@ data class SpdxPackage(
         require(name.isNotBlank()) { "The name must not be blank." }
 
         require(homepage.isNotBlank()) { "The homepage must not be blank." }
+
+        val validPrefixes = listOf(SpdxConstants.PERSON, SpdxConstants.ORGANIZATION)
+
+        require(originator.isEmpty() || validPrefixes.any { originator.startsWith(it) }) {
+            "A non-empty originator has to start with any of $validPrefixes."
+        }
+
+        require(supplier.isEmpty() || validPrefixes.any { supplier.startsWith(it) }) {
+            "A non-empty supplier has to start with any of $validPrefixes."
+        }
 
         // TODO: The check for [licenseInfoFromFiles] can be made more strict, but the SPDX specification is not exact
         // enough yet to do this safely.

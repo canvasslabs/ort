@@ -28,7 +28,7 @@ import java.util.SortedSet
 
 // A custom value filter for [PackageLinkage] to work around
 // https://github.com/FasterXML/jackson-module-kotlin/issues/193.
-@Suppress("EqualsWithHashCodeExist")
+@Suppress("EqualsOrHashCode", "EqualsWithHashCodeExist")
 class PackageLinkageValueFilter {
     override fun equals(other: Any?) = other == PackageLinkage.DYNAMIC
 }
@@ -80,7 +80,7 @@ data class PackageReference(
         val queue: Deque<Pair<PackageReference, Int>> = LinkedList()
         fun enqueue(packages: Collection<PackageReference>, level: Int) {
             if (maxDepth < 0 || level <= maxDepth) {
-                packages.forEach { queue.add(Pair(it, level)) }
+                packages.forEach { queue += Pair(it, level) }
             }
         }
 

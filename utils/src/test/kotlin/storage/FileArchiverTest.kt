@@ -26,6 +26,8 @@ import io.kotest.matchers.shouldBe
 
 import java.io.File
 
+import kotlin.io.path.createTempDirectory
+
 import org.ossreviewtoolkit.utils.ORT_NAME
 import org.ossreviewtoolkit.utils.safeDeleteRecursively
 import org.ossreviewtoolkit.utils.safeMkdirs
@@ -38,9 +40,9 @@ class FileArchiverTest : StringSpec() {
     private lateinit var storage: LocalFileStorage
 
     override fun beforeTest(testCase: TestCase) {
-        workingDir = createTempDir(ORT_NAME, "${javaClass.simpleName}-workingDir")
-        storageDir = createTempDir(ORT_NAME, "${javaClass.simpleName}-storageDir")
-        targetDir = createTempDir(ORT_NAME, "${javaClass.simpleName}-targetDir")
+        workingDir = createTempDirectory("$ORT_NAME-${javaClass.simpleName}-workingDir").toFile()
+        storageDir = createTempDirectory("$ORT_NAME-${javaClass.simpleName}-storageDir").toFile()
+        targetDir = createTempDirectory("$ORT_NAME-${javaClass.simpleName}-targetDir").toFile()
         storage = LocalFileStorage(storageDir)
     }
 
@@ -104,10 +106,42 @@ class FileArchiverTest : StringSpec() {
             val result = archiver.unarchive(targetDir, storagePath)
 
             result shouldBe true
-            targetDir.assertFileContent("a")
-            targetDir.assertFileContent("b")
-            targetDir.assertFileContent("c/a")
-            targetDir.assertFileContent("c/b")
+            with(targetDir) {
+                assertFileContent("a")
+                assertFileContent("b")
+                assertFileContent("c/a")
+                assertFileContent("c/b")
+            }
+        }
+
+        "LICENSE files are archived by default, independently of the directory" {
+            createFile("LICENSE")
+            createFile("path/LICENSE")
+
+            FileArchiver.DEFAULT.archive(workingDir, "save")
+            FileArchiver.DEFAULT.unarchive(targetDir, "save")
+
+            with(targetDir) {
+                assertFileContent("LICENSE")
+                assertFileContent("path/LICENSE")
+            }
+        }
+
+        "The pattern matching is case-insensitive" {
+            createFile("a/LICENSE")
+            createFile("b/License")
+            createFile("c/license")
+            createFile("d/LiCeNsE")
+
+            FileArchiver.DEFAULT.archive(workingDir, "save")
+            FileArchiver.DEFAULT.unarchive(targetDir, "save")
+
+            with(targetDir) {
+                assertFileContent("a/LICENSE")
+                assertFileContent("b/License")
+                assertFileContent("c/license")
+                assertFileContent("d/LiCeNsE")
+            }
         }
     }
 }

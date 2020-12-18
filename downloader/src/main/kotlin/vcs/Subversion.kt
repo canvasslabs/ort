@@ -21,8 +21,10 @@
 package org.ossreviewtoolkit.downloader.vcs
 
 import java.io.File
+import java.net.Authenticator
 import java.net.InetSocketAddress
 import java.net.URI
+import java.net.URL
 import java.nio.file.Paths
 
 import org.ossreviewtoolkit.downloader.DownloadException
@@ -40,7 +42,10 @@ import org.tmatesoft.svn.core.SVNErrorMessage
 import org.tmatesoft.svn.core.SVNException
 import org.tmatesoft.svn.core.SVNNodeKind
 import org.tmatesoft.svn.core.SVNURL
+import org.tmatesoft.svn.core.auth.ISVNAuthenticationProvider
 import org.tmatesoft.svn.core.auth.ISVNProxyManager
+import org.tmatesoft.svn.core.auth.SVNAuthentication
+import org.tmatesoft.svn.core.auth.SVNPasswordAuthentication
 import org.tmatesoft.svn.core.internal.wc.DefaultSVNAuthenticationManager
 import org.tmatesoft.svn.core.io.SVNRepositoryFactory
 import org.tmatesoft.svn.core.wc.SVNClientManager
@@ -74,7 +79,7 @@ class Subversion : VersionControlSystem() {
 
             override fun isShallow() = false
 
-            override fun getRemoteUrl() = doSvnInfo()?.url?.toDecodedString().orEmpty()
+            override fun getRemoteUrl() = doSvnInfo()?.url?.toString().orEmpty()
 
             override fun getRevision() = doSvnInfo()?.committedRevision?.number?.toString().orEmpty()
 
@@ -85,7 +90,7 @@ class Subversion : VersionControlSystem() {
                 val remoteUrl = getRemoteUrl()
 
                 val projectRoot = if (directoryNamespaces.any { "/$it/" in remoteUrl }) {
-                    doSvnInfo()?.repositoryRootURL?.toDecodedString().orEmpty()
+                    doSvnInfo()?.repositoryRootURL?.toString().orEmpty()
                 } else {
                     remoteUrl
                 }
@@ -246,8 +251,38 @@ private class OrtSVNAuthenticationManager : DefaultSVNAuthenticationManager(
 ) {
     private val ortProxySelector = installAuthenticatorAndProxySelector()
 
+    init {
+        authenticationProvider = object : ISVNAuthenticationProvider {
+            override fun requestClientAuthentication(
+                kind: String,
+                svnurl: SVNURL,
+                realm: String,
+                errorMessage: SVNErrorMessage?,
+                previousAuth: SVNAuthentication?,
+                authMayBeStored: Boolean
+            ): SVNAuthentication? {
+                val url = URL(svnurl.toString())
+
+                val auth = Authenticator.getDefault()?.requestPasswordAuthenticationInstance(
+                    svnurl.host, null, svnurl.port, svnurl.protocol, null, null, url, Authenticator.RequestorType.SERVER
+                ) ?: return null
+
+                return SVNPasswordAuthentication.newInstance(
+                    auth.userName, auth.password, authMayBeStored, svnurl, /* isPartial = */ false
+                )
+            }
+
+            override fun acceptServerAuthentication(
+                url: SVNURL,
+                realm: String,
+                certificate: Any,
+                resultMayBeStored: Boolean
+            ) = ISVNAuthenticationProvider.ACCEPTED
+        }
+    }
+
     override fun getProxyManager(url: SVNURL): ISVNProxyManager? {
-        val proxy = ortProxySelector.select(URI(url.toDecodedString())).firstOrNull() ?: return null
+        val proxy = ortProxySelector.select(URI(url.toString())).firstOrNull() ?: return null
         val proxyAddress = (proxy.address() as? InetSocketAddress) ?: return null
         val authentication = ortProxySelector.getProxyAuthentication(proxy)
 

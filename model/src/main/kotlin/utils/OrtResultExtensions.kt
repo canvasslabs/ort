@@ -19,12 +19,12 @@
 
 package org.ossreviewtoolkit.model.utils
 
-import java.util.SortedSet
-
 import org.ossreviewtoolkit.model.Identifier
-import org.ossreviewtoolkit.model.LicenseFindings
 import org.ossreviewtoolkit.model.OrtResult
-import org.ossreviewtoolkit.model.config.PathExclude
+import org.ossreviewtoolkit.model.config.CopyrightGarbage
+import org.ossreviewtoolkit.model.licenses.DefaultLicenseInfoProvider
+import org.ossreviewtoolkit.model.licenses.LicenseInfoResolver
+import org.ossreviewtoolkit.utils.storage.FileArchiver
 
 /**
  * Return a map of concluded licenses for each package [Identifier] that has a concluded license. Note that this
@@ -51,42 +51,19 @@ fun OrtResult.collectDeclaredLicenses(omitExcluded: Boolean = false): Map<Identi
     }
 
 /**
- * Return a map of license findings for each project or package [Identifier]. The license findings for projects are
- * mapped to a list of [PathExclude]s matching the locations where a license was found. This list is only populated
- * if all file locations are excluded. The list is empty for all dependency packages, as path excludes are only
- * applied to the projects.
- *
- * If [omitExcluded] is set to true, excluded projects / packages are omitted from the result.
+ * Create a [LicenseInfoResolver] for [this] [OrtResult]. If the resolver is used multiple times it should be stored
+ * instead of calling this function multiple times for better performance.
  */
-fun OrtResult.collectLicenseFindings(
-    packageConfigurationProvider: PackageConfigurationProvider = SimplePackageConfigurationProvider(),
-    omitExcluded: Boolean = false
-): Map<Identifier, Map<LicenseFindings, List<PathExclude>>> =
-    LicenseResolver(this, packageConfigurationProvider).collectLicenseFindings(omitExcluded)
-
-/**
- * Return all detected licenses for the given package [id]. As projects are implicitly converted to packages before
- * scanning, the [id] may either refer to a project or to a package. If [id] is not found an empty set is returned.
- */
-@Suppress("UNUSED") // This is intended to be mostly used via scripting.
-fun OrtResult.getDetectedLicensesForId(
-    id: Identifier,
-    packageConfigurationProvider: PackageConfigurationProvider = SimplePackageConfigurationProvider()
-): SortedSet<String> = LicenseResolver(this, packageConfigurationProvider).getDetectedLicensesForId(id)
-
-/**
- * Return all detected licenses for the given package[id] along with the copyrights.
- */
-@Suppress("UNUSED") // This is intended to be mostly used via scripting.
-fun OrtResult.getDetectedLicensesWithCopyrights(
-    id: Identifier,
-    packageConfigurationProvider: PackageConfigurationProvider = SimplePackageConfigurationProvider(),
-    omitExcluded: Boolean = true
-): Map<String, Set<String>> =
-    LicenseResolver(this, packageConfigurationProvider).getDetectedLicensesWithCopyrights(id, omitExcluded)
+fun OrtResult.createLicenseInfoResolver(
+    packageConfigurationProvider: PackageConfigurationProvider = SimplePackageConfigurationProvider.EMPTY,
+    copyrightGarbage: CopyrightGarbage = CopyrightGarbage(),
+    archiver: FileArchiver? = null
+): LicenseInfoResolver {
+    val licenseInfoProvider = DefaultLicenseInfoProvider(this, packageConfigurationProvider)
+    return LicenseInfoResolver(licenseInfoProvider, copyrightGarbage, archiver)
+}
 
 /**
  * Copy this [OrtResult] and add all [labels] to the existing labels, overwriting existing labels on conflict.
  */
-fun OrtResult.mergeLabels(labels: Map<String, String>) =
-    copy(labels = this.labels + labels).apply { data += this@mergeLabels.data }
+fun OrtResult.mergeLabels(labels: Map<String, String>) = copy(labels = this.labels + labels)

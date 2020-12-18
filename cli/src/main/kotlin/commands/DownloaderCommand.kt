@@ -21,6 +21,7 @@ package org.ossreviewtoolkit.commands
 
 import com.github.ajalt.clikt.core.CliktCommand
 import com.github.ajalt.clikt.core.ProgramResult
+import com.github.ajalt.clikt.parameters.groups.default
 import com.github.ajalt.clikt.parameters.groups.mutuallyExclusiveOptions
 import com.github.ajalt.clikt.parameters.groups.required
 import com.github.ajalt.clikt.parameters.groups.single
@@ -30,10 +31,13 @@ import com.github.ajalt.clikt.parameters.options.flag
 import com.github.ajalt.clikt.parameters.options.option
 import com.github.ajalt.clikt.parameters.options.required
 import com.github.ajalt.clikt.parameters.options.split
+import com.github.ajalt.clikt.parameters.options.switch
 import com.github.ajalt.clikt.parameters.types.enum
 import com.github.ajalt.clikt.parameters.types.file
 
 import java.io.File
+
+import kotlin.time.measureTimedValue
 
 import org.ossreviewtoolkit.GroupTypes.FileType
 import org.ossreviewtoolkit.GroupTypes.StringType
@@ -48,12 +52,15 @@ import org.ossreviewtoolkit.model.RemoteArtifact
 import org.ossreviewtoolkit.model.VcsInfo
 import org.ossreviewtoolkit.model.VcsType
 import org.ossreviewtoolkit.model.readValue
+import org.ossreviewtoolkit.spdx.VCS_DIRECTORIES
 import org.ossreviewtoolkit.utils.ArchiveType
 import org.ossreviewtoolkit.utils.collectMessagesAsString
 import org.ossreviewtoolkit.utils.encodeOrUnknown
 import org.ossreviewtoolkit.utils.expandTilde
+import org.ossreviewtoolkit.utils.formatSizeInMib
 import org.ossreviewtoolkit.utils.log
 import org.ossreviewtoolkit.utils.packZip
+import org.ossreviewtoolkit.utils.perf
 import org.ossreviewtoolkit.utils.safeDeleteRecursively
 import org.ossreviewtoolkit.utils.showStackTrace
 
@@ -68,32 +75,33 @@ class DownloaderCommand : CliktCommand(name = "download", help = "Fetch source c
         option(
             "--project-url",
             help = "A VCS or archive URL of a project to download. Must not be used together with '--ort-file'."
-        ).convert { StringType(it) }
+        ).convert { StringType(it) },
+        name = OPTION_GROUP_INPUT
     ).single().required()
 
     private val projectNameOption by option(
         "--project-name",
-        help = "The speaking name of the project to download. For use together with '--project-url'. Will be ignored " +
-                "if '--ort-file' is also specified. (default: the last part of the project URL)"
-    )
+        help = "The speaking name of the project to download. For use together with '--project-url'. Ignored if " +
+                "'--ort-file' is also specified. (default: the last part of the project URL)"
+    ).inputGroup()
 
     private val vcsTypeOption by option(
         "--vcs-type",
-        help = "The VCS type if '--project-url' points to a VCS. Will be ignored if '--ort-file' is also specified. " +
+        help = "The VCS type if '--project-url' points to a VCS. Ignored if '--ort-file' is also specified. " +
                 "(default: the VCS type detected by querying the project URL)"
-    )
+    ).inputGroup()
 
     private val vcsRevisionOption by option(
         "--vcs-revision",
-        help = "The VCS revision if '--project-url' points to a VCS. Will be ignored if '--ort-file' is also " +
-                "specified. (default: the VCS's default revision)"
-    )
+        help = "The VCS revision if '--project-url' points to a VCS. Ignored if '--ort-file' is also specified. " +
+                "(default: the VCS's default revision)"
+    ).inputGroup()
 
     private val vcsPath by option(
         "--vcs-path",
-        help = "The VCS path if '--project-url' points to a VCS. Will be ignored if '--ort-file' is also specified. " +
+        help = "The VCS path if '--project-url' points to a VCS. Ignored if '--ort-file' is also specified. " +
                 "(default: the empty root path)"
-    ).default("")
+    ).default("").inputGroup()
 
     private val outputDir by option(
         "--output-dir", "-o",
@@ -102,18 +110,7 @@ class DownloaderCommand : CliktCommand(name = "download", help = "Fetch source c
         .file(mustExist = false, canBeFile = false, canBeDir = true, mustBeWritable = false, mustBeReadable = false)
         .convert { it.absoluteFile.normalize() }
         .required()
-
-    private val archive by option(
-        "--archive",
-        help = "Archive the downloaded source code as ZIP files to the output directory. Will be ignored if " +
-                "'--project-url' is also specified."
-    ).flag()
-
-    private val entities by option(
-        "--entities", "-e",
-        help = "The data entities from the ORT file's analyzer result to limit downloads to. If not specified, all " +
-                "data entities are downloaded."
-    ).enum<Downloader.DataEntity>().split(",").default(enumValues<Downloader.DataEntity>().asList())
+        .outputGroup()
 
     private val allowMovingRevisions by option(
         "--allow-moving-revisions",
@@ -121,33 +118,94 @@ class DownloaderCommand : CliktCommand(name = "download", help = "Fetch source c
                 "are forbidden because they are not pointing to a fixed revision of the source code."
     ).flag()
 
+    /**
+     * The mode to use for archiving downloaded source code.
+     */
+    private enum class ArchiveMode {
+        /**
+         * Do not archive source code at all.
+         */
+        NONE,
+
+        /**
+         * Create one archive per project or package entity.
+         */
+        ENTITY,
+
+        /**
+         * Create a single archive containing all project or package entities.
+         */
+        BUNDLE
+    }
+
+    private val archiveMode by mutuallyExclusiveOptions(
+        option(
+            help = "Archive the downloaded source code as ZIP files to the output directory. Is ignored if " +
+                    "'--project-url' is also specified."
+        ).switch("--archive" to ArchiveMode.ENTITY),
+        option(
+            help = "Archive all the downloaded source code as a single ZIP file to the output directory. Is ignored " +
+                    "if '--project-url' is also specified."
+        ).switch("--archive-all" to ArchiveMode.BUNDLE)
+    ).single().default(ArchiveMode.NONE)
+
+    /**
+     * The choice of data entities to download.
+     */
+    enum class DataEntity {
+        /**
+         * Identifier for package entities.
+         */
+        PACKAGES,
+
+        /**
+         * Identifier for project entities.
+         */
+        PROJECTS
+    }
+
+    private val entities by option(
+        "--entities", "-e",
+        help = "The data entities from the ORT file's analyzer result to limit downloads to. If not specified, all " +
+                "data entities are downloaded."
+    ).enum<DataEntity>().split(",").default(enumValues<DataEntity>().asList())
+
     override fun run() {
         val failureMessages = mutableListOf<String>()
 
         when (input) {
             is FileType -> {
                 val ortFile = (input as FileType).file
-                val analyzerResult = ortFile.readValue<OrtResult>().analyzer?.result
+                val (analyzerResult, duration) = measureTimedValue { ortFile.readValue<OrtResult>().analyzer?.result }
+
+                log.perf {
+                    "Read ORT result from '${ortFile.name}' (${ortFile.formatSizeInMib}) in " +
+                            "${duration.inMilliseconds}ms."
+                }
 
                 requireNotNull(analyzerResult) {
                     "The provided ORT result file '$ortFile' does not contain an analyzer result."
                 }
 
                 val packages = mutableListOf<Package>().apply {
-                    if (Downloader.DataEntity.PROJECTS in entities) {
+                    if (DataEntity.PROJECTS in entities) {
                         addAll(consolidateProjectPackagesByVcs(analyzerResult.projects).keys)
                     }
 
-                    if (Downloader.DataEntity.PACKAGES in entities) {
+                    if (DataEntity.PACKAGES in entities) {
                         addAll(analyzerResult.packages.map { curatedPackage -> curatedPackage.pkg })
                     }
                 }
 
-                packages.forEach { pkg ->
+                val packageDownloadDirs = packages.associateWith { outputDir.resolve(it.id.toPath()) }
+
+                packageDownloadDirs.forEach { (pkg, dir) ->
                     try {
-                        val downloadDir = File(outputDir, pkg.id.toPath())
-                        Downloader.download(pkg, downloadDir, allowMovingRevisions)
-                        if (archive) archive(pkg, downloadDir, outputDir)
+                        Downloader.download(pkg, dir, allowMovingRevisions)
+
+                        if (archiveMode == ArchiveMode.ENTITY && archive(pkg, dir)) {
+                            dir.safeDeleteRecursively(baseDirectory = outputDir)
+                        }
                     } catch (e: DownloadException) {
                         e.showStackTrace()
 
@@ -158,28 +216,39 @@ class DownloaderCommand : CliktCommand(name = "download", help = "Fetch source c
                         log.error { failureMessage }
                     }
                 }
+
+                if (archiveMode == ArchiveMode.BUNDLE && archiveAll()) {
+                    packageDownloadDirs.forEach { (_, dir) ->
+                        dir.safeDeleteRecursively(baseDirectory = outputDir)
+                    }
+                }
             }
 
             is StringType -> {
                 val projectUrl = (input as StringType).string
 
-                val vcs = VersionControlSystem.forUrl(projectUrl)
-                val vcsType = vcsTypeOption?.let { VcsType(it) } ?: (vcs?.type ?: VcsType.UNKNOWN)
-                val vcsRevision = vcsRevisionOption ?: vcs?.defaultBranchName.orEmpty()
+                val archiveType = ArchiveType.getType(projectUrl)
+                val projectNameFromUrl = projectUrl.substringAfterLast('/')
 
-                val projectFile = File(projectUrl)
-                val projectName = projectNameOption ?: projectFile.nameWithoutExtension
+                val projectName = projectNameOption ?: archiveType.extensions.fold(projectNameFromUrl) { name, ext ->
+                    name.removeSuffix(ext)
+                }
 
                 val dummyId = Identifier("Downloader::$projectName:")
-                val dummyPackage = if (ArchiveType.getType(projectFile.name) != ArchiveType.NONE) {
+                val dummyPackage = if (archiveType != ArchiveType.NONE) {
                     Package.EMPTY.copy(id = dummyId, sourceArtifact = RemoteArtifact.EMPTY.copy(url = projectUrl))
                 } else {
+                    val vcs = VersionControlSystem.forUrl(projectUrl)
+                    val vcsType = vcsTypeOption?.let { VcsType(it) } ?: (vcs?.type ?: VcsType.UNKNOWN)
+                    val vcsRevision = vcsRevisionOption ?: vcs?.defaultBranchName.orEmpty()
+
                     val vcsInfo = VcsInfo(
                         type = vcsType,
                         url = projectUrl,
                         revision = vcsRevision,
                         path = vcsPath
                     )
+
                     Package.EMPTY.copy(id = dummyId, vcs = vcsInfo, vcsProcessed = vcsInfo.normalize())
                 }
 
@@ -202,33 +271,43 @@ class DownloaderCommand : CliktCommand(name = "download", help = "Fetch source c
 
         if (failureMessages.isNotEmpty()) {
             log.error { "Failure summary:\n\n${failureMessages.joinToString("\n\n")}" }
-            throw ProgramResult(2)
+            throw ProgramResult(1)
         }
     }
 
-    private fun archive(pkg: Package, inputDir: File, outputDir: File) {
-        val zipFile = File(
-            outputDir,
-            "${pkg.id.type.encodeOrUnknown()}-${pkg.id.namespace.encodeOrUnknown()}-" +
-                    "${pkg.id.name.encodeOrUnknown()}-${pkg.id.version.encodeOrUnknown()}.zip"
-        )
+    private fun archive(pkg: Package, inputDir: File): Boolean {
+        val zipFile = File(outputDir, "${pkg.id.toPath("-")}.zip")
 
-        log.info {
-            "Archiving directory '$inputDir' to '$zipFile'."
-        }
+        log.info { "Archiving directory '$inputDir' to '$zipFile'." }
 
-        try {
+        return runCatching {
             inputDir.packZip(
                 zipFile,
-                "${pkg.id.name.encodeOrUnknown()}/${pkg.id.version.encodeOrUnknown()}/"
+                "${pkg.id.name.encodeOrUnknown()}/${pkg.id.version.encodeOrUnknown()}/",
+                directoryFilter = { it.name !in VCS_DIRECTORIES }
             )
-        } catch (e: IllegalArgumentException) {
-            e.showStackTrace()
+        }.onFailure {
+            it.showStackTrace()
 
-            log.error { "Could not archive '${pkg.id.toCoordinates()}': ${e.collectMessagesAsString()}" }
-        } finally {
-            val relativePath = outputDir.toPath().relativize(inputDir.toPath()).first()
-            File(outputDir, relativePath.toString()).safeDeleteRecursively()
-        }
+            log.error { "Could not archive '$inputDir': ${it.collectMessagesAsString()}" }
+        }.isSuccess
+    }
+
+    private fun archiveAll(): Boolean {
+        val zipFile = outputDir.resolve("archive.zip")
+
+        log.info { "Archiving directory '$outputDir' to '$zipFile'." }
+
+        return runCatching {
+            outputDir.packZip(
+                zipFile,
+                directoryFilter = { it.name !in VCS_DIRECTORIES },
+                fileFilter = { it != zipFile }
+            )
+        }.onFailure {
+            it.showStackTrace()
+
+            log.error { "Could not archive '$outputDir': ${it.collectMessagesAsString()}" }
+        }.isSuccess
     }
 }

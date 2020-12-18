@@ -61,6 +61,19 @@ class OrtAuthenticatorTest : WordSpec({
             authentication.password shouldBe "bar".toCharArray()
         }
 
+        "prefer machine-specific entries over the default" {
+            val authentication = getNetrcAuthentication("""
+                default login foo password bar
+                machine github.com
+                login git
+                password hub
+            """.trimIndent(), "github.com")
+
+            authentication.shouldNotBeNull()
+            authentication.userName shouldBe "git"
+            authentication.password shouldBe "hub".toCharArray()
+        }
+
         "ignore superfluous statements" {
             val authentication = getNetrcAuthentication("""
                 machine "# A funky way to add comments."
@@ -78,7 +91,18 @@ class OrtAuthenticatorTest : WordSpec({
             authentication.password shouldBe "bar".toCharArray()
         }
 
-        "ignore irrelavant machines" {
+        "ignore superfluous whitespace" {
+            val authentication = getNetrcAuthentication(
+                "machine github.com\t login \tfoo password bar \n",
+                "github.com"
+            )
+
+            authentication.shouldNotBeNull()
+            authentication.userName shouldBe "foo"
+            authentication.password shouldBe "bar".toCharArray()
+        }
+
+        "ignore irrelevant machines" {
             val authentication = getNetrcAuthentication("""
                 machine bitbucket.com login foo password bar
             """.trimIndent(), "github.com")

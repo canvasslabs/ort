@@ -288,6 +288,12 @@ sealed class SpdxSingleLicenseExpression : SpdxExpression() {
      * Return the license exception identifier if this is a [SpdxLicenseWithExceptionExpression] or null otherwise.
      */
     abstract fun exception(): String?
+
+    /**
+     * Return the URL for the licence if this is [SpdxLicenseIdExpression] or [SpdxLicenseWithExceptionExpression].
+     * Otherwise return null.
+     */
+    abstract fun getLicenseUrl(): String?
 }
 
 /**
@@ -366,6 +372,8 @@ class SpdxLicenseWithExceptionExpression(
     override fun hashCode() = license.hashCode() + 31 * exception.hashCode()
 
     override fun toString(): String = "$license $WITH $exception"
+
+    override fun getLicenseUrl() = license.getLicenseUrl()
 }
 
 /**
@@ -393,7 +401,7 @@ class SpdxLicenseIdExpression(
 ) : SpdxSimpleExpression() {
     override fun decompose() = setOf(this)
 
-    private val spdxLicense = SpdxLicense.forId(toString())
+    private val spdxLicense = SpdxLicense.forId(id)
 
     override fun simpleLicense() = toString()
 
@@ -405,11 +413,13 @@ class SpdxLicenseIdExpression(
         SpdxSimpleLicenseMapping.map(toString(), mapDeprecated) ?: this
 
     override fun validate(strictness: Strictness) {
-        when (strictness) {
-            Strictness.ALLOW_ANY -> Unit // Return something non-null.
-            Strictness.ALLOW_DEPRECATED -> spdxLicense
-            Strictness.ALLOW_CURRENT -> spdxLicense?.takeUnless { spdxLicense.deprecated }
-        } ?: throw SpdxException("'$this' is not a valid SPDX license id.")
+        val isValid = SpdxConstants.isNotPresent(id) || when (strictness) {
+            Strictness.ALLOW_ANY -> true
+            Strictness.ALLOW_DEPRECATED -> spdxLicense != null
+            Strictness.ALLOW_CURRENT -> spdxLicense?.deprecated == false
+        }
+
+        if (!isValid) throw SpdxException("'$this' is not a valid SPDX license id.")
     }
 
     override fun equals(other: Any?) =
@@ -433,6 +443,8 @@ class SpdxLicenseIdExpression(
             // it is a generic "+" operator for deprecated licenses.
             if (orLaterVersion && !id.endsWith("-or-later")) append("+")
         }
+
+    override fun getLicenseUrl() = if (isValid()) SpdxConstants.LICENSE_LIST_URL + id else null
 }
 
 /**
@@ -475,6 +487,8 @@ data class SpdxLicenseReferenceExpression(
     override fun hashCode() = id.hashCode()
 
     override fun toString() = id
+
+    override fun getLicenseUrl(): String? = null
 }
 
 /**

@@ -27,7 +27,7 @@ import java.net.URL
 import org.gradle.api.tasks.testing.logging.TestExceptionFormat
 import org.gradle.api.tasks.testing.logging.TestLogEvent
 
-import org.jetbrains.gradle.ext.JUnit
+import org.jetbrains.gradle.ext.Gradle
 import org.jetbrains.kotlin.gradle.plugin.KotlinCompilation
 import org.jetbrains.kotlin.gradle.plugin.KotlinSourceSet
 import org.jetbrains.kotlin.gradle.tasks.KotlinCompile
@@ -45,27 +45,49 @@ val okhttpVersion: String by project
 plugins {
     kotlin("jvm")
 
-    id("io.gitlab.arturbosch.detekt")
-    id("org.jetbrains.dokka")
-
     id("com.github.ben-manes.versions")
-    id("org.ajoberstar.reckon")
+    id("io.gitlab.arturbosch.detekt")
+    id("org.barfuin.gradle.taskinfo")
+    id("org.jetbrains.dokka")
     id("org.jetbrains.gradle.plugin.idea-ext")
 }
 
-reckon {
-    scopeFromProp()
-    snapshotFromProp()
+buildscript {
+    dependencies {
+        // For some reason "jgitVersion" needs to be declared here instead of globally.
+        val jgitVersion: String by project
+        classpath("org.eclipse.jgit:org.eclipse.jgit:$jgitVersion")
+    }
+}
+
+if (version == Project.DEFAULT_VERSION) {
+    version = org.eclipse.jgit.api.Git.open(rootDir).use { git ->
+        // Make the output to exactly match "git describe --abbrev=7 --always --tags --dirty".
+        val description = git.describe().setAlways(true).setTags(true).call()
+        val isDirty = git.status().call().hasUncommittedChanges()
+
+        if (isDirty) "$description-dirty" else description
+    }
+}
+
+logger.quiet("Building ORT version $version.")
+
+// TODO: Replace this with Gradle's toolchain mechanism [1] once the Kotlin plugin supports it [2].
+// [1] https://blog.gradle.org/java-toolchains
+// [2] https://youtrack.jetbrains.com/issue/KT-43095
+val javaVersion = JavaVersion.current()
+if (!javaVersion.isCompatibleWith(JavaVersion.VERSION_11)) {
+    throw GradleException("At least Java 11 is required, but Java $javaVersion is being used.")
 }
 
 idea {
     project {
         settings {
             runConfigurations {
-                defaults<JUnit> {
+                defaults<Gradle> {
                     // Disable "condensed" multi-line diffs when running tests from the IDE to more easily accept actual
                     // results as expected results.
-                    vmParameters = "-Dkotest.assertions.multi-line-diff=simple"
+                    jvmArgs = "-Dkotest.assertions.multi-line-diff=simple"
                 }
             }
         }
@@ -94,11 +116,19 @@ tasks.named<DependencyUpdatesTask>("dependencyUpdates") {
 allprojects {
     buildscript {
         repositories {
+            // Explicitly add Maven Central as some plugins continue to have problems with JCenter, see
+            // https://github.com/detekt/detekt/issues/3062.
+            mavenCentral()
+
             jcenter()
         }
     }
 
     repositories {
+        // Work-around for JCenter not correctly proxying "maven-metadata.xml", see
+        // https://github.com/ben-manes/gradle-versions-plugin/issues/424#issuecomment-691628498.
+        mavenCentral()
+
         jcenter()
     }
 
@@ -124,7 +154,7 @@ allprojects {
             "src/funTest/kotlin")
     }
 
-    tasks.withType<Detekt> {
+    tasks.withType<Detekt>().configureEach {
         dependsOn(":detekt-rules:assemble")
     }
 }
@@ -160,8 +190,8 @@ subprojects {
         dependencies {
             "testImplementation"(project(":test-utils"))
 
-            "testImplementation"("io.kotest:kotest-runner-junit5-jvm:$kotestVersion")
-            "testImplementation"("io.kotest:kotest-assertions-core-jvm:$kotestVersion")
+            "testImplementation"("io.kotest:kotest-runner-junit5:$kotestVersion")
+            "testImplementation"("io.kotest:kotest-assertions-core:$kotestVersion")
 
             "funTestImplementation"(sourceSets["main"].output)
         }
@@ -187,11 +217,15 @@ subprojects {
     }
 
     tasks.withType<KotlinCompile>().configureEach {
-        val customCompilerArgs = listOf("-Xallow-result-return-type", "-Xopt-in=kotlin.time.ExperimentalTime")
+        val customCompilerArgs = listOf(
+            "-Xallow-result-return-type",
+            "-Xopt-in=kotlin.io.path.ExperimentalPathApi",
+            "-Xopt-in=kotlin.time.ExperimentalTime"
+        )
 
         kotlinOptions {
             allWarningsAsErrors = true
-            jvmTarget = "1.8"
+            jvmTarget = "11"
             apiVersion = "1.4"
             freeCompilerArgs = freeCompilerArgs + customCompilerArgs
         }
@@ -200,7 +234,7 @@ subprojects {
     tasks.dokkaHtml.configure {
         dokkaSourceSets {
             configureEach {
-                jdkVersion.set(8)
+                jdkVersion.set(11)
 
                 externalDocumentationLink {
                     val baseUrl = "https://codehaus-plexus.github.io/plexus-containers/plexus-container-default/apidocs"

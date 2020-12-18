@@ -26,18 +26,19 @@
  *******************************************************/
 
 /**
- * Import license configuration from licenses.yml.
+ * Import the license classifications from license-classifications.yml.
  */
 
-fun getLicenseSet(setId: String) = licenseConfiguration.getLicensesForSet(setId).map { it.id }.toSet()
+fun getLicenseCategory(categoryId: String) =
+    licenseClassifications.getLicensesForCategory(categoryId).map { it.id }.toSet()
 
-val permissiveLicenses = getLicenseSet("permissive")
+val permissiveLicenses = getLicenseCategory("permissive")
 
-val copyleftLicenses = getLicenseSet("copyleft")
+val copyleftLicenses = getLicenseCategory("copyleft")
 
-val copyleftLimitedLicenses = getLicenseSet("copyleft-limited")
+val copyleftLimitedLicenses = getLicenseCategory("copyleft-limited")
 
-val publicDomainLicenses = getLicenseSet("public-domain")
+val publicDomainLicenses = getLicenseCategory("public-domain")
 
 // The complete set of licenses covered by policy rules.
 val handledLicenses = listOf(
@@ -96,7 +97,7 @@ fun PackageRule.LicenseRule.isCopyleftLimited() =
  */
 
 // Define the set of policy rules.
-val ruleSet = ruleSet(ortResult, packageConfigurationProvider) {
+val ruleSet = ruleSet(ortResult, licenseInfoResolver) {
     // Define a rule that is executed for each package.
     packageRule("UNHANDLED_LICENSE") {
         // Do not trigger this rule on packages that have been excluded in the .ort.yml.
@@ -126,7 +127,7 @@ val ruleSet = ruleSet(ortResult, packageConfigurationProvider) {
             -isExcluded()
         }
 
-        pkg.declaredLicensesProcessed.unmapped.forEach { unmappedLicense ->
+        resolvedLicenseInfo.licenseInfo.declaredLicenseInfo.processed.unmapped.forEach { unmappedLicense ->
             warning(
                 "The declared license '$unmappedLicense' could not be mapped to a valid license or parsed as an SPDX " +
                         "expression. The license was found in package ${pkg.id.toCoordinates()}.",

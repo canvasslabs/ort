@@ -23,6 +23,10 @@ package org.ossreviewtoolkit.helper.common
 
 import java.io.File
 import java.io.IOException
+import java.nio.file.Paths
+
+import kotlin.io.path.createTempDirectory
+import kotlin.io.path.createTempFile
 
 import okhttp3.Request
 
@@ -41,10 +45,12 @@ import org.ossreviewtoolkit.model.Provenance
 import org.ossreviewtoolkit.model.RemoteArtifact
 import org.ossreviewtoolkit.model.Repository
 import org.ossreviewtoolkit.model.RuleViolation
+import org.ossreviewtoolkit.model.ScanResult
 import org.ossreviewtoolkit.model.Severity
 import org.ossreviewtoolkit.model.TextLocation
 import org.ossreviewtoolkit.model.VcsInfo
 import org.ossreviewtoolkit.model.config.AnalyzerConfiguration
+import org.ossreviewtoolkit.model.config.CopyrightGarbage
 import org.ossreviewtoolkit.model.config.Curations
 import org.ossreviewtoolkit.model.config.Excludes
 import org.ossreviewtoolkit.model.config.IssueResolution
@@ -59,7 +65,7 @@ import org.ossreviewtoolkit.model.readValue
 import org.ossreviewtoolkit.model.utils.FindingCurationMatcher
 import org.ossreviewtoolkit.model.utils.PackageConfigurationProvider
 import org.ossreviewtoolkit.model.utils.SimplePackageConfigurationProvider
-import org.ossreviewtoolkit.model.utils.collectLicenseFindings
+import org.ossreviewtoolkit.model.utils.createLicenseInfoResolver
 import org.ossreviewtoolkit.model.yamlMapper
 import org.ossreviewtoolkit.spdx.SpdxExpression
 import org.ossreviewtoolkit.spdx.SpdxSingleLicenseExpression
@@ -102,7 +108,7 @@ internal fun download(url: String): File {
 
         // Use the filename from the request for the last redirect.
         val tempFileName = response.request.url.pathSegments.last()
-        return createTempFile(ORT_NAME, tempFileName).also { tempFile ->
+        return createTempFile(ORT_NAME, tempFileName).toFile().also { tempFile ->
             tempFile.sink().buffer().use { it.writeAll(body.source()) }
             tempFile.deleteOnExit()
         }
@@ -136,9 +142,7 @@ internal fun findRepositoryPaths(directory: File): Map<String, Set<String>> {
     val result = mutableMapOf<String, MutableSet<String>>()
 
     ortResult.repository.nestedRepositories.forEach { (path, vcs) ->
-        result
-            .getOrPut(vcs.url.stripCredentialsFromUrl()) { mutableSetOf() }
-            .add(path)
+        result.getOrPut(vcs.url.stripCredentialsFromUrl()) { mutableSetOf() } += path
     }
 
     return result
@@ -159,7 +163,7 @@ internal fun <K, V> greedySetCover(sets: Map<K, Set<V>>): Set<K> {
         if (uncovered.intersect(maxCover.value).isNotEmpty()) {
             uncovered.removeAll(maxCover.value)
             queue.remove(maxCover)
-            result.add(maxCover.key)
+            result += maxCover.key
         } else {
             break
         }
@@ -185,7 +189,7 @@ internal fun List<ScopeExclude>.minimize(projectScopes: List<String>): List<Scop
  * the given [id] depending on whether a scan result is present with matching [Provenance].
  */
 internal fun OrtResult.fetchScannedSources(id: Identifier): File {
-    val tempDir = createTempDir(ORTH_NAME, directory = File("."))
+    val tempDir = createTempDirectory(Paths.get("."), ORTH_NAME).toFile()
 
     val pkg = getPackageOrProject(id)!!.let {
         if (getProvenance(id)!!.sourceArtifact != null) {
@@ -235,39 +239,42 @@ internal data class ProcessedCopyrightStatement(
 internal fun OrtResult.processAllCopyrightStatements(
     omitExcluded: Boolean = true,
     copyrightGarbage: Set<String> = emptySet(),
-    packageConfigurationProvider: PackageConfigurationProvider = SimplePackageConfigurationProvider()
+    packageConfigurationProvider: PackageConfigurationProvider = SimplePackageConfigurationProvider.EMPTY
 ): List<ProcessedCopyrightStatement> {
     val result = mutableListOf<ProcessedCopyrightStatement>()
 
     val processor = CopyrightStatementsProcessor()
 
-    collectLicenseFindings(packageConfigurationProvider, omitExcluded = omitExcluded).forEach { (id, findings) ->
-        findings.forEach innerForEach@{ (licenseFindings, pathExcludes) ->
-            if (omitExcluded && pathExcludes.isNotEmpty()) return@innerForEach
+    val licenseInfoResolver = createLicenseInfoResolver(
+        packageConfigurationProvider = packageConfigurationProvider,
+        copyrightGarbage = CopyrightGarbage(copyrightGarbage.toSortedSet())
+    )
 
-            val processResult = processor.process(
-                licenseFindings.copyrights.map { it.statement }.filterNot { it in copyrightGarbage }
-            )
+    getProjectAndPackageIds().forEach { id ->
+        licenseInfoResolver.resolveLicenseInfo(id).forEach innerForEach@{ resolvedLicense ->
+            if (omitExcluded && resolvedLicense.isDetectedExcluded) return@innerForEach
+
+            val copyrights = resolvedLicense.getResolvedCopyrights(omitExcluded).flatMap { resolvedCopyright ->
+                resolvedCopyright.findings.map { it.statement }
+            }
+
+            val processResult = processor.process(copyrights)
 
             processResult.processedStatements.filterNot { it.key in copyrightGarbage }.forEach {
-                result.add(
-                    ProcessedCopyrightStatement(
-                        packageId = id,
-                        license = licenseFindings.license,
-                        statement = it.key,
-                        rawStatements = it.value.toSet()
-                    )
+                result += ProcessedCopyrightStatement(
+                    packageId = id,
+                    license = resolvedLicense.license,
+                    statement = it.key,
+                    rawStatements = it.value.toSet()
                 )
             }
 
             processResult.unprocessedStatements.filterNot { it in copyrightGarbage }.forEach {
-                result.add(
-                    ProcessedCopyrightStatement(
-                        packageId = id,
-                        license = licenseFindings.license,
-                        statement = it,
-                        rawStatements = setOf(it)
-                    )
+                result += ProcessedCopyrightStatement(
+                    packageId = id,
+                    license = resolvedLicense.license,
+                    statement = it,
+                    rawStatements = setOf(it)
                 )
             }
         }
@@ -302,7 +309,7 @@ internal fun OrtResult.getLicenseFindingsById(
             scanResult.summary.licenseFindings.let { findings ->
                 if (applyCurations) {
                     FindingCurationMatcher().applyAll(findings, getLicenseFindingsCurations(scanResult.provenance))
-                        .mapNotNull { it.curatedFinding }.distinct()
+                        .mapNotNullTo(mutableSetOf()) { it.curatedFinding }
                 } else {
                     findings
                 }
@@ -316,7 +323,7 @@ internal fun OrtResult.getLicenseFindingsById(
                 }
             }.forEach { finding ->
                 finding.license.decompose().forEach {
-                    findingsForProvenance.getOrPut(it) { mutableSetOf() }.add(finding.location)
+                    findingsForProvenance.getOrPut(it) { mutableSetOf() } += finding.location
                 }
             }
         }
@@ -336,10 +343,8 @@ internal fun OrtResult.getRepositoryLicenseFindingCurations(): RepositoryLicense
         val pathExcludesForRepository = result.getOrPut(vcs.url) { mutableListOf() }
         curations.forEach { curation ->
             if (curation.path.startsWith("$path/")) {
-                pathExcludesForRepository.add(
-                    curation.copy(
-                        path = curation.path.substring(path.length).removePrefix("/")
-                    )
+                pathExcludesForRepository += curation.copy(
+                    path = curation.path.substring(path.length).removePrefix("/")
                 )
             }
         }
@@ -419,10 +424,8 @@ internal fun OrtResult.getRepositoryPathExcludes(): RepositoryPathExcludes {
         val pathExcludesForRepository = result.getOrPut(vcs.url) { mutableListOf() }
         pathExcludes.forEach { pathExclude ->
             if (pathExclude.pattern.startsWith("$path/") && !isDefinitionsFile(pathExclude)) {
-                pathExcludesForRepository.add(
-                    pathExclude.copy(
-                        pattern = pathExclude.pattern.substring(path.length).removePrefix("/")
-                    )
+                pathExcludesForRepository += pathExclude.copy(
+                    pattern = pathExclude.pattern.substring(path.length).removePrefix("/")
                 )
             }
         }
@@ -451,6 +454,15 @@ fun OrtResult.replaceConfig(respositoryConfigurationFile: File?): OrtResult =
     respositoryConfigurationFile?.let {
         replaceConfig(it.readValue())
     } ?: this
+
+/**
+ * Return a copy with sorting applied to all entry types which are to be sorted.
+ */
+internal fun PackageConfiguration.sortEntries(): PackageConfiguration =
+    copy(
+        pathExcludes = pathExcludes.sortPathExcludes(),
+        licenseFindingCurations = licenseFindingCurations.sortLicenseFindingCurations()
+    )
 
 /**
  * Return a copy with the [IssueResolution]s replaced by the given [issueResolutions].
@@ -496,9 +508,7 @@ internal fun RepositoryConfiguration.sortEntries(): RepositoryConfiguration =
 internal fun RepositoryConfiguration.sortLicenseFindingCurations(): RepositoryConfiguration =
     copy(
         curations = curations.copy(
-            licenseFindings = curations.licenseFindings.sortedBy { curation ->
-                curation.path.removePrefix("*").removePrefix("*")
-            }
+            licenseFindings = curations.licenseFindings.sortLicenseFindingCurations()
         )
     )
 
@@ -508,9 +518,7 @@ internal fun RepositoryConfiguration.sortLicenseFindingCurations(): RepositoryCo
 internal fun RepositoryConfiguration.sortPathExcludes(): RepositoryConfiguration =
     copy(
         excludes = excludes.copy(
-            paths = excludes.paths.sortedBy { pathExclude ->
-                pathExclude.pattern.removePrefix("*").removePrefix("*")
-            }
+            paths = excludes.paths.sortPathExcludes()
         )
     )
 
@@ -655,6 +663,14 @@ internal fun Collection<LicenseFindingCuration>.mergeLicenseFindingCurations(
     return result.values.toList()
 }
 
+/**
+ * Return a copy with the [LicenseFindingCuration]s sorted.
+ */
+internal fun Collection<LicenseFindingCuration>.sortLicenseFindingCurations(): List<LicenseFindingCuration> =
+    sortedBy { curation ->
+        curation.path.removePrefix("*").removePrefix("*")
+    }
+
 private data class LicenseFindingCurationHashKey(
     val path: String,
     val startLines: List<Int> = emptyList(),
@@ -686,6 +702,12 @@ internal fun Collection<PathExclude>.mergePathExcludes(
 
     return result.values.toList()
 }
+
+/**
+ * Return a copy with the [PathExclude]s sorted.
+ */
+internal fun Collection<PathExclude>.sortPathExcludes(): List<PathExclude> =
+    sortedBy { it.pattern.removePrefix("*").removePrefix("*") }
 
 /**
  * Merge the given [ScopeExclude]s replacing entries with equal [ScopeExclude.pattern].
@@ -742,3 +764,62 @@ internal fun PackageConfiguration.writeAsYaml(targetFile: File) {
     targetFile.absoluteFile.parentFile.safeMkdirs()
     yamlMapper.writeValue(targetFile, this)
 }
+
+internal fun importPathExcludes(sourceCodeDir: File, pathExcludesFile: File): List<PathExclude> {
+    println("Analyzing $sourceCodeDir...")
+    val repositoryPaths = findRepositoryPaths(sourceCodeDir)
+    println("Found ${repositoryPaths.size} repositories in ${repositoryPaths.values.sumBy { it.size }} locations.")
+
+    println("Loading $pathExcludesFile...")
+    val pathExcludes = pathExcludesFile.readValue<RepositoryPathExcludes>()
+    println("Found ${pathExcludes.values.sumBy { it.size }} excludes for ${pathExcludes.size} repositories.")
+
+    val result = mutableListOf<PathExclude>()
+
+    repositoryPaths.forEach { (vcsUrl, relativePaths) ->
+        pathExcludes[vcsUrl]?.let { pathExcludesForRepository ->
+            pathExcludesForRepository.forEach { pathExclude ->
+                relativePaths.forEach { path ->
+                    result += pathExclude.copy(pattern = path + '/' + pathExclude.pattern)
+                }
+            }
+        }
+    }
+
+    return result
+}
+
+internal fun importLicenseFindingCurations(
+    sourceCodeDir: File,
+    licenseFindingCurationsFile: File
+): List<LicenseFindingCuration> {
+    println("Analyzing $sourceCodeDir...")
+    val repositoryPaths = findRepositoryPaths(sourceCodeDir)
+    println("Found ${repositoryPaths.size} repositories in ${repositoryPaths.values.sumBy { it.size }} locations.")
+
+    println("Loading $licenseFindingCurationsFile...")
+    val curations = licenseFindingCurationsFile.readValue<RepositoryLicenseFindingCurations>()
+    println("Found ${curations.values.sumBy { it.size }} curations for ${curations.size} repositories.")
+
+    val result = mutableListOf<LicenseFindingCuration>()
+
+    repositoryPaths.forEach { (vcsUrl, relativePaths) ->
+        curations[vcsUrl]?.let { curationsForRepository ->
+            curationsForRepository.forEach { curation ->
+                relativePaths.forEach { path ->
+                    result += curation.copy(path = path + '/' + curation.path)
+                }
+            }
+        }
+    }
+
+    return result
+}
+
+/**
+ * Return the scan result matching the given package configuration if any or null otherwise.
+ */
+internal fun OrtResult.getScanResultFor(packageConfiguration: PackageConfiguration): ScanResult? =
+    getScanResultsForId(packageConfiguration.id).find { scanResult ->
+        packageConfiguration.matches(packageConfiguration.id, scanResult.provenance)
+    }

@@ -42,6 +42,8 @@ analyzer:
     ort_version: "HEAD"
     java_version: "<REPLACE_JAVA>"
     os: "<REPLACE_OS>"
+    processors: "<REPLACE_PROCESSORS>"
+    max_memory: "<REPLACE_MAX_MEMORY>"
     variables: {}
     tool_versions: {}
   config:
@@ -597,4 +599,5 @@ analyzer:
           comment: "Declared license in pom.xml is wrong."
     has_issues: true
 scanner: null
+advisor: null
 evaluator: null

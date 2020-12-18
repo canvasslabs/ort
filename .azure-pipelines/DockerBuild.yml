@@ -3,15 +3,14 @@ jobs:
 - job: DockerBuild
   pool:
     vmImage: ubuntu-18.04
+  variables:
+    DOCKER_BUILDKIT: 1
   # TODO: Add caching.
   steps:
   - checkout: self
     fetchDepth: 1
     submodules: false
 
-  - task: Docker@2
+  - task: ShellScript@2
     inputs:
-      command: build
-      Dockerfile: Dockerfile
-      tags: |
-        ort
+      scriptPath: scripts/docker_build.sh

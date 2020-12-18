@@ -145,9 +145,9 @@ class ReportTableModelMapper(
                 val analyzerIssues = projectIssues[id].orEmpty() + analyzerResult.issues[id].orEmpty() +
                         analyzerIssuesForPackages[id].orEmpty()
 
-                val scanIssues = scanResult?.results?.flatMap {
+                val scanIssues = scanResult?.results?.flatMapTo(mutableSetOf()) {
                     it.summary.issues
-                }?.distinct().orEmpty()
+                }.orEmpty()
 
                 val packageForId = ortResult.getPackage(id)?.pkg ?: ortResult.getProject(id)?.toPackage()
 
@@ -229,7 +229,7 @@ class ReportTableModelMapper(
 
         // TODO: Use the prefixes up until the first '.' (which below get discarded) for some visual grouping in the
         // report.
-        val metadata = ortResult.labels.mapKeys { it.key.substringAfter(".") }
+        val labels = ortResult.labels.mapKeys { it.key.substringAfter(".") }
 
         val ruleViolations = ortResult.getRuleViolations()
             .map { it.toResolvableViolation() }
@@ -242,7 +242,7 @@ class ReportTableModelMapper(
             issueSummaryTable,
             summaryTable,
             projectTables,
-            metadata
+            labels
         )
     }
 }

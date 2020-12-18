@@ -23,6 +23,7 @@ val jacksonVersion: String by project
 val kotlinxCoroutinesVersion: String by project
 val mavenVersion: String by project
 val mavenResolverVersion: String by project
+val mockkVersion: String by project
 val semverVersion: String by project
 val toml4jVersion: String by project
 
@@ -44,10 +45,11 @@ repositories {
 }
 
 dependencies {
+    api(project(":clients:clearly-defined"))
     api(project(":model"))
-    api(project(":clearly-defined"))
 
     implementation(project(":downloader"))
+    implementation(project(":spdx-utils"))
     implementation(project(":utils"))
 
     implementation("com.fasterxml.jackson.module:jackson-module-kotlin:$jacksonVersion")
@@ -66,4 +68,6 @@ dependencies {
 
     implementation("org.gradle:gradle-tooling-api:${gradle.gradleVersion}")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:$kotlinxCoroutinesVersion")
+
+    testImplementation("io.mockk:mockk:$mockkVersion")
 }

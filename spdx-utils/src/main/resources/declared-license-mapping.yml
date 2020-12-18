@@ -19,11 +19,13 @@
 "Affero General Public License (AGPL) v. 3": AGPL-3.0-only
 "Aladdin Free Public License (AFPL)": Aladdin
 "Amazon Software License": LicenseRef-scancode-amazon-sl
+"Android Software Development Kit License": LicenseRef-scancode-android-sdk-license
 "Apache  Version 2.0, January 2004": Apache-2.0
 "Apache 2": Apache-2.0
 "Apache 2.0 License": Apache-2.0
 "Apache 2.0": Apache-2.0
 "Apache License (2.0)": Apache-2.0
+"Apache License (v2.0)": Apache-2.0
 "Apache License 2": Apache-2.0
 "Apache License Version 2": Apache-2.0
 "Apache License Version 2.0": Apache-2.0
@@ -34,7 +36,8 @@
 "Apache License, V2 or later": Apache-2.0
 "Apache License, V2.0 or later": Apache-2.0
 "Apache License, Version 2": Apache-2.0
-"Apache License, Version 2.0 and\n        Common Development And Distribution License (CDDL) Version 1.0 ": Apache-2.0 AND CDDL-1.0
+"Apache License, Version 2.0 and Common Development And Distribution License (CDDL) Version 1.0": Apache-2.0 AND CDDL-1.0
+"Apache License, Version 2.0 and\n        Common Development And Distribution License (CDDL) Version 1.0": Apache-2.0 AND CDDL-1.0
 "Apache License, Version 2.0": Apache-2.0
 "Apache License,Version 2.0": Apache-2.0
 "Apache Public License 2.0": Apache-2.0
@@ -85,6 +88,7 @@
 "BSD style license": BSD-3-Clause
 "BSD style": BSD-3-Clause
 "BSD*": BSD-3-Clause
+"BSD-3 Clause": BSD-3-Clause
 "BSD-Style + Attribution": BSD-3-Clause-Attribution
 "BSD-derived (http://www.repoze.org/LICENSE.txt)": LicenseRef-scancode-repoze
 "BSD-like license": BSD-3-Clause
@@ -161,7 +165,7 @@
 "DFSG approved": LicenseRef-scancode-free-unknown
 "Dual License: CDDL 1.0 and GPL V2 with Classpath Exception": CDDL-1.0 AND GPL-2.0-only
 "Dual license consisting of the CDDL v1.1 and GPL v2": CDDL-1.1 AND GPL-2.0-only
-"EDL 1.0": LicenseRef-scancode-edl-1.0
+"EDL 1.0": BSD-3-Clause
 "EPL (Eclipse Public License), V1.0 or later": EPL-1.0
 "Eclipse Distribution License (EDL), Version 1.0": BSD-3-Clause
 "Eclipse Distribution License (New BSD License)": BSD-3-Clause
@@ -173,6 +177,7 @@
 "Eclipse Public License (EPL), Version 1.0": EPL-1.0
 "Eclipse Public License - Version 1.0": EPL-1.0
 "Eclipse Public License - v 1.0": EPL-1.0
+"Eclipse Public License - v 2.0": EPL-2.0
 "Eclipse Public License 1.0 (EPL-1.0)": EPL-1.0
 "Eclipse Public License 2.0 (EPL-2.0)": EPL-2.0
 "Eclipse Public License v. 2.0": EPL-2.0
@@ -208,6 +213,7 @@
 "GNU GENERAL PUBLIC LICENSE Version 2, June 1991": GPL-2.0-only
 "GNU GPL v2": GPL-2.0-only
 "GNU General Lesser Public License (LGPL) version 2.1": LGPL-2.1-only
+"GNU General Lesser Public License (LGPL) version 3.0": LGPL-3.0-only
 "GNU General Public Library": GPL-3.0-only
 "GNU General Public License (GPL) v. 2": GPL-2.0-only
 "GNU General Public License (GPL) v. 3": GPL-3.0-only
@@ -217,6 +223,7 @@
 "GNU General Public License Version 2": GPL-2.0-only
 "GNU General Public License v2 (GPLv2)": GPL-2.0-only
 "GNU General Public License v2 or later (GPLv2+)": GPL-2.0-or-later
+"GNU General Public License v2.0 only, with Classpath exception": GPL-2.0-only WITH Classpath-exception-2.0
 "GNU General Public License v3 (GPLv3)": GPL-3.0-only
 "GNU General Public License v3 or later (GPLv3+)": GPL-3.0-or-later
 "GNU General Public License, Version 2 with the Classpath Exception": GPL-2.0-only WITH Classpath-exception-2.0
@@ -240,6 +247,7 @@
 "GNU Lesser General Public License (LGPL)": LGPL-2.1-only
 "GNU Lesser General Public License (LGPL), Version 2.1": LGPL-2.1-only
 "GNU Lesser General Public License (LGPL), Version 3": LGPL-3.0-only
+"GNU Lesser General Public License (LGPL), version 2.1 or later": LGPL-2.1-or-later
 "GNU Lesser General Public License 2.1": LGPL-2.1-only
 "GNU Lesser General Public License Version 2.1": LGPL-2.1-only
 "GNU Lesser General Public License Version 2.1, February 1999": LGPL-2.1-only
@@ -266,6 +274,7 @@
 "GWT Terms": Apache-2.0 AND BSD-3-Clause AND CC0-1.0 AND EPL-1.0 AND LGPL-2.1-only AND MPL-1.1
 "General Public License (GPL)": GPL-2.0-only
 "General Public License 2.0 (GPL)": GPL-2.0-only
+"Google Maps Platform Terms of Service": LicenseRef-ort-google-maps-tos
 "HERE Proprietary License": LicenseRef-scancode-here-proprietary
 "HSQLDB License": BSD-3-Clause
 "HSQLDB License, a BSD open source license": BSD-3-Clause
@@ -295,6 +304,8 @@
 "Lesser General Public License (LGPL)": LGPL-2.1-only
 "Lesser General Public License, version 3 or greater": LGPL-3.0-or-later
 "License Agreement For Open Source Computer Vision Library (3-clause BSD License)": BSD-3-Clause
+"MIT (http://mootools.net/license.txt)": MIT
+"MIT -or- Apache License 2.0": MIT OR Apache-2.0
 "MIT / http://rem.mit-license.org": MIT
 "MIT Licence": MIT
 "MIT License (http://opensource.org/licenses/MIT)": MIT
@@ -333,6 +344,7 @@
 "Nokia Open Source License (NOKOS)": Nokia
 "ODbL 1.0": ODbL-1.0
 "ODbL v1.0": ODbL-1.0
+"OSI Approved": NONE
 "Open Software License 3.0 (OSL-3.0)": OSL-3.0
 "Open Software License v. 3.0": OSL-3.0
 "Oracle Free Use Terms and Conditions (FUTC)": LicenseRef-ort-oracle-futc
@@ -357,6 +369,7 @@
 "SIL Open Font License 1.1 (OFL-1.1)": OFL-1.1
 "Scala License": Apache-2.0 AND BSD-3-Clause AND MIT
 "Sequence Library License (BSD-like)": BSD-3-Clause
+"Similar to Apache License but with the acknowledgment clause removed": LicenseRef-scancode-jdom
 "Simplified BSD License": BSD-2-Clause
 "Simplified BSD Liscence": BSD-2-Clause
 "Simplified BSD": BSD-2-Clause
@@ -368,6 +381,7 @@
 "The Apache License": Apache-2.0
 "The Apache License, Version 2.0": Apache-2.0
 "The Apache Software Licence, Version 2.0": Apache-2.0
+"The Apache Software License, Version 1.1": Apache-1.1
 "The Apache Software License, Version 2.0": Apache-2.0
 "The BSD 2-Clause License": BSD-2-Clause
 "The BSD 3-Clause License": BSD-3-Clause
@@ -403,6 +417,7 @@
 "Zlib/Libpng License": zlib-acknowledgement
 "Zope Public License": ZPL-2.1
 "Zope Public": ZPL-2.1
+"['MIT']": MIT
 "artistic license v2.0": Artistic-2.0
 "bsd 4-clause": BSD-3-Clause
 "bzip2 license": bzip2-1.0.6
@@ -449,6 +464,7 @@
 "http://creativecommons.org/publicdomain/zero/1.0/legalcode": CC0-1.0
 "http://go.microsoft.com/fwlink/?LinkId=329770": LicenseRef-scancode-ms-net-library-2018-11
 "http://go.microsoft.com/fwlink/?LinkId=529443": LicenseRef-scancode-ms-net-library-2018-11
+"http://json.codeplex.com/license": MIT
 "http://polymer.github.io/LICENSE.txt": BSD-3-Clause
 "http://svnkit.com/license.html": TMate
 "http://www.apache.org/licenses/LICENSE-2.0": Apache-2.0

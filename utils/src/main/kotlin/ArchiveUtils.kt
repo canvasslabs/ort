@@ -31,14 +31,19 @@ import java.nio.file.SimpleFileVisitor
 import java.nio.file.attribute.BasicFileAttributes
 import java.util.zip.Deflater
 
+import org.apache.commons.compress.archivers.ArchiveEntry
+import org.apache.commons.compress.archivers.ArchiveInputStream
 import org.apache.commons.compress.archivers.sevenz.SevenZFile
+import org.apache.commons.compress.archivers.tar.TarArchiveEntry
 import org.apache.commons.compress.archivers.tar.TarArchiveInputStream
 import org.apache.commons.compress.archivers.zip.ZipArchiveEntry
 import org.apache.commons.compress.archivers.zip.ZipArchiveInputStream
 import org.apache.commons.compress.archivers.zip.ZipArchiveOutputStream
+import org.apache.commons.compress.archivers.zip.ZipFile
 import org.apache.commons.compress.compressors.bzip2.BZip2CompressorInputStream
 import org.apache.commons.compress.compressors.gzip.GzipCompressorInputStream
 import org.apache.commons.compress.compressors.xz.XZCompressorInputStream
+import org.apache.commons.compress.utils.SeekableInMemoryByteChannel
 
 enum class ArchiveType(vararg val extensions: String) {
     TAR(".gem", ".tar"),
@@ -63,139 +68,67 @@ enum class ArchiveType(vararg val extensions: String) {
  * Unpack the [File] to [targetDirectory].
  */
 fun File.unpack(targetDirectory: File) =
-    if (ArchiveType.getType(name) == ArchiveType.SEVENZIP) {
-        unpack7Zip(targetDirectory)
-    } else {
-        inputStream().unpack(name, targetDirectory)
-    }
-
-/**
- * Unpack the [InputStream] to [targetDirectory]. The compression scheme is guessed from the [filename].
- */
-fun InputStream.unpack(filename: String, targetDirectory: File) {
-    when (ArchiveType.getType(filename)) {
-        ArchiveType.TAR -> unpackTar(targetDirectory)
-        ArchiveType.TAR_BZIP2 -> BZip2CompressorInputStream(this).unpackTar(targetDirectory)
-        ArchiveType.TAR_GZIP -> GzipCompressorInputStream(this).unpackTar(targetDirectory)
-        ArchiveType.TAR_XZ -> XZCompressorInputStream(this).unpackTar(targetDirectory)
+    when (ArchiveType.getType(name)) {
+        ArchiveType.SEVENZIP -> unpack7Zip(targetDirectory)
         ArchiveType.ZIP -> unpackZip(targetDirectory)
-        ArchiveType.SEVENZIP -> {
-            throw IOException("Cannot unpack a 7-Zip archive from an InputStream, use a File instead.")
-        }
+
+        ArchiveType.TAR -> inputStream().unpackTar(targetDirectory)
+        ArchiveType.TAR_BZIP2 -> BZip2CompressorInputStream(inputStream()).unpackTar(targetDirectory)
+        ArchiveType.TAR_GZIP -> GzipCompressorInputStream(inputStream()).unpackTar(targetDirectory)
+        ArchiveType.TAR_XZ -> XZCompressorInputStream(inputStream()).unpackTar(targetDirectory)
+
         ArchiveType.NONE -> {
-            throw IOException("Unable to guess compression scheme from file name '$filename'.")
+            throw IOException("Unable to guess compression scheme from file name '$name'.")
         }
     }
-}
-
-/**
- * Unpack the [InputStream] to [targetDirectory] assuming that it is a tape archive (TAR). This implementation ignores
- * empty directories and symbolic links.
- */
-fun InputStream.unpackTar(targetDirectory: File) {
-    TarArchiveInputStream(this).use {
-        while (true) {
-            val entry = it.nextTarEntry ?: break
-
-            if (!entry.isFile) {
-                continue
-            }
-
-            val target = File(targetDirectory, entry.name)
-
-            // There is no guarantee that directory entries appear before file entries, so always ensure the parent
-            // directory for a file exists.
-            target.parentFile.safeMkdirs()
-
-            target.outputStream().use { output ->
-                it.copyTo(output)
-            }
-
-            if (!Os.isWindows) {
-                // Note: In contrast to Java, Kotlin does not support octal literals, see
-                // https://kotlinlang.org/docs/reference/basic-types.html#literal-constants.
-                // The bit-triplets from left to right stand for user, groups, other, respectively.
-                if (entry.mode and 0b001_000_001 != 0) {
-                    target.setExecutable(true, (entry.mode and 0b000_000_001) == 0)
-                }
-            }
-        }
-    }
-}
-
-/**
- * Unpack the [InputStream] to [targetDirectory] assuming that it is a ZIP file. This implementation ignores empty
- * directories and symbolic links.
- */
-fun InputStream.unpackZip(targetDirectory: File) {
-    ZipArchiveInputStream(this).use {
-        while (true) {
-            val entry = it.nextZipEntry ?: break
-
-            if (entry.isDirectory || entry.isUnixSymlink) {
-                continue
-            }
-
-            val target = File(targetDirectory, entry.name)
-
-            // There is no guarantee that directory entries appear before file entries, so always ensure the parent
-            // directory for a file exists.
-            target.parentFile.safeMkdirs()
-
-            target.outputStream().use { output ->
-                it.copyTo(output)
-            }
-
-            if (!Os.isWindows) {
-                // Note: In contrast to Java, Kotlin does not support octal literals, see
-                // https://kotlinlang.org/docs/reference/basic-types.html#literal-constants.
-                // The bit-triplets from left to right stand for user, groups, other, respectively.
-                if (entry.unixMode and 0b001_000_001 != 0) {
-                    target.setExecutable(true, (entry.unixMode and 0b000_000_001) == 0)
-                }
-            }
-        }
-    }
-}
 
 /**
  * Unpack the [File] assuming it is a 7-Zip archive. This implementation ignores empty directories and symbolic links.
  */
 fun File.unpack7Zip(targetDirectory: File) {
-    SevenZFile(this).use {
+    SevenZFile(this).use { zipFile ->
         while (true) {
-            val entry = it.nextEntry ?: break
+            val entry = zipFile.nextEntry ?: break
 
-            if (entry.isDirectory || entry.isAntiItem) {
+            if (entry.isDirectory || entry.isAntiItem || File(entry.name).isAbsolute) {
                 continue
             }
 
-            val target = File(targetDirectory, entry.name)
+            val target = targetDirectory.resolve(entry.name)
 
-            // There is no guarantee that directory entries appear before file entries, so always ensure the parent
+            // There is no guarantee that directory entries appear before file entries, so ensure that the parent
             // directory for a file exists.
             target.parentFile.safeMkdirs()
 
             target.outputStream().use { output ->
-                val buffer = ByteArray(entry.size.toInt())
-                it.read(buffer)
-                output.write(buffer)
+                zipFile.getInputStream(entry).copyTo(output)
             }
         }
     }
 }
 
 /**
+ * Unpack the [File] assuming it is a Zip archive.
+ */
+fun File.unpackZip(targetDirectory: File) = ZipFile(this).unpack(targetDirectory)
+
+/**
+ * Unpack the [ByteArray] assuming it is a Zip archive.
+ */
+fun ByteArray.unpackZip(targetDirectory: File) = ZipFile(SeekableInMemoryByteChannel(this)).unpack(targetDirectory)
+
+/**
  * Pack the file into a ZIP [targetFile] using [Deflater.BEST_COMPRESSION]. If the file is a directory its content is
  * recursively added to the archive. Only regular files are added, e.g. symbolic links or directories are skipped. If
  * a [prefix] is specified, it is added to the file names in the ZIP file.
- * If not all files shall be added to the archive a [filter] can be provided.
+ * If not all directories or files shall be added to the archive a [directoryFilter] or [fileFilter] can be provided.
  */
 fun File.packZip(
     targetFile: File,
     prefix: String = "",
     overwrite: Boolean = false,
-    filter: (Path) -> Boolean = { true }
+    directoryFilter: (File) -> Boolean = { true },
+    fileFilter: (File) -> Boolean = { true }
 ) {
     require(overwrite || !targetFile.exists()) {
         "The target ZIP file '${targetFile.absolutePath}' must not exist."
@@ -203,12 +136,21 @@ fun File.packZip(
 
     ZipArchiveOutputStream(targetFile).use { output ->
         output.setLevel(Deflater.BEST_COMPRESSION)
+
         Files.walkFileTree(toPath(), object : SimpleFileVisitor<Path>() {
+            override fun preVisitDirectory(dir: Path, attrs: BasicFileAttributes): FileVisitResult {
+                return if (directoryFilter(dir.toFile())) FileVisitResult.CONTINUE else FileVisitResult.SKIP_SUBTREE
+            }
+
             override fun visitFile(file: Path, attrs: BasicFileAttributes): FileVisitResult {
-                if (attrs.isRegularFile && filter(file)) {
-                    val entry = ZipArchiveEntry(file.toFile(), "$prefix${this@packZip.toPath().relativize(file)}")
+                if (!attrs.isRegularFile) return FileVisitResult.CONTINUE
+
+                val fileAsFile = file.toFile()
+                if (fileFilter(fileAsFile)) {
+                    val packPath = prefix + fileAsFile.toRelativeString(this@packZip)
+                    val entry = ZipArchiveEntry(fileAsFile, packPath)
                     output.putArchiveEntry(entry)
-                    file.toFile().inputStream().use { input -> input.copyTo(output) }
+                    fileAsFile.inputStream().use { input -> input.copyTo(output) }
                     output.closeArchiveEntry()
                 }
 
@@ -217,3 +159,97 @@ fun File.packZip(
         })
     }
 }
+
+/**
+ * Unpack the [InputStream] to [targetDirectory] assuming that it is a tape archive (TAR). This implementation ignores
+ * empty directories and symbolic links.
+ */
+fun InputStream.unpackTar(targetDirectory: File) =
+    TarArchiveInputStream(this).unpack(
+        targetDirectory,
+        { entry -> !(entry as TarArchiveEntry).isFile || File(entry.name).isAbsolute },
+        { entry -> (entry as TarArchiveEntry).mode }
+    )
+
+/**
+ * Unpack the [InputStream] to [targetDirectory] assuming that it is a ZIP archive. This implementation ignores empty
+ * directories and symbolic links.
+ */
+fun InputStream.unpackZip(targetDirectory: File) =
+    ZipArchiveInputStream(this).unpack(
+        targetDirectory,
+        { entry -> (entry as ZipArchiveEntry).let { it.isDirectory || it.isUnixSymlink || File(it.name).isAbsolute } },
+        { entry -> (entry as ZipArchiveEntry).unixMode }
+    )
+
+/**
+ * Copy the executable bit contained in [mode] to the [target] file's mode bits.
+ */
+private fun copyExecutableModeBit(target: File, mode: Int) {
+    if (Os.isWindows) return
+
+    // Note: In contrast to Java, Kotlin does not support octal literals, see
+    // https://kotlinlang.org/docs/reference/basic-types.html#literal-constants.
+    // The bit-triplets from left to right stand for user, groups, other, respectively.
+    if (mode and 0b001_000_001 != 0) {
+        target.setExecutable(true, (mode and 0b000_000_001) == 0)
+    }
+}
+
+/**
+ * Unpack this [ArchiveInputStream] to the [targetDirectory], skipping all entries for which [shouldSkip] returns true,
+ * and using what [mode] returns as the file mode bits.
+ */
+private fun ArchiveInputStream.unpack(
+    targetDirectory: File,
+    shouldSkip: (ArchiveEntry) -> Boolean,
+    mode: (ArchiveEntry) -> Int
+) =
+    use { input ->
+        while (true) {
+            val entry = input.nextEntry ?: break
+
+            if (shouldSkip(entry)) continue
+
+            val target = targetDirectory.resolve(entry.name)
+
+            // There is no guarantee that directory entries appear before file entries, so ensure that the parent
+            // directory for a file exists.
+            target.parentFile.safeMkdirs()
+
+            target.outputStream().use { output ->
+                input.copyTo(output)
+            }
+
+            copyExecutableModeBit(target, mode(entry))
+        }
+    }
+
+/**
+ * Unpack the [ZipFile]. In contrast to [InputStream.unpackZip] this properly parses the ZIP's central directory, see
+ * https://commons.apache.org/proper/commons-compress/zip.html#ZipArchiveInputStream_vs_ZipFile.
+ */
+private fun ZipFile.unpack(targetDirectory: File) =
+    use { zipFile ->
+        val entries = zipFile.entries
+
+        while (entries.hasMoreElements()) {
+            val entry = entries.nextElement()
+
+            if (entry.isDirectory || entry.isUnixSymlink || File(entry.name).isAbsolute) {
+                continue
+            }
+
+            val target = targetDirectory.resolve(entry.name)
+
+            // There is no guarantee that directory entries appear before file entries, so ensure that the parent
+            // directory for a file exists.
+            target.parentFile.safeMkdirs()
+
+            target.outputStream().use { output ->
+                zipFile.getInputStream(entry).copyTo(output)
+            }
+
+            copyExecutableModeBit(target, entry.unixMode)
+        }
+    }

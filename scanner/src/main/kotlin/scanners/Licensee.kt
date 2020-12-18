@@ -52,7 +52,8 @@ class Licensee(name: String, config: ScannerConfiguration) : LocalScanner(name, 
         val CONFIGURATION_OPTIONS = listOf("--json")
     }
 
-    override val scannerVersion = "9.13.0"
+    override val expectedVersion = "9.13.0"
+    override val configuration = CONFIGURATION_OPTIONS.joinToString(" ")
     override val resultFileExt = "json"
 
     override fun command(workingDir: File?) =
@@ -73,11 +74,11 @@ class Licensee(name: String, config: ScannerConfiguration) : LocalScanner(name, 
         // Work around Travis CI not being able to handle gem user installs, see
         // https://github.com/travis-ci/travis-ci/issues/9412.
         return if (Ci.isTravis) {
-            ProcessCapture(gem, "install", "licensee", "-v", scannerVersion).requireSuccess()
+            ProcessCapture(gem, "install", "licensee", "-v", expectedVersion).requireSuccess()
             getPathFromEnvironment(command())?.parentFile
                 ?: throw IOException("Install directory for licensee not found.")
         } else {
-            ProcessCapture(gem, "install", "--user-install", "licensee", "-v", scannerVersion).requireSuccess()
+            ProcessCapture(gem, "install", "--user-install", "licensee", "-v", expectedVersion).requireSuccess()
 
             val ruby = ProcessCapture("ruby", "-r", "rubygems", "-e", "puts Gem.user_dir").requireSuccess()
             val userDir = ruby.stdout.trimEnd()
@@ -85,8 +86,6 @@ class Licensee(name: String, config: ScannerConfiguration) : LocalScanner(name, 
             File(userDir, "bin")
         }
     }
-
-    override fun getConfiguration() = CONFIGURATION_OPTIONS.joinToString(" ")
 
     override fun scanPathInternal(path: File, resultsFile: File): ScanResult {
         val startTime = Instant.now()
@@ -109,7 +108,7 @@ class Licensee(name: String, config: ScannerConfiguration) : LocalScanner(name, 
                 stdoutFile.copyTo(resultsFile)
                 val result = getRawResult(resultsFile)
                 val summary = generateSummary(startTime, endTime, path, result)
-                return ScanResult(Provenance(), getDetails(), summary, result)
+                return ScanResult(Provenance(), details, summary)
             } else {
                 throw ScanException(errorMessage)
             }
@@ -134,7 +133,6 @@ class Licensee(name: String, config: ScannerConfiguration) : LocalScanner(name, 
                 location = TextLocation(
                     // The path is already relative.
                     filePath.path,
-                    TextLocation.UNKNOWN_LINE,
                     TextLocation.UNKNOWN_LINE
                 )
             )

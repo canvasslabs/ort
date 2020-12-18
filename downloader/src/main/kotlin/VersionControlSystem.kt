@@ -29,6 +29,7 @@ import org.ossreviewtoolkit.model.Package
 import org.ossreviewtoolkit.model.VcsInfo
 import org.ossreviewtoolkit.model.VcsType
 import org.ossreviewtoolkit.utils.CommandLineTool
+import org.ossreviewtoolkit.utils.LicenseFilenamePatterns.ALL_LICENSE_FILENAMES
 import org.ossreviewtoolkit.utils.collectMessagesAsString
 import org.ossreviewtoolkit.utils.log
 import org.ossreviewtoolkit.utils.showStackTrace
@@ -128,6 +129,15 @@ abstract class VersionControlSystem {
                 workingTree.getInfo().copy(path = workingTree.getPathToRoot(path))
             } ?: VcsInfo.EMPTY
         }
+
+        /**
+         * Return glob patterns matching all potential license or patent files.
+         */
+        internal fun getLicenseFileGlobPatterns(): List<String> =
+            ALL_LICENSE_FILENAMES.generateCapitalizationVariants().map { "**/$it" }
+
+        private fun Collection<String>.generateCapitalizationVariants() =
+            flatMap { listOf(it, it.toUpperCase(), it.capitalize()) }
     }
 
     /**
@@ -291,7 +301,9 @@ abstract class VersionControlSystem {
      * Check whether the given [revision] is likely to name a fixed revision that does not move.
      */
     fun isFixedRevision(workingTree: WorkingTree, revision: String) =
-        revision.isNotBlank() && revision !in latestRevisionNames && revision !in workingTree.listRemoteBranches()
+        revision.isNotBlank()
+                && revision !in latestRevisionNames
+                && (revision !in workingTree.listRemoteBranches() || revision in workingTree.listRemoteTags())
 
     /**
      * Check whether the VCS tool is at least of the specified [expectedVersion], e.g. to check for features.

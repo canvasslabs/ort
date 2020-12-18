@@ -39,7 +39,7 @@ const val DEFAULT_PROXY_PORT = 8080
  */
 class OrtProxySelector(private val fallback: ProxySelector? = null) : ProxySelector() {
     companion object {
-        private val NO_PROXY_LIST = listOf(Proxy.NO_PROXY)
+        internal val NO_PROXY_LIST = listOf(Proxy.NO_PROXY)
 
         /**
          * Install this proxy selector as the global default. The previous default selector is used as a fallback.
@@ -79,9 +79,17 @@ class OrtProxySelector(private val fallback: ProxySelector? = null) : ProxySelec
     private val proxyAuthentication = mutableMapOf<Proxy, PasswordAuthentication?>()
     private val proxyOrigins = mutableMapOf<String, MutableMap<String, MutableList<Proxy>>>()
 
-    private val noProxyUrls = Os.env["no_proxy"]?.let { list ->
-        list.split(',').map { it.trim() }
-    }.orEmpty()
+    private val proxyIncludes = listOfNotNull(
+        Os.env["only_proxy"],
+        System.getProperty("http.proxyIncludes"),
+        System.getProperty("https.proxyIncludes")
+    ).flatMapTo(mutableListOf()) { list -> list.split(',').map { it.trim() } }
+
+    private val proxyExcludes = listOfNotNull(
+        Os.env["no_proxy"],
+        System.getProperty("http.proxyExcludes"),
+        System.getProperty("https.proxyExcludes")
+    ).flatMapTo(mutableListOf()) { list -> list.split(',').map { it.trim() } }
 
     init {
         determineProxyFromProperties("http")?.let {
@@ -105,23 +113,35 @@ class OrtProxySelector(private val fallback: ProxySelector? = null) : ProxySelec
      * Add a [proxy with optional password authentication][authenticatedProxy] that can handle the [protocol]. The
      * [origin] is a string that helps to identify where a proxy definition comes from.
      */
-    fun addProxy(origin: String, protocol: String, authenticatedProxy: AuthenticatedProxy) {
-        val (proxy, authentication) = authenticatedProxy
-        proxyAuthentication[proxy] = authentication
+    fun addProxy(origin: String, protocol: String, authenticatedProxy: AuthenticatedProxy) =
+        apply {
+            val (proxy, authentication) = authenticatedProxy
+            proxyAuthentication[proxy] = authentication
 
-        val proxiesForOrigin = proxyOrigins.getOrPut(origin) { mutableMapOf() }
-        val proxiesForProtocol = proxiesForOrigin.getOrPut(protocol) { mutableListOf() }
-        proxiesForProtocol += proxy
-    }
+            val proxiesForOrigin = proxyOrigins.getOrPut(origin) { mutableMapOf() }
+            val proxiesForProtocol = proxiesForOrigin.getOrPut(protocol) { mutableListOf() }
+            proxiesForProtocol += proxy
+        }
 
     /**
      * Add multiple [proxies for specific protocols][proxyMap] whose definitions come from [origin].
      */
     fun addProxies(origin: String, proxyMap: ProtocolProxyMap) =
-        proxyMap.forEach { (protocol, proxies) ->
-            proxies.forEach { proxy ->
-                addProxy(origin, protocol, proxy)
+        apply {
+            proxyMap.forEach { (protocol, proxies) ->
+                proxies.forEach { proxy ->
+                    addProxy(origin, protocol, proxy)
+                }
             }
+        }
+
+    /**
+     * Remove any previously added proxies.
+     */
+    fun removeAllProxies() =
+        apply {
+            proxyAuthentication.clear()
+            proxyOrigins.clear()
         }
 
     /**
@@ -157,7 +177,12 @@ class OrtProxySelector(private val fallback: ProxySelector? = null) : ProxySelec
     override fun select(uri: URI?): List<Proxy> {
         requireNotNull(uri)
 
-        if (noProxyUrls.any { uri.authority.endsWith(it) }) return NO_PROXY_LIST
+        fun URI.matches(suffix: String) = suffix.isNotEmpty() && (authority.endsWith(suffix) || host.endsWith(suffix))
+
+        // An empty list of proxy includes means there are no restrictions as to which hosts proxies apply.
+        if (proxyIncludes.isNotEmpty() && proxyIncludes.none { uri.matches(it) }) return NO_PROXY_LIST
+
+        if (proxyExcludes.any { uri.matches(it) }) return NO_PROXY_LIST
 
         val proxies = proxyOrigins.flatMap { (_, proxiesForProtocol) ->
             proxiesForProtocol.getOrDefault(uri.scheme, mutableListOf())

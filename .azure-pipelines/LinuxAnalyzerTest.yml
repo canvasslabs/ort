@@ -4,6 +4,7 @@ jobs:
     vmImage: ubuntu-18.04
   variables:
     FLUTTER_HOME: /opt/flutter
+    PHP_VERSION: 7.2
   steps:
   - task: UsePythonVersion@0
     displayName: Enable Python 3.6
@@ -14,6 +15,12 @@ jobs:
 
   # Install required tools.
   - bash: |
+      sudo update-alternatives --set php /usr/bin/php$(PHP_VERSION)
+      sudo update-alternatives --set phar /usr/bin/phar$(PHP_VERSION)
+      sudo update-alternatives --set phpdbg /usr/bin/phpdbg$(PHP_VERSION)
+      sudo update-alternatives --set php-cgi /usr/bin/php-cgi$(PHP_VERSION)
+      sudo update-alternatives --set phar.phar /usr/bin/phar.phar$(PHP_VERSION)
+
       # Install apt packages.
       sudo apt-get -qq install cvs
 
@@ -134,8 +141,14 @@ jobs:
       gradleOptions: -Xmx8192m
 
   # Clean disk space before caching starts, otherwise the disk might run full.
-  - bash: ./gradlew --no-daemon clean
+  - task: Gradle@2
     displayName: Gradle Clean
+    inputs:
+      gradleWrapperFile: gradlew
+      options: --no-daemon
+      tasks: clean
+      javaHomeOption: JDKVersion
+      jdkVersionOption: 1.11
 
   # Ensure that any running Gradle daemon is stopped before caching starts.
   - bash: ./gradlew --stop

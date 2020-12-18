@@ -26,6 +26,8 @@ import java.io.IOException
 import java.net.HttpURLConnection
 import java.time.Instant
 
+import kotlin.io.path.createTempDirectory
+
 import okhttp3.Request
 
 import org.ossreviewtoolkit.model.EMPTY_JSON_NODE
@@ -45,7 +47,7 @@ import org.ossreviewtoolkit.utils.OkHttpClientHelper
 import org.ossreviewtoolkit.utils.Os
 import org.ossreviewtoolkit.utils.ProcessCapture
 import org.ossreviewtoolkit.utils.log
-import org.ossreviewtoolkit.utils.unpack
+import org.ossreviewtoolkit.utils.unpackZip
 
 class BoyterLc(name: String, config: ScannerConfiguration) : LocalScanner(name, config) {
     class Factory : AbstractScannerFactory<BoyterLc>("BoyterLc") {
@@ -59,7 +61,8 @@ class BoyterLc(name: String, config: ScannerConfiguration) : LocalScanner(name, 
         )
     }
 
-    override val scannerVersion = "1.3.1"
+    override val expectedVersion = "1.3.1"
+    override val configuration = CONFIGURATION_OPTIONS.joinToString(" ")
     override val resultFileExt = "json"
 
     override fun command(workingDir: File?) =
@@ -77,8 +80,8 @@ class BoyterLc(name: String, config: ScannerConfiguration) : LocalScanner(name, 
             else -> throw IllegalArgumentException("Unsupported operating system.")
         }
 
-        val archive = "lc-$scannerVersion-$platform.zip"
-        val url = "https://github.com/boyter/lc/releases/download/v$scannerVersion/$archive"
+        val archive = "lc-$expectedVersion-$platform.zip"
+        val url = "https://github.com/boyter/lc/releases/download/v$expectedVersion/$archive"
 
         log.info { "Downloading $scannerName from $url... " }
 
@@ -95,21 +98,16 @@ class BoyterLc(name: String, config: ScannerConfiguration) : LocalScanner(name, 
                 log.info { "Retrieved $scannerName from local cache." }
             }
 
-            val unpackDir = createTempDir(ORT_NAME, "$scannerName-$scannerVersion").apply { deleteOnExit() }
+            val unpackDir = createTempDirectory("$ORT_NAME-$scannerName-$expectedVersion").toFile().apply {
+                deleteOnExit()
+            }
 
             log.info { "Unpacking '$archive' to '$unpackDir'... " }
-            body.byteStream().unpack(archive, unpackDir)
-
-            if (!Os.isWindows) {
-                // The Linux version is distributed as a ZIP, but without having the Unix executable mode bits stored.
-                File(unpackDir, command()).setExecutable(true)
-            }
+            body.bytes().unpackZip(unpackDir)
 
             unpackDir
         }
     }
-
-    override fun getConfiguration() = CONFIGURATION_OPTIONS.joinToString(" ")
 
     override fun scanPathInternal(path: File, resultsFile: File): ScanResult {
         val startTime = Instant.now()
@@ -131,7 +129,7 @@ class BoyterLc(name: String, config: ScannerConfiguration) : LocalScanner(name, 
             if (isSuccess) {
                 val result = getRawResult(resultsFile)
                 val summary = generateSummary(startTime, endTime, path, result)
-                return ScanResult(Provenance(), getDetails(), summary, result)
+                return ScanResult(Provenance(), details, summary)
             } else {
                 throw ScanException(errorMessage)
             }
@@ -156,7 +154,6 @@ class BoyterLc(name: String, config: ScannerConfiguration) : LocalScanner(name, 
                     location = TextLocation(
                         // Turn absolute paths in the native result into relative paths to not expose any information.
                         relativizePath(scanPath, filePath),
-                        TextLocation.UNKNOWN_LINE,
                         TextLocation.UNKNOWN_LINE
                     )
                 )

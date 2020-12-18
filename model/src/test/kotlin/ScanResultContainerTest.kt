@@ -66,7 +66,7 @@ class ScanResultContainerTest : WordSpec() {
         sortedSetOf(
             LicenseFinding(
                 "license-1.1",
-                TextLocation("path 1.1", 1, 1)
+                TextLocation("path 1.1", 1)
             ),
             LicenseFinding(
                 "license-1.2",
@@ -76,7 +76,7 @@ class ScanResultContainerTest : WordSpec() {
         sortedSetOf(
             CopyrightFinding(
                 "copyright 1",
-                TextLocation("copyright path 1.1", 1, 1)
+                TextLocation("copyright path 1.1", 1)
             ),
             CopyrightFinding(
                 "copyright 2",
@@ -108,13 +108,8 @@ class ScanResultContainerTest : WordSpec() {
         mutableListOf(issue21, issue22)
     )
 
-    private val rawResult1 = jsonMapper.readTree("\"key 1\": \"value 1\"")
-    private val rawResult2 = jsonMapper.readTree("\"key 2\": \"value 2\"")
-
-    private val scanResult1 =
-        ScanResult(provenance1, scannerDetails1, scanSummary1, rawResult1)
-    private val scanResult2 =
-        ScanResult(provenance2, scannerDetails2, scanSummary2, rawResult2)
+    private val scanResult1 = ScanResult(provenance1, scannerDetails1, scanSummary1)
+    private val scanResult2 = ScanResult(provenance2, scannerDetails2, scanSummary2)
 
     private val scanResults = ScanResultContainer(id, listOf(scanResult1, scanResult2))
 

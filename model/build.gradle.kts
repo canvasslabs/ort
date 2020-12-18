@@ -18,11 +18,9 @@
  * License-Filename: LICENSE
  */
 
-import org.jetbrains.kotlin.gradle.dsl.KotlinCompile
-
 import org.ossreviewtoolkit.gradle.*
 
-val config4kVersion: String by project
+val hopliteVersion: String by project
 val jacksonVersion: String by project
 val semverVersion: String by project
 
@@ -32,6 +30,7 @@ plugins {
 }
 
 dependencies {
+    api(project(":clients:clearly-defined"))
     api(project(":spdx-utils"))
     api(project(":utils"))
 
@@ -41,36 +40,17 @@ dependencies {
 
     implementation("com.fasterxml.jackson.datatype:jackson-datatype-jsr310:$jacksonVersion")
     implementation("com.fasterxml.jackson.module:jackson-module-kotlin:$jacksonVersion")
+    implementation("com.sksamuel.hoplite:hoplite-core:$hopliteVersion")
+    implementation("com.sksamuel.hoplite:hoplite-hocon:$hopliteVersion")
     implementation("com.vdurmont:semver4j:$semverVersion")
-    implementation("io.github.config4k:config4k:$config4kVersion")
     implementation("org.jetbrains.kotlin:kotlin-reflect")
 }
 
-val generateVersionResource by tasks.registering {
-    group = "Build"
-    description = "Generates a plain text resource file containing the current application version."
-
-    val versionFile = file("$projectDir/src/main/resources/VERSION")
-
-    inputs.property("version", version.toString())
-    outputs.file(versionFile)
-
-    doLast {
-        versionFile.writeText(version.toString())
-    }
-}
-
-tasks.withType(KotlinCompile::class) {
-    dependsOn(generateVersionResource)
-}
-
-rootProject.idea {
-    project {
-        settings {
-            taskTriggers {
-                afterSync(generateVersionResource.get())
-                beforeBuild(generateVersionResource.get())
-            }
-        }
+tasks.withType<Jar>().configureEach {
+    manifest {
+        val versionCandidates = listOf(project.version, rootProject.version)
+        attributes["Implementation-Version"] = versionCandidates.find {
+            it != Project.DEFAULT_VERSION
+        } ?: "GRADLE-SNAPSHOT"
     }
 }

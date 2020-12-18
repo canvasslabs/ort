@@ -35,7 +35,7 @@ git clone --recurse-submodules https://github.com/oss-review-toolkit/ort.git
 To build the command line interface run:
 
 ```bash
-cd oss-review-toolkit
+cd ort
 ./gradlew installDist
 ```
 
@@ -49,11 +49,11 @@ cli/build/install/ort/bin/ort --help
 ## 3. Download the `mime-types` source code
 
 Before scanning `mime-types` its source code has to be downloaded. For reliable results we use version 2.1.18 (replace
-`[mime-types-path]` with the path you want to clone `mime-types` to):
+`[mime-types-dir]` with the directory you want to clone `mime-types` to):
 
 ```bash
-git clone https://github.com/jshttp/mime-types.git [mime-types-path]
-cd [mime-types-path]
+git clone https://github.com/jshttp/mime-types.git [mime-types-dir]
+cd [mime-types-dir]
 git checkout 2.1.18
 ```
 
@@ -66,14 +66,14 @@ The next step is to run the _analyzer_. It will create a JSON or YAML output fil
 # Command line help specific to the analyzer.
 cli/build/install/ort/bin/ort analyze --help
 
-# The easiest way to run the analyzer. Be aware that the [analyzer-output-path] directory must not exist.
-cli/build/install/ort/bin/ort analyze -i [mime-types-path] -o [analyzer-output-path]
+# The easiest way to run the analyzer. Be aware that the [analyzer-output-dir] directory must not exist.
+cli/build/install/ort/bin/ort analyze -i [mime-types-dir] -o [analyzer-output-dir]
 
 # The command above will create the default YAML output. If you prefer JSON run:
-cli/build/install/ort/bin/ort analyze -i [mime-types-path] -o [analyzer-output-path] -f JSON
+cli/build/install/ort/bin/ort analyze -i [mime-types-dir] -o [analyzer-output-dir] -f JSON
 
 # To get the maximum log output run:
-cli/build/install/ort/bin/ort --debug --stacktrace analyze -i [mime-types-path] -o [analyzer-output-path]
+cli/build/install/ort/bin/ort --debug --stacktrace analyze -i [mime-types-dir] -o [analyzer-output-dir]
 ```
 
 The _analyzer_ will search for build files of all supported package managers. In case of `mime-types` it will find the
@@ -84,9 +84,9 @@ first attempt of running the analyzer on the `mime-types` package it will fail w
 The following package managers are activated:
         Bower, Bundler, Cargo, DotNet, GoDep, Gradle, Maven, NPM, NuGet, PhpComposer, PIP, SBT, Stack, Yarn
 Analyzing project path:
-        [mime-types-path]
-ERROR - Resolving dependencies for 'package.json' failed with: No lockfile found in '[mime-types-path]'. This potentially results in unstable versions of dependencies. To allow this, enable support for dynamic versions.
-Writing analyzer result to '[analyzer-output-path]/analyzer-result.yml'.
+        [mime-types-dir]
+ERROR - Resolving dependencies for 'package.json' failed with: No lockfile found in '[mime-types-dir]'. This potentially results in unstable versions of dependencies. To allow this, enable support for dynamic versions.
+Writing analyzer result to '[analyzer-output-dir]/analyzer-result.yml'.
 ```
 
 This happens because `mime-types` does not have `package-lock.json` file. Without this file the versions of (transitive)
@@ -94,12 +94,12 @@ dependencies that are defined with version ranges could change at any time, lead
 analyzer. To override this check use the `--allow-dynamic-versions` option:
 
 ```bash
-$ cli/build/install/ort/bin/ort analyze -i [mime-types-path] -o [analyzer-output-path] --allow-dynamic-versions
+$ cli/build/install/ort/bin/ort analyze -i [mime-types-dir] -o [analyzer-output-dir] --allow-dynamic-versions
 The following package managers are activated:
         Gradle, Maven, SBT, NPM, Yarn, GoDep, PIP, Bundler, PhpComposer, Stack
 Analyzing project path:
-        [mime-types-path]
-Writing analyzer result to '[analyzer-output-path]/analyzer-result.yml'.
+        [mime-types-dir]
+Writing analyzer result to '[analyzer-output-dir]/analyzer-result.yml'.
 ```
 
 The result file will contain information about the `mime-types` package itself, the dependency tree for each scope, and
@@ -109,10 +109,10 @@ information about each dependency. The scope names come from the package manager
 Note that the `analyzer-result.yml` is supposed to capture all known information about a project, which can then be
 "filtered" in later steps. For example, scopes which are not relevant for the distribution will still be listed,
 but can be configured to get excluded so that they e.g. do not get downloaded and scanned by the _scanner_ step.
-To specify which scopes should be excluded, add an `.ort.yml` configuration file to the input directory of the _analyzer_. 
-For more details see [Configuration File](config-file-ort-yml.md).
+To specify which scopes should be excluded, add an `.ort.yml` configuration file to the input directory of the
+_analyzer_. For more details see [Configuration File](config-file-ort-yml.md).
 
-For this guide, `[mime-types-path]/.ort.yml` can be created with following content:
+For this guide, `[mime-types-dir]/.ort.yml` can be created with following content:
 
 ```yaml
 excludes:
@@ -243,17 +243,17 @@ To scan the source code of `mime-types` and its dependencies the source code of 
 needs to be downloaded. The _downloader_ tool could be used for this, but it is also integrated in the `scanner` tool,
 so the scanner will automatically download the source code if the required VCS metadata could be obtained.
 
-Note that if _downloader_ is unable to download the source code due to say a missing
-source code location in the package metadata then you can use curations as a workaround.
+Note that if _downloader_ is unable to download the source code due to say a missing source code location in the package
+metadata then you can use curations as a workaround.
 
 To use curations, create a [curations.yml](config-file-curations-yml.md)
 and pass it to the `--package-curations-file` option of the _analyzer_:
 
 ```
 cli/build/install/ort/bin/ort analyze
-  -i [mime-types-path]
-  -o [analyzer-output-path]
-  --package-curations-file [ort-configuration-path]/curations.yml
+  -i [mime-types-dir]
+  -o [analyzer-output-dir]
+  --package-curations-file $ORT_CONFIG_DIR/curations.yml
 ```
 
 ORT is designed to integrate lots of different scanners and is not limited to license scanners, technically any tool
@@ -279,20 +279,20 @@ As during the _analyzer_ step an `.ort.yml` configuration file was provided to e
 the `--skip-excluded` option can be used to avoid the download and scanning of that scope.
 
 ```bash
-$ cli/build/install/ort/bin/ort scan -i [analyzer-output-path]/analyzer-result.yml -o [scanner-output-path] --skip-excluded
+$ cli/build/install/ort/bin/ort scan -i [analyzer-output-dir]/analyzer-result.yml -o [scanner-output-dir] --skip-excluded
 Using scanner 'ScanCode'.
 Limiting scan to scopes: [dependencies]
 Bootstrapping scanner 'ScanCode' as required version 2.9.2 was not found in PATH.
 Using processed VcsInfo(type=git, url=https://github.com/jshttp/mime-db.git, revision=482cd6a25bbd6177de04a686d0e2a0c2465bf445, resolvedRevision=null, path=).
 Original was VcsInfo(type=git, url=git+https://github.com/jshttp/mime-db.git, revision=482cd6a25bbd6177de04a686d0e2a0c2465bf445, resolvedRevision=null, path=).
-Running ScanCode version 2.9.2 on directory '[scanner-output-path]/downloads/NPM/unknown/mime-db/1.35.0'.
+Running ScanCode version 2.9.2 on directory '[scanner-output-dir]/downloads/NPM/unknown/mime-db/1.35.0'.
 Using processed VcsInfo(type=git, url=https://github.com/jshttp/mime-types.git, revision=7c4ce23d7354fbf64c69d7b7be8413c4ba2add78, resolvedRevision=null, path=).
 Original was VcsInfo(type=, url=https://github.com/jshttp/mime-types.git, revision=, resolvedRevision=null, path=).
-Running ScanCode version 2.9.2 on directory '[scanner-output-path]/downloads/NPM/unknown/mime-types/2.1.18'.
-Writing scan result to '[scanner-output-path]/scan-result.yml'.
+Running ScanCode version 2.9.2 on directory '[scanner-output-dir]/downloads/NPM/unknown/mime-types/2.1.18'.
+Writing scan result to '[scanner-output-dir]/scan-result.yml'.
 ```
 
-The `scanner` writes a new ORT result file to `[scanner-output-path]/scan-result.yml` containing the scan results in
+The `scanner` writes a new ORT result file to `[scanner-output-dir]/scan-result.yml` containing the scan results in
 addition to the analyzer result from the input. This way belonging results are stored in the same place for
 traceability. If the input file already contained scan results they are replaced by the new scan results in the output.
 
@@ -304,8 +304,9 @@ on a bigger project you will see that `ScanCode` often finds more licenses than 
 
 The evaluator can apply a set of rules against the scan result created above.
 ORT provides examples for the policy rules file [(rules.kts)](../examples/rules.kts),
-[user-defined categorization of licenses (licenses.yml)](../examples/licenses.yml) and
-[user-defined package curations (curations.yml)](../examples/curations.yml) that can be used for testing the _evaluator_. 
+[user-defined categorization of licenses (license-classifications.yml)](../examples/license-classifications.yml) and
+[user-defined package curations (curations.yml)](../examples/curations.yml) that can be used for testing the
+_evaluator_. 
 
 To run the example rules use:
 
@@ -313,38 +314,39 @@ To run the example rules use:
 cli/build/install/ort/bin/ort evaluate
   --package-curations-file curations.yml
   --rules-file rules.kts
-  --license-configuration-file licenses.yml
-  -i [scanner-output-path]/scan-result.yml
-  -o [evaluator-output-path]/mime-types
+  --license-classifications-file license-classifications.yml
+  -i [scanner-output-dir]/scan-result.yml
+  -o [evaluator-output-dir]/mime-types
 ```
 
-See the [curations.yml documentation](config-file-curations-yml.md) to learn more about using curations to correct invalid or missing package metadata
-and the [licenses.yml documentation](config-file-licenses-yml.md) on how you can classify licenses to simplify writing the policy rules.
+See the [curations.yml documentation](config-file-curations-yml.md) to learn more about using curations to correct
+invalid or missing package metadata and the [license-classifications.yml documentation](config-file-license-classifications-yml.md) on
+how you can classify licenses to simplify writing the policy rules.
 
 It is possible to write your own evaluator rules as a Kotlin script and pass it to the _evaluator_ using `--rules-file`.
 Note that detailed documentation for writing custom rules is not yet available.
 
 ## 7. Generate a report
 
-The `evaluation-result.yml` file can now be used as input for the reporter to generate human-readable reports
-and open source notices. 
+The `evaluation-result.yml` file can now be used as input for the reporter to generate human-readable reports and open
+source notices. 
 
 For example, to generate a static HTML report, WebApp report and an open source notice by package, use:
 
 ```bash
 cli/build/install/ort/bin/ort report
-  -f NoticeByPackage,StaticHtml,WebApp
-  -i [evaluator-output-path]/evaluation-result.yml
-  -o [reporter-output-path]
-Created 'StaticHtml' report: [reporter-output-path]/scan-report.html
-Created 'WebApp' report: [reporter-output-path]/scan-report-web-app.html
-Created 'NoticeByPackage' report: [reporter-output-path]/NOTICE_BY_PACKAGE
+  -f NoticeTemplate,StaticHtml,WebApp
+  -i [evaluator-output-dir]/evaluation-result.yml
+  -o [reporter-output-dir]
+Created 'StaticHtml' report: [reporter-output-dir]/scan-report.html
+Created 'WebApp' report: [reporter-output-dir]/scan-report-web-app.html
+Created 'NoticeTemplate' report: [reporter-output-dir]/NOTICE_default
 ```
 
-If you do not want to run the _evaluator_ you can pass the _scanner_ result e.g. `[scanner-output-path/scan-result.yml`
+If you do not want to run the _evaluator_ you can pass the _scanner_ result e.g. `[scanner-output-dir]/scan-result.yml`
 to the `reporter` instead. To learn how you can customize generated notices see
-[notice-pre-processor-kts.md](notice-pre-processor-kts.md). To learn how to customize the how-to-fix texts for scanner
-and analyzer issues see [how-to-fix-text-provider-kts.md](how-to-fix-text-provider-kts.md).
+[notice-templates.md](notice-templates.md). To learn how to customize the how-to-fix texts for scanner and analyzer
+issues see [how-to-fix-text-provider-kts.md](how-to-fix-text-provider-kts.md).
 
 ## 8. Curating Package Metadata or License Findings
 
@@ -354,11 +356,11 @@ repositories are not correctly tagged.
 
 ORT provides a variety of mechanisms to fix a variety of issues, for details see:
 
-* [The .ort.yml file](config-file-ort-yml.md) - project-specific license finding curations, exclusions
-  and resolutions to address issues found within a project's code repository.
-* [The package configuration file](config-file-package-configuration-yml.md) - package (dependency) and provenance specific license
-  finding curations and exclusions to address issues found within a scan result for a package.
-* [The curations.yml file](config-file-curations-yml.md) - curations correct invalid or missing package metadata
-  and set the concluded license for packages.
-* [The resolutions.yml file](config-file-resolutions-yml.md) - resolutions allow *resolving* any issues
-  or policy rule violations by providing a reason why they are acceptable and can be ignored.
+* [The .ort.yml file](config-file-ort-yml.md) - project-specific license finding curations, exclusions and resolutions
+  to address issues found within a project's code repository.
+* [The package configuration file](config-file-package-configuration-yml.md) - package (dependency) and provenance
+  specific license finding curations and exclusions to address issues found within a scan result for a package.
+* [The curations.yml file](config-file-curations-yml.md) - curations correct invalid or missing package metadata and set
+  the concluded license for packages.
+* [The resolutions.yml file](config-file-resolutions-yml.md) - resolutions allow *resolving* any issues or policy rule
+  violations by providing a reason why they are acceptable and can be ignored.

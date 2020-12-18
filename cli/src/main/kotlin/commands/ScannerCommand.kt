@@ -37,43 +37,43 @@ import com.github.ajalt.clikt.parameters.options.split
 import com.github.ajalt.clikt.parameters.types.enum
 import com.github.ajalt.clikt.parameters.types.file
 
-import java.io.File
+import kotlin.time.measureTime
 
+import org.ossreviewtoolkit.GlobalOptions
 import org.ossreviewtoolkit.model.FileFormat
-import org.ossreviewtoolkit.model.config.OrtConfiguration
 import org.ossreviewtoolkit.model.config.ScannerConfiguration
 import org.ossreviewtoolkit.model.mapper
 import org.ossreviewtoolkit.model.utils.mergeLabels
 import org.ossreviewtoolkit.scanner.LocalScanner
 import org.ossreviewtoolkit.scanner.ScanResultsStorage
 import org.ossreviewtoolkit.scanner.Scanner
-import org.ossreviewtoolkit.scanner.scanners.ScanCode
+import org.ossreviewtoolkit.scanner.scanners.scancode.ScanCode
 import org.ossreviewtoolkit.scanner.storages.FileBasedStorage
 import org.ossreviewtoolkit.scanner.storages.SCAN_RESULTS_FILE_NAME
 import org.ossreviewtoolkit.utils.expandTilde
+import org.ossreviewtoolkit.utils.formatSizeInMib
+import org.ossreviewtoolkit.utils.log
+import org.ossreviewtoolkit.utils.perf
+import org.ossreviewtoolkit.utils.safeMkdirs
 import org.ossreviewtoolkit.utils.storage.LocalFileStorage
 
 class ScannerCommand : CliktCommand(name = "scan", help = "Run existing copyright / license scanners.") {
     private val input by mutuallyExclusiveOptions(
         option(
             "--ort-file", "-i",
-            help = "An ORT result file with an analyzer result to use. Source code will be downloaded automatically " +
-                    "if needed. This parameter and '--input-path' are mutually exclusive."
+            help = "An ORT result file with an analyzer result to use. Source code is downloaded automatically if " +
+                    "needed. Must not be used together with '--input-path'."
         ).convert { it.expandTilde() }
             .file(mustExist = true, canBeFile = true, canBeDir = false, mustBeWritable = false, mustBeReadable = true)
             .convert { it.absoluteFile.normalize() },
         option(
             "--input-path", "-p",
-            help = "An input directory or file to scan. This parameter and '--ort-file' are mutually exclusive."
+            help = "An input directory or file to scan. Must not be used together with '--ort-file'."
         ).convert { it.expandTilde() }
             .file(mustExist = true, canBeFile = true, canBeDir = true, mustBeWritable = false, mustBeReadable = true)
-            .convert { it.absoluteFile.normalize() }
+            .convert { it.absoluteFile.normalize() },
+        name = OPTION_GROUP_INPUT
     ).single().required()
-
-    private val skipExcluded by option(
-        "--skip-excluded",
-        help = "Do not scan excluded projects or packages. Works only with the '--ort-file' parameter."
-    ).flag()
 
     private val outputDir by option(
         "--output-dir", "-o",
@@ -82,6 +82,12 @@ class ScannerCommand : CliktCommand(name = "scan", help = "Run existing copyrigh
         .file(mustExist = false, canBeFile = false, canBeDir = true, mustBeWritable = false, mustBeReadable = false)
         .convert { it.absoluteFile.normalize() }
         .required()
+        .outputGroup()
+
+    private val outputFormats by option(
+        "--output-formats", "-f",
+        help = "The list of output formats to be used for the ORT result file(s)."
+    ).enum<FileFormat>().split(",").default(listOf(FileFormat.YAML)).outputGroup()
 
     private val downloadDir by option(
         "--download-dir",
@@ -89,6 +95,14 @@ class ScannerCommand : CliktCommand(name = "scan", help = "Run existing copyrigh
     ).convert { it.expandTilde() }
         .file(mustExist = false, canBeFile = false, canBeDir = true, mustBeWritable = false, mustBeReadable = false)
         .convert { it.absoluteFile.normalize() }
+        .outputGroup()
+
+    private val labels by option(
+        "--label", "-l",
+        help = "Add a label to the ORT result. Can be used multiple times. If an ORT result is used as input for the" +
+                "scanner, any existing label with the same key is overwritten. For example: " +
+                "--label distribution=external"
+    ).associate()
 
     private val scannerFactory by option(
         "--scanner", "-s",
@@ -99,19 +113,12 @@ class ScannerCommand : CliktCommand(name = "scan", help = "Run existing copyrigh
             ?: throw BadParameterValue("Scanner '$scannerName' is not one of ${Scanner.ALL}.")
     }.default(ScanCode.Factory())
 
-    private val outputFormats by option(
-        "--output-formats", "-f",
-        help = "The list of output formats to be used for the ORT result file(s)."
-    ).enum<FileFormat>().split(",").default(listOf(FileFormat.YAML))
+    private val skipExcluded by option(
+        "--skip-excluded",
+        help = "Do not scan excluded projects or packages. Works only with the '--ort-file' parameter."
+    ).flag()
 
-    private val labels by option(
-        "--label", "-l",
-        help = "Add a label to the ORT result. Can be used multiple times. If an ORT result is used as input for the" +
-                "scanner any existing label with the same key will be overwritten. For example: " +
-                "--label distribution=external"
-    ).associate()
-
-    private val config by requireObject<OrtConfiguration>()
+    private val globalOptionsForSubcommands by requireObject<GlobalOptions>()
 
     private fun configureScanner(scannerConfiguration: ScannerConfiguration?): Scanner {
         val config = scannerConfiguration ?: ScannerConfiguration()
@@ -141,23 +148,26 @@ class ScannerCommand : CliktCommand(name = "scan", help = "Run existing copyrigh
     override fun run() {
         val nativeOutputDir = outputDir.resolve("native-scan-results")
 
-        val outputFiles = outputFormats.distinct().map { format ->
-            File(outputDir, "scan-result.${format.fileExtension}")
+        val outputFiles = outputFormats.mapTo(mutableSetOf()) { format ->
+            outputDir.resolve("scan-result.${format.fileExtension}")
         }
 
-        val existingOutputFiles = outputFiles.filter { it.exists() }
-        if (existingOutputFiles.isNotEmpty()) {
-            throw UsageError("None of the output files $existingOutputFiles must exist yet.")
-        }
+        if (!globalOptionsForSubcommands.forceOverwrite) {
+            val existingOutputFiles = outputFiles.filter { it.exists() }
+            if (existingOutputFiles.isNotEmpty()) {
+                throw UsageError("None of the output files $existingOutputFiles must exist yet.", statusCode = 2)
+            }
 
-        if (nativeOutputDir.exists() && nativeOutputDir.list().isNotEmpty()) {
-            throw UsageError("The directory '$nativeOutputDir' must not contain any files yet.")
+            if (nativeOutputDir.exists() && nativeOutputDir.list().isNotEmpty()) {
+                throw UsageError("The directory '$nativeOutputDir' must not contain any files yet.", statusCode = 2)
+            }
         }
 
         require(downloadDir?.exists() != true) {
             "The download directory '$downloadDir' must not exist yet."
         }
 
+        val config = globalOptionsForSubcommands.config
         val scanner = configureScanner(config.scanner)
 
         val ortResult = if (input.isFile) {
@@ -178,9 +188,15 @@ class ScannerCommand : CliktCommand(name = "scan", help = "Run existing copyrigh
             )
         }.mergeLabels(labels)
 
+        outputDir.safeMkdirs()
+
         outputFiles.forEach { file ->
             println("Writing scan result to '$file'.")
-            file.mapper().writerWithDefaultPrettyPrinter().writeValue(file, ortResult)
+            val duration = measureTime { file.mapper().writerWithDefaultPrettyPrinter().writeValue(file, ortResult) }
+
+            log.perf {
+                "Wrote ORT result to '${file.name}' (${file.formatSizeInMib}) in ${duration.inMilliseconds}ms."
+            }
         }
 
         val scanResults = ortResult.scanner?.results

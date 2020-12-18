@@ -284,11 +284,11 @@ private fun Collection<TextLocation>.groupByText(baseDir: File): List<TextLocati
 
     forEach { textLocation ->
         textLocation.resolve(baseDir)?.let {
-            resolvedLocations.getOrPut(it, { mutableSetOf() }).add(textLocation)
+            resolvedLocations.getOrPut(it, { mutableSetOf() }) += textLocation
         }
     }
 
-    val unresolvedLocations = (this - resolvedLocations.values.flatten()).distinct()
+    val unresolvedLocations = (this - resolvedLocations.values.flatten()).toSet()
 
     return resolvedLocations.map { (text, locations) -> TextLocationGroup(locations = locations, text = text) } +
             unresolvedLocations.map { TextLocationGroup(locations = setOf(it)) }
