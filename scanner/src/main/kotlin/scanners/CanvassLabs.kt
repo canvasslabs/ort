@@ -32,6 +32,7 @@ import okhttp3.Request
 
 import org.ossreviewtoolkit.model.EMPTY_JSON_NODE
 import org.ossreviewtoolkit.model.LicenseFinding
+import org.ossreviewtoolkit.model.CopyrightFinding
 import org.ossreviewtoolkit.model.Provenance
 import org.ossreviewtoolkit.model.ScanResult
 import org.ossreviewtoolkit.model.ScanSummary
@@ -48,18 +49,13 @@ import org.ossreviewtoolkit.utils.Os
 import org.ossreviewtoolkit.utils.ProcessCapture
 import org.ossreviewtoolkit.utils.log
 import org.ossreviewtoolkit.utils.unpackZip
+import java.io.PrintWriter
 
 class CanvassLabs(name: String, config: ScannerConfiguration) : LocalScanner(name, config) {
     class Factory : AbstractScannerFactory<CanvassLabs>("CanvassLabs") {
         override fun create(config: ScannerConfiguration) = CanvassLabs(scannerName, config)
     }
 
-    //companion object {
-    //    val CONFIGURATION_OPTIONS = listOf(
-    //        "--confidence", "0.95", // Cut-off value to only get most relevant matches.
-    //        "--format", "json"
-    //    )
-    //}
     companion object {
         val CONFIGURATION_OPTIONS = listOf("")
     }
@@ -72,7 +68,6 @@ class CanvassLabs(name: String, config: ScannerConfiguration) : LocalScanner(nam
         listOfNotNull(workingDir, if (Os.isWindows) "ORT2LiAn.exe" else "ORT2LiAn").joinToString(File.separator)
 
 
-    //override fun transformVersion(output: String) = output.removePrefix("licensechecker version ")
     override fun transformVersion(output: String) = output.removePrefix("ORT2LiAn version ").dropLastWhile { 0 != it.compareTo(',') }.dropLast(1) 
 
     override fun bootstrap(): File {
@@ -84,11 +79,8 @@ class CanvassLabs(name: String, config: ScannerConfiguration) : LocalScanner(nam
         }
 
         val archive = "ORT2LiAn-$expectedVersion-$platform.zip"
-        //val url = "https://ortclient.s3-us-west-2.amazonaws.com"    // ORT2LiAn-1.3.1-x86_64-unknown-linux.zip"
         val url = "https://ortclient.s3-us-west-2.amazonaws.com/v$expectedVersion/$archive"
         
-        //https://github.com/boyter/lc/releases/download/v$expectedVersion/$archive"
-
         log.info { "Downloading $scannerName from $url... " }
 
         val request = Request.Builder().get().url(url).build()
@@ -120,7 +112,6 @@ class CanvassLabs(name: String, config: ScannerConfiguration) : LocalScanner(nam
 
         val process = ProcessCapture(
             scannerPath.absolutePath,
-            // *CONFIGURATION_OPTIONS.toTypedArray(),
             "-i", path.absolutePath,
             "-o", resultsFile.absolutePath
         )
@@ -149,6 +140,7 @@ class CanvassLabs(name: String, config: ScannerConfiguration) : LocalScanner(nam
             EMPTY_JSON_NODE
         }
 
+    /*
     private fun generateSummary(startTime: Instant, endTime: Instant, scanPath: File, result: JsonNode): ScanSummary {
         val licenseFindings = sortedSetOf<LicenseFinding>()
 
@@ -165,14 +157,69 @@ class CanvassLabs(name: String, config: ScannerConfiguration) : LocalScanner(nam
                 )
             }
         }
+    */
 
+    private fun generateSummary(startTime: Instant, endTime: Instant, scanPath: File, result: JsonNode): ScanSummary {
+        val licenseFindings = sortedSetOf<LicenseFinding>()
+        val copyrightFindings = sortedSetOf<CopyrightFinding>()
+
+        /*
+            The idea here is to iterate through 'matches' and first pick out
+            the ones that are not copyrights, and assume they're licenses by
+            default. The quirk is that currently matched_type returns
+            'copyright' for copyrights, but the spdx name for licenses,
+            instead of 'license'. Using mapNotNull() allows us to not populate
+            the sets defined above with None values, which violate some
+            assertion downstream.
+        */
+
+
+        result.flatMapTo(licenseFindings) { file ->
+            val filePath = File(file["local_file_path"].textValue())
+            
+            file["matches"].mapNotNull {   
+                // currently, if matched_type does not equal copyright, it will be the
+                // SPDX name for a known license.
+                it -> if(!it["matched_type"].textValue().equals("copyright"))
+                    LicenseFinding(
+                        license = getSpdxLicenseIdString(it["matched_type"].textValue()),
+                        location = TextLocation(
+                            // Turn absolute paths in the native result into relative paths to not expose any information.
+                            relativizePath(scanPath, filePath),
+                            it["start_line_ind"].intValue() + 1,
+                            it["end_line_ind"].intValue() + 1
+                        )
+                    ) else null
+            }
+        }
+
+        result.flatMapTo(copyrightFindings) { file ->
+            val filePath = File(file["local_file_path"].textValue())
+
+            file["matches"].mapNotNull {   
+                it -> if(it["matched_type"].textValue().equals("copyright"))
+                    CopyrightFinding(
+                        statement = it["found_region"].textValue(),
+                        location = TextLocation(
+                            // Turn absolute paths in the native result into relative paths to not expose any information.
+                            relativizePath(scanPath, filePath),
+                            // copyright lines appear to need an increment
+                            it["start_line_ind"].intValue() + 1,
+                            it["end_line_ind"].intValue() + 1
+                        )
+                    ) else null
+            }
+        }
+    
         return ScanSummary(
             startTime = startTime,
             endTime = endTime,
             fileCount = result.size(),
             packageVerificationCode = calculatePackageVerificationCode(scanPath),
-            licenseFindings = licenseFindings,
-            copyrightFindings = sortedSetOf(),
+            licenseFindings = licenseFindings,  
+            copyrightFindings = copyrightFindings,
+            //I don't know what this means - but we'll ride with it for the moment
+            //copyrightFindings = sortedSetOf(),
             issues = mutableListOf()
         )
     }
