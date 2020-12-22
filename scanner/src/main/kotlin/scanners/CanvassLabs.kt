@@ -25,11 +25,8 @@ import java.io.File
 import java.io.IOException
 import java.net.HttpURLConnection
 import java.time.Instant
-
 import kotlin.io.path.createTempDirectory
-
 import okhttp3.Request
-
 import org.ossreviewtoolkit.model.EMPTY_JSON_NODE
 import org.ossreviewtoolkit.model.LicenseFinding
 import org.ossreviewtoolkit.model.CopyrightFinding
@@ -51,6 +48,7 @@ import org.ossreviewtoolkit.utils.log
 import org.ossreviewtoolkit.utils.unpackZip
 import java.io.PrintWriter
 
+
 class CanvassLabs(name: String, config: ScannerConfiguration) : LocalScanner(name, config) {
     class Factory : AbstractScannerFactory<CanvassLabs>("CanvassLabs") {
         override fun create(config: ScannerConfiguration) = CanvassLabs(scannerName, config)
@@ -69,7 +67,6 @@ class CanvassLabs(name: String, config: ScannerConfiguration) : LocalScanner(nam
 
 
     override fun transformVersion(output: String) = output.removePrefix("ORT2LiAn version ").dropLastWhile { 0 != it.compareTo(',') }.dropLast(1) 
-
     override fun bootstrap(): File {
         val platform = when {
             Os.isLinux -> "x86_64-unknown-linux"
@@ -102,7 +99,6 @@ class CanvassLabs(name: String, config: ScannerConfiguration) : LocalScanner(nam
 
             log.info { "Unpacking '$archive' to '$unpackDir'... " }
             body.bytes().unpackZip(unpackDir)
-
             unpackDir
         }
     }
@@ -140,25 +136,6 @@ class CanvassLabs(name: String, config: ScannerConfiguration) : LocalScanner(nam
             EMPTY_JSON_NODE
         }
 
-    /*
-    private fun generateSummary(startTime: Instant, endTime: Instant, scanPath: File, result: JsonNode): ScanSummary {
-        val licenseFindings = sortedSetOf<LicenseFinding>()
-
-        result.flatMapTo(licenseFindings) { file ->
-            val filePath = File(file["Directory"].textValue(), file["Filename"].textValue())
-            file["LicenseGuesses"].map {
-                LicenseFinding(
-                    license = getSpdxLicenseIdString(it["LicenseId"].textValue()),
-                    location = TextLocation(
-                        // Turn absolute paths in the native result into relative paths to not expose any information.
-                        relativizePath(scanPath, filePath),
-                        TextLocation.UNKNOWN_LINE
-                    )
-                )
-            }
-        }
-    */
-
     private fun generateSummary(startTime: Instant, endTime: Instant, scanPath: File, result: JsonNode): ScanSummary {
         val licenseFindings = sortedSetOf<LicenseFinding>()
         val copyrightFindings = sortedSetOf<CopyrightFinding>()
@@ -172,7 +149,6 @@ class CanvassLabs(name: String, config: ScannerConfiguration) : LocalScanner(nam
             the sets defined above with None values, which violate some
             assertion downstream.
         */
-
 
         result.flatMapTo(licenseFindings) { file ->
             val filePath = File(file["local_file_path"].textValue())
@@ -195,7 +171,6 @@ class CanvassLabs(name: String, config: ScannerConfiguration) : LocalScanner(nam
 
         result.flatMapTo(copyrightFindings) { file ->
             val filePath = File(file["local_file_path"].textValue())
-
             file["matches"].mapNotNull {   
                 it -> if(it["matched_type"].textValue().equals("copyright"))
                     CopyrightFinding(
@@ -218,8 +193,6 @@ class CanvassLabs(name: String, config: ScannerConfiguration) : LocalScanner(nam
             packageVerificationCode = calculatePackageVerificationCode(scanPath),
             licenseFindings = licenseFindings,  
             copyrightFindings = copyrightFindings,
-            //I don't know what this means - but we'll ride with it for the moment
-            //copyrightFindings = sortedSetOf(),
             issues = mutableListOf()
         )
     }
