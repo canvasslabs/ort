@@ -35,6 +35,7 @@ import org.ossreviewtoolkit.model.licenses.ResolvedLicense
 import org.ossreviewtoolkit.model.licenses.ResolvedLicenseFileInfo
 import org.ossreviewtoolkit.model.licenses.ResolvedLicenseInfo
 import org.ossreviewtoolkit.model.licenses.filterExcluded
+import org.ossreviewtoolkit.reporter.Reporter
 import org.ossreviewtoolkit.reporter.ReporterInput
 import org.ossreviewtoolkit.utils.expandTilde
 import org.ossreviewtoolkit.utils.log
@@ -230,7 +231,7 @@ class FreemarkerTemplateProcessor(
 }
 
 private fun List<ResolvedLicense>.merge(): ResolvedLicense {
-    require(isNotEmpty()) { "Cannot not merge an empty list." }
+    require(isNotEmpty()) { "Cannot merge an empty list." }
     return ResolvedLicense(
         license = first().license,
         sources = flatMapTo(mutableSetOf()) { it.sources },

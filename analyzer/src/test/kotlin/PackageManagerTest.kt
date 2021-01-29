@@ -22,6 +22,7 @@ package org.ossreviewtoolkit.analyzer
 import io.kotest.assertions.throwables.shouldThrow
 import io.kotest.core.spec.style.WordSpec
 import io.kotest.matchers.collections.containExactly
+import io.kotest.matchers.collections.shouldContainExactlyInAnyOrder
 import io.kotest.matchers.should
 import io.kotest.matchers.shouldBe
 
@@ -40,7 +41,7 @@ class PackageManagerTest : WordSpec({
 
             // The test project contains at least one file per package manager, so the result should also contain an
             // entry for each package manager.
-            managedFiles.keys shouldBe PackageManager.ALL.toSet()
+            managedFiles.keys shouldContainExactlyInAnyOrder PackageManager.ALL
 
             // The keys in expected and actual maps of definition files are different instances of package manager
             // factories. So to compare values use the package manager names as keys instead.
@@ -52,6 +53,7 @@ class PackageManagerTest : WordSpec({
             managedFilesByName["Bundler"] should containExactly(projectDir.resolve("Gemfile"))
             managedFilesByName["Cargo"] should containExactly(projectDir.resolve("Cargo.toml"))
             managedFilesByName["Carthage"] should containExactly(projectDir.resolve("Cartfile.resolved"))
+            managedFilesByName["Composer"] should containExactly(projectDir.resolve("composer.json"))
             managedFilesByName["Conan"] should containExactly(projectDir.resolve("conanfile.py"))
             managedFilesByName["DotNet"] should containExactly(projectDir.resolve("test.csproj"))
             managedFilesByName["GoDep"] should containExactly(projectDir.resolve("Gopkg.toml"))
@@ -60,7 +62,6 @@ class PackageManagerTest : WordSpec({
             managedFilesByName["Maven"] should containExactly(projectDir.resolve("pom.xml"))
             managedFilesByName["NPM"] should containExactly(projectDir.resolve("package.json"))
             managedFilesByName["NuGet"] should containExactly(projectDir.resolve("packages.config"))
-            managedFilesByName["PhpComposer"] should containExactly(projectDir.resolve("composer.json"))
             managedFilesByName["PIP"] should containExactly(projectDir.resolve("setup.py"))
             managedFilesByName["Pipenv"] should containExactly(projectDir.resolve("Pipfile.lock"))
             managedFilesByName["Pub"] should containExactly(projectDir.resolve("pubspec.yaml"))

@@ -20,6 +20,7 @@
 package org.ossreviewtoolkit.advisor.advisors
 
 import java.io.IOException
+import java.net.URI
 import java.time.Instant
 import java.util.concurrent.Executors
 
@@ -29,16 +30,18 @@ import kotlinx.coroutines.withContext
 
 import org.ossreviewtoolkit.advisor.AbstractAdvisorFactory
 import org.ossreviewtoolkit.advisor.Advisor
+import org.ossreviewtoolkit.clients.nexusiq.NexusIqService
 import org.ossreviewtoolkit.model.AdvisorDetails
 import org.ossreviewtoolkit.model.AdvisorResult
 import org.ossreviewtoolkit.model.AdvisorSummary
-import org.ossreviewtoolkit.model.Identifier
 import org.ossreviewtoolkit.model.Package
 import org.ossreviewtoolkit.model.Vulnerability
 import org.ossreviewtoolkit.model.config.AdvisorConfiguration
-import org.ossreviewtoolkit.model.config.BasicAuthConfiguration
+import org.ossreviewtoolkit.model.config.NexusIqConfiguration
 import org.ossreviewtoolkit.model.createAndLogIssue
-import org.ossreviewtoolkit.nexusiq.NexusIqService
+import org.ossreviewtoolkit.model.utils.PurlType
+import org.ossreviewtoolkit.model.utils.getPurlType
+import org.ossreviewtoolkit.model.utils.toPurl
 import org.ossreviewtoolkit.utils.NamedThreadFactory
 import org.ossreviewtoolkit.utils.OkHttpClientHelper
 import org.ossreviewtoolkit.utils.collectMessagesAsString
@@ -63,7 +66,7 @@ class NexusIq(
         override fun create(config: AdvisorConfiguration) = NexusIq(advisorName, config)
     }
 
-    private val nexusIqConfig = config as BasicAuthConfiguration
+    private val nexusIqConfig = config as NexusIqConfiguration
 
     override suspend fun retrievePackageVulnerabilities(packages: List<Package>): Map<Package, List<AdvisorResult>> {
         val service = NexusIqService.create(
@@ -84,8 +87,8 @@ class NexusIq(
                     append(pkg.purl)
 
                     when (pkg.id.getPurlType()) {
-                        Identifier.PurlType.MAVEN.toString() -> append("?type=jar")
-                        Identifier.PurlType.PYPI.toString() -> append("?extension=tar.gz")
+                        PurlType.MAVEN.toString() -> append("?type=jar")
+                        PurlType.PYPI.toString() -> append("?extension=tar.gz")
                     }
                 }
 
@@ -115,7 +118,7 @@ class NexusIq(
                     }?.let { details ->
                         pkg to listOf(
                             AdvisorResult(
-                                details.securityData.securityIssues.mapToVulnerabilities(),
+                                details.securityData.securityIssues.map { it.toVulnerability() },
                                 AdvisorDetails(advisorName),
                                 AdvisorSummary(startTime, endTime)
                             )
@@ -149,14 +152,15 @@ class NexusIq(
         }
     }
 
-    private fun Collection<NexusIqService.SecurityIssue>.mapToVulnerabilities() =
-        map {
-            Vulnerability(
-                it.reference,
-                it.severity,
-                it.url
-            )
+    private fun NexusIqService.SecurityIssue.toVulnerability(): Vulnerability {
+        val browseUrl = if (url == null && reference.startsWith("sonatype-")) {
+            URI("${nexusIqConfig.browseUrl}/assets/index.html#/vulnerabilities/$reference")
+        } else {
+            url
         }
+
+        return Vulnerability(reference, severity, browseUrl)
+    }
 
     /**
      * Execute an HTTP request specified by the given [call]. The response status is checked. If everything went

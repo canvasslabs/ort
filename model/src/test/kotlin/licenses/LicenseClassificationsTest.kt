@@ -26,6 +26,7 @@ import io.kotest.matchers.collections.containExactlyInAnyOrder
 import io.kotest.matchers.should
 import io.kotest.matchers.shouldBe
 import io.kotest.matchers.string.shouldContain
+import io.kotest.matchers.string.shouldNotContain
 
 import java.lang.IllegalStateException
 import java.util.Collections.emptySortedSet
@@ -33,15 +34,16 @@ import java.util.Collections.emptySortedSet
 import org.ossreviewtoolkit.spdx.SpdxSingleLicenseExpression
 
 class LicenseClassificationsTest : WordSpec({
-    "LicenseClassifications.init" should {
+    "init()" should {
         "detect duplicate category names" {
             val cat1 = LicenseCategory("Category 1")
             val cat2 = LicenseCategory("Category 2", "Another category")
             val cat3 = LicenseCategory("Category 1", "Duplicate; should cause a failure")
 
-            shouldThrow<IllegalArgumentException> {
+            val exception = shouldThrow<IllegalArgumentException> {
                 LicenseClassifications(categories = listOf(cat1, cat2, cat3))
             }
+            exception.message shouldContain "[Category 1]"
         }
 
         "detect duplicate license IDs" {
@@ -55,9 +57,10 @@ class LicenseClassificationsTest : WordSpec({
                 SpdxSingleLicenseExpression.parse("ASL-1"), sortedSetOf("permissive")
             )
 
-            shouldThrow<IllegalArgumentException> {
+            val exception = shouldThrow<IllegalArgumentException> {
                 LicenseClassifications(categorizations = listOf(lic1, lic2, lic3))
             }
+            exception.message shouldContain "[ASL-1]"
         }
 
         "detect licenses referencing non-existing categories" {
@@ -76,6 +79,7 @@ class LicenseClassificationsTest : WordSpec({
             val exception = shouldThrow<IllegalArgumentException> {
                 LicenseClassifications(categories = listOf(cat1, cat2), categorizations = listOf(lic1, lic2, lic3))
             }
+            exception.message shouldNotContain lic1.id.toString()
             exception.message shouldContain lic2.id.toString()
             exception.message shouldContain lic3.id.toString()
             exception.message shouldContain "unknownCategory"
@@ -83,7 +87,7 @@ class LicenseClassificationsTest : WordSpec({
         }
     }
 
-    "LicenseClassifications.getLicensesForCategory" should {
+    "getLicensesForCategory()" should {
         "fetch all licenses for a specific category" {
             val cat1 = LicenseCategory("permissive", "Permissive licenses")
             val cat2 = LicenseCategory("non permissive", "Strict licenses")
@@ -133,8 +137,8 @@ class LicenseClassificationsTest : WordSpec({
         }
     }
 
-    "LicenseClassifications.categoryNames" should {
-        "contain the expected licenses" {
+    "categoryNames" should {
+        "contain the expected category names" {
             val cat1 = LicenseCategory("permissive", "Permissive licenses")
             val cat2 = LicenseCategory("non permissive", "Strict licenses")
             val cat3 = LicenseCategory("other", "Completely different licenses")

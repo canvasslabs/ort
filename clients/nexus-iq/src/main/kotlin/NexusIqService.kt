@@ -17,16 +17,16 @@
  * License-Filename: LICENSE
  */
 
-package org.ossreviewtoolkit.nexusiq
+package org.ossreviewtoolkit.clients.nexusiq
 
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties
 import com.fasterxml.jackson.databind.json.JsonMapper
 import com.fasterxml.jackson.module.kotlin.registerKotlinModule
 
-import java.net.URL
+import java.net.URI
 import java.util.UUID
-import okhttp3.Credentials
 
+import okhttp3.Credentials
 import okhttp3.OkHttpClient
 
 import retrofit2.Call
@@ -95,7 +95,7 @@ interface NexusIqService {
     data class SecurityIssue(
         val reference: String,
         val severity: Float,
-        val url: URL?
+        val url: URI?
     )
 
     data class ComponentsWrapper(

@@ -30,7 +30,6 @@ import java.io.File
 import java.io.IOException
 import java.net.URI
 import java.net.URISyntaxException
-import java.net.URL
 import java.nio.file.CopyOption
 import java.nio.file.FileVisitResult
 import java.nio.file.Files
@@ -46,6 +45,12 @@ import java.security.MessageDigest
  * Return a string of hexadecimal digits representing the bytes in the array.
  */
 fun ByteArray.toHexString(): String = joinToString("") { String.format("%02x", it) }
+
+/**
+ * Return the duplicates as identified by [keySelector] of a collection.
+ */
+fun <T, K> Collection<T>.getDuplicates(keySelector: (T) -> K): Set<K> =
+    if (this is Set) emptySet() else groupBy(keySelector).filter { it.value.size > 1 }.keys
 
 /**
  * Format this [Double] as a string with the provided number of [decimalPlaces].
@@ -313,6 +318,11 @@ fun String.fileSystemEncode() =
         .take(255)
 
 /**
+ * Return true if the string represents a false value, otherwise return false.
+ */
+fun String?.isFalse() = this?.toBoolean()?.not() ?: false
+
+/**
  * Return true if the string represents a true value, otherwise return false.
  */
 fun String?.isTrue() = this?.toBoolean() ?: false
@@ -341,11 +351,6 @@ fun String.isSemanticVersion(type: Semver.SemverType = Semver.SemverType.STRICT)
  * True if the string is a valid [URI], false otherwise.
  */
 fun String.isValidUri() = runCatching { URI(this) }.isSuccess
-
-/**
- * True if the string is a valid [URL], false otherwise.
- */
-fun String.isValidUrl() = runCatching { URL(this) }.isSuccess
 
 /**
  * A regular expression matching the non-linux line breaks "\r\n" and "\r".

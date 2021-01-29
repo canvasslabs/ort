@@ -82,7 +82,7 @@ first attempt of running the analyzer on the `mime-types` package it will fail w
 
 ```bash
 The following package managers are activated:
-        Bower, Bundler, Cargo, DotNet, GoDep, Gradle, Maven, NPM, NuGet, PhpComposer, PIP, SBT, Stack, Yarn
+        Bower, Bundler, Cargo, Composer, DotNet, GoDep, Gradle, Maven, NPM, NuGet, PIP, SBT, Stack, Yarn
 Analyzing project path:
         [mime-types-dir]
 ERROR - Resolving dependencies for 'package.json' failed with: No lockfile found in '[mime-types-dir]'. This potentially results in unstable versions of dependencies. To allow this, enable support for dynamic versions.
@@ -91,12 +91,12 @@ Writing analyzer result to '[analyzer-output-dir]/analyzer-result.yml'.
 
 This happens because `mime-types` does not have `package-lock.json` file. Without this file the versions of (transitive)
 dependencies that are defined with version ranges could change at any time, leading to different results of the
-analyzer. To override this check use the `--allow-dynamic-versions` option:
+analyzer. To override this check, use the global `-P ort.analyzer.allowDynamicVersions=true` option:
 
 ```bash
-$ cli/build/install/ort/bin/ort analyze -i [mime-types-dir] -o [analyzer-output-dir] --allow-dynamic-versions
+$ cli/build/install/ort/bin/ort -P ort.analyzer.allowDynamicVersions=true analyze -i [mime-types-dir] -o [analyzer-output-dir]
 The following package managers are activated:
-        Gradle, Maven, SBT, NPM, Yarn, GoDep, PIP, Bundler, PhpComposer, Stack
+        Bundler, Composer, GoDep, Gradle, Maven, NPM, PIP, SBT, Stack, Yarn
 Analyzing project path:
         [mime-types-dir]
 Writing analyzer result to '[analyzer-output-dir]/analyzer-result.yml'.

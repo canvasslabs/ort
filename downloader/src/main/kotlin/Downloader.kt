@@ -197,7 +197,7 @@ object Downloader {
 
         if (pkg.vcsProcessed.url.isBlank()) {
             val hint = when (pkg.id.type) {
-                "Bundler" -> " Please define the \"source_code_uri\" in the \"metadata\" of the Gemspec, " +
+                "Bundler", "Gem" -> " Please define the \"source_code_uri\" in the \"metadata\" of the Gemspec, " +
                         "see: https://guides.rubygems.org/specification-reference/#metadata"
                 "Gradle" -> " Please make sure the release POM file includes the SCM connection, see: " +
                         "https://docs.gradle.org/current/userguide/publishing_maven.html#" +
@@ -312,7 +312,7 @@ object Downloader {
                 // See https://github.com/square/okhttp/blob/parent-3.10.0/okhttp/src/main/java/okhttp3/internal/ \
                 // http/BridgeInterceptor.java#L79
                 .header("Accept-Encoding", "identity")
-                .header("User-Agent", "$ORT_NAME/${Environment.ORT_VERSION}")
+                .header("User-Agent", Environment.ORT_USER_AGENT)
                 .get()
                 .url(pkg.sourceArtifact.url)
                 .build()

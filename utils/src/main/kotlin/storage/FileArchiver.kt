@@ -27,8 +27,6 @@ import kotlin.time.measureTime
 import kotlin.time.measureTimedValue
 
 import org.ossreviewtoolkit.utils.FileMatcher
-import org.ossreviewtoolkit.utils.LicenseFilenamePatterns.LICENSE_FILENAMES
-import org.ossreviewtoolkit.utils.LicenseFilenamePatterns.PATENT_FILENAMES
 import org.ossreviewtoolkit.utils.ORT_NAME
 import org.ossreviewtoolkit.utils.collectMessagesAsString
 import org.ossreviewtoolkit.utils.log
@@ -55,17 +53,7 @@ class FileArchiver(
 ) {
     companion object {
         private const val ARCHIVE_FILE_NAME = "archive.zip"
-        internal val DEFAULT_ARCHIVE_DIR by lazy { ortDataDirectory.resolve("scanner/archive") }
-
-        /**
-         * A default [FileArchiver] that archives [license files][LICENSE_FILENAMES] in a local directory.
-         */
-        val DEFAULT by lazy {
-            FileArchiver(
-                patterns = (LICENSE_FILENAMES + PATENT_FILENAMES).map { "**/$it" },
-                storage = LocalFileStorage(DEFAULT_ARCHIVE_DIR)
-            )
-        }
+        val DEFAULT_ARCHIVE_DIR by lazy { ortDataDirectory.resolve("scanner/archive") }
     }
 
     private val matcher = FileMatcher(
