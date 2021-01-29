@@ -151,8 +151,7 @@ class CanvassLabs(name: String, config: ScannerConfiguration) : LocalScanner(nam
         */
 
         result.flatMapTo(licenseFindings) { file ->
-            val filePath = File(file["local_file_path"].textValue())
-            
+            //val filePath = File(file["local_file_path"].textValue())
             file["matches"].mapNotNull {   
                 // currently, if matched_type does not equal copyright, it will be the
                 // SPDX name for a known license.
@@ -161,7 +160,10 @@ class CanvassLabs(name: String, config: ScannerConfiguration) : LocalScanner(nam
                         license = getSpdxLicenseIdString(it["matched_type"].textValue()),
                         location = TextLocation(
                             // Turn absolute paths in the native result into relative paths to not expose any information.
-                            relativizePath(scanPath, filePath),
+                            //relativizePath(scanPath, filePath),
+                            //this code needs the path to the file to be the file_n.json file, even though we give it an aggregate file.
+                            //hence, all cached dependencies would have 'file_1.json' for the path if we didn't take from input_fp instead.
+                            relativizePath(scanPath, File(it["input_fp"].textValue())),
                             it["start_line_ind"].intValue() + 1,
                             it["end_line_ind"].intValue() + 1
                         )
@@ -170,14 +172,16 @@ class CanvassLabs(name: String, config: ScannerConfiguration) : LocalScanner(nam
         }
 
         result.flatMapTo(copyrightFindings) { file ->
-            val filePath = File(file["local_file_path"].textValue())
+            //val filePath = File(file["local_file_path"].textValue())
             file["matches"].mapNotNull {   
                 it -> if(it["matched_type"].textValue().equals("copyright"))
                     CopyrightFinding(
                         statement = it["found_region"].textValue(),
                         location = TextLocation(
                             // Turn absolute paths in the native result into relative paths to not expose any information.
-                            relativizePath(scanPath, filePath),
+                            //relativizePath(scanPath, filePath),
+                            //relativizePath(scanPath, it["input_fp"].textValue()),
+                            relativizePath(scanPath, File(it["input_fp"].textValue())),
                             // copyright lines appear to need an increment
                             it["start_line_ind"].intValue() + 1,
                             it["end_line_ind"].intValue() + 1
