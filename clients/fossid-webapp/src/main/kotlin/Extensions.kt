@@ -19,14 +19,12 @@
 
 @file:Suppress("TooManyFunctions")
 
-package org.ossreviewtoolkit.fossid
+package org.ossreviewtoolkit.clients.fossid
 
 import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
 
 import kotlin.reflect.KClass
-
-import org.ossreviewtoolkit.model.jsonMapper
 
 import retrofit2.Call
 
@@ -56,8 +54,8 @@ fun EntityPostResponseBody<*>.checkResponse(operation: String, withDataCheck: Bo
 fun <T : Any> EntityPostResponseBody<Any>.toList(cls: KClass<T>): List<T> =
     // the list  operation returns different json depending on the amount of scans
     when (val data = data) {
-        is List<*> -> data.map { jsonMapper.convertValue(it, cls.java) }
-        is Map<*, *> -> data.values.map { jsonMapper.convertValue(it, cls.java) }
+        is List<*> -> data.map { FossIdRestService.JSON_MAPPER.convertValue(it, cls.java) }
+        is Map<*, *> -> data.values.map { FossIdRestService.JSON_MAPPER.convertValue(it, cls.java) }
         // the server returns "data: false" when there is no entry -> we streamline it to an empty list
         is Boolean -> emptyList()
         else -> error("Cannot process the returned values")

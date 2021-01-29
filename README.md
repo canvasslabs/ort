@@ -314,6 +314,7 @@ Currently, the following package managers are supported:
 * [Bundler](http://bundler.io/) (Ruby)
 * [Cargo](https://doc.rust-lang.org/cargo/) (Rust)
 * [Carthage](https://github.com/Carthage/Carthage) (iOS / Cocoa)
+* [Composer](https://getcomposer.org/) (PHP)
 * [Conan](https://conan.io/) (C / C++, *experimental* as the VCS locations often times do not contain the actual source
   code, see [issue #2037](https://github.com/oss-review-toolkit/ort/issues/2037))
 * [dep](https://golang.github.io/dep/) (Go)
@@ -328,7 +329,6 @@ Currently, the following package managers are supported:
 * [NPM](https://www.npmjs.com/) (Node.js)
 * [NuGet](https://www.nuget.org/) (.NET, with currently some
   [limitations](https://github.com/oss-review-toolkit/ort/pull/1303#issue-253860146))
-* [Composer](https://getcomposer.org/) (PHP)
 * [PIP](https://pip.pypa.io/) (Python)
 * [Pipenv](https://pipenv.readthedocs.io/) (Python)
 * [Pub](https://pub.dev/) (Dart / Flutter)
@@ -641,7 +641,7 @@ the following steps to import the project.
 
 ## Debugging
 
-To set up a basic run configuration for debugging, navigate to `Main.kt` in the `cli` module and look for the
+To set up a basic run configuration for debugging, navigate to `OrtMain.kt` in the `cli` module and look for the
 `fun main(args: Array<String>)` function. In the gutter next to it, a green "Play" icon should be displayed. Click on it
 and select `Run 'org.ossreviewtoolkit.Main'` to run the entry point, which implicitly creates a run configuration.
 Double-check that running ORT without any arguments will simply show the command line help in IDEA's *Run* tool window.

@@ -17,11 +17,10 @@
  * License-Filename: LICENSE
  */
 
-package org.ossreviewtoolkit.clearlydefined
+package org.ossreviewtoolkit.clients.clearlydefined
 
 import io.kotest.core.spec.style.WordSpec
 import io.kotest.matchers.comparables.shouldBeGreaterThan
-import io.kotest.matchers.nulls.shouldNotBeNull
 import io.kotest.matchers.shouldBe
 import io.kotest.matchers.shouldNot
 import io.kotest.matchers.string.beEmpty
@@ -30,14 +29,15 @@ import io.kotest.matchers.string.shouldStartWith
 
 import java.net.HttpURLConnection
 
-import org.ossreviewtoolkit.clearlydefined.ClearlyDefinedService.ContributionInfo
-import org.ossreviewtoolkit.clearlydefined.ClearlyDefinedService.ContributionPatch
-import org.ossreviewtoolkit.clearlydefined.ClearlyDefinedService.Coordinates
-import org.ossreviewtoolkit.clearlydefined.ClearlyDefinedService.Curation
-import org.ossreviewtoolkit.clearlydefined.ClearlyDefinedService.Licensed
-import org.ossreviewtoolkit.clearlydefined.ClearlyDefinedService.Patch
-import org.ossreviewtoolkit.clearlydefined.ClearlyDefinedService.Server
+import org.ossreviewtoolkit.clients.clearlydefined.ClearlyDefinedService.ContributionInfo
+import org.ossreviewtoolkit.clients.clearlydefined.ClearlyDefinedService.ContributionPatch
+import org.ossreviewtoolkit.clients.clearlydefined.ClearlyDefinedService.Coordinates
+import org.ossreviewtoolkit.clients.clearlydefined.ClearlyDefinedService.Curation
+import org.ossreviewtoolkit.clients.clearlydefined.ClearlyDefinedService.Licensed
+import org.ossreviewtoolkit.clients.clearlydefined.ClearlyDefinedService.Patch
+import org.ossreviewtoolkit.clients.clearlydefined.ClearlyDefinedService.Server
 import org.ossreviewtoolkit.utils.test.ExpensiveTag
+import org.ossreviewtoolkit.utils.test.shouldNotBeNull
 
 class ClearlyDefinedServiceFunTest : WordSpec({
     "Downloading a contribution patch" should {
@@ -106,9 +106,10 @@ class ClearlyDefinedServiceFunTest : WordSpec({
             val summary = response.body()
 
             responseCode shouldBe HttpURLConnection.HTTP_OK
-            summary.shouldNotBeNull()
-            summary.prNumber shouldBeGreaterThan 0
-            summary.url shouldStartWith "https://github.com/clearlydefined/curated-data-dev/pull/"
+            summary shouldNotBeNull {
+                prNumber shouldBeGreaterThan 0
+                url shouldStartWith "https://github.com/clearlydefined/curated-data-dev/pull/"
+            }
         }
     }
 })

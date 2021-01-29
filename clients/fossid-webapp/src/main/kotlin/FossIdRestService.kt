@@ -19,22 +19,49 @@
 
 @file:Suppress("TooManyFunctions")
 
-package org.ossreviewtoolkit.fossid
+package org.ossreviewtoolkit.clients.fossid
 
+import com.fasterxml.jackson.databind.PropertyNamingStrategies
+import com.fasterxml.jackson.databind.json.JsonMapper
+import com.fasterxml.jackson.module.kotlin.registerKotlinModule
+
+import okhttp3.OkHttpClient
 import okhttp3.ResponseBody
 
-import org.ossreviewtoolkit.fossid.api.Project
-import org.ossreviewtoolkit.fossid.api.identification.identifiedFiles.IdentifiedFile
-import org.ossreviewtoolkit.fossid.api.result.FossIdScanResult
-import org.ossreviewtoolkit.fossid.api.status.DownloadStatus
-import org.ossreviewtoolkit.fossid.api.status.ScanStatus
+import org.ossreviewtoolkit.clients.fossid.model.Project
+import org.ossreviewtoolkit.clients.fossid.model.identification.identifiedFiles.IdentifiedFile
+import org.ossreviewtoolkit.clients.fossid.model.result.FossIdScanResult
+import org.ossreviewtoolkit.clients.fossid.model.status.DownloadStatus
+import org.ossreviewtoolkit.clients.fossid.model.status.ScanStatus
 
 import retrofit2.Call
+import retrofit2.Retrofit
+import retrofit2.converter.jackson.JacksonConverterFactory
 import retrofit2.http.Body
 import retrofit2.http.GET
 import retrofit2.http.POST
 
 interface FossIdRestService {
+    companion object {
+        val JSON_MAPPER = JsonMapper()
+            .setPropertyNamingStrategy(PropertyNamingStrategies.SNAKE_CASE)
+            .registerKotlinModule()
+
+        /**
+         * Create a FossID service instance for communicating with a server running at the given [url],
+         * optionally using a pre-built OkHttp [client].
+         */
+        fun create(url: String, client: OkHttpClient? = null): FossIdRestService {
+            val retrofit = Retrofit.Builder()
+                .apply { if (client != null) client(client) }
+                .baseUrl(url)
+                .addConverterFactory(JacksonConverterFactory.create(JSON_MAPPER))
+                .build()
+
+            return retrofit.create(FossIdRestService::class.java)
+        }
+    }
+
     @POST("api.php")
     fun getProject(@Body body: PostRequestBody): Call<EntityPostResponseBody<Project>>
 

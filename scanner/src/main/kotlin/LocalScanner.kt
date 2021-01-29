@@ -60,6 +60,7 @@ import org.ossreviewtoolkit.model.Severity
 import org.ossreviewtoolkit.model.Success
 import org.ossreviewtoolkit.model.VcsInfo
 import org.ossreviewtoolkit.model.config.ScannerConfiguration
+import org.ossreviewtoolkit.model.config.createFileArchiver
 import org.ossreviewtoolkit.model.createAndLogIssue
 import org.ossreviewtoolkit.scanner.storages.PostgresStorage
 import org.ossreviewtoolkit.utils.CommandLineTool
@@ -72,7 +73,6 @@ import org.ossreviewtoolkit.utils.log
 import org.ossreviewtoolkit.utils.perf
 import org.ossreviewtoolkit.utils.safeMkdirs
 import org.ossreviewtoolkit.utils.showStackTrace
-import org.ossreviewtoolkit.utils.storage.FileArchiver
 
 /**
  * Abstraction for a [Scanner] that operates locally. Scan results can be stored in a [ScanResultsStorage].
@@ -101,7 +101,7 @@ abstract class LocalScanner(name: String, config: ScannerConfiguration) : Scanne
     }
 
     private val archiver by lazy {
-        config.archive?.createFileArchiver() ?: FileArchiver.DEFAULT
+        config.archive.createFileArchiver()
     }
 
     /**
@@ -270,9 +270,9 @@ abstract class LocalScanner(name: String, config: ScannerConfiguration) : Scanne
                 }
 
                 // Due to a temporary bug that has been fixed by now the scan results for packages were not properly
-                // filtered. Filter them again to fix the problem also scan storage entries which exhibit that problem.
+                // filtered by VCS path. Filter them again to fix the problem.
                 // TODO: This filtering can be removed after a while.
-                storedResults.map { it.filterByVcsPath() }
+                storedResults.map { it.filterByVcsPath().filterByIgnorePatterns(config.ignorePatterns) }
             } else {
                 withContext(scanDispatcher) {
                     log.info {
@@ -402,8 +402,11 @@ abstract class LocalScanner(name: String, config: ScannerConfiguration) : Scanne
                     "${scanDuration.inMilliseconds}ms."
         }
 
-        return when (val storageResult = ScanResultsStorage.storage.add(pkg.id, scanResult)) {
-            is Success -> scanResult
+        val storageResult = ScanResultsStorage.storage.add(pkg.id, scanResult)
+        val filteredResult = scanResult.filterByIgnorePatterns(config.ignorePatterns)
+
+        return when (storageResult) {
+            is Success -> filteredResult
             is Failure -> {
                 val issue = OrtIssue(
                     source = ScanResultsStorage.storage.name,
@@ -412,7 +415,7 @@ abstract class LocalScanner(name: String, config: ScannerConfiguration) : Scanne
                 )
                 val issues = scanResult.summary.issues + issue
                 val summary = scanResult.summary.copy(issues = issues)
-                scanResult.copy(summary = summary)
+                filteredResult.copy(summary = summary)
             }
         }
     }
@@ -465,7 +468,7 @@ abstract class LocalScanner(name: String, config: ScannerConfiguration) : Scanne
                 log.info {
                     "Detected licenses for path '$absoluteInputPath': ${it.summary.licenses.joinToString()}"
                 }
-            }
+            }.filterByIgnorePatterns(config.ignorePatterns)
         } catch (e: ScanException) {
             e.showStackTrace()
 

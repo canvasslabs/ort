@@ -29,6 +29,7 @@ import org.ossreviewtoolkit.model.Identifier
 import org.ossreviewtoolkit.model.LicenseSource
 import org.ossreviewtoolkit.model.Provenance
 import org.ossreviewtoolkit.model.config.CopyrightGarbage
+import org.ossreviewtoolkit.model.config.LicenseFilenamePatterns
 import org.ossreviewtoolkit.model.config.PathExclude
 import org.ossreviewtoolkit.model.utils.FindingCurationMatcher
 import org.ossreviewtoolkit.model.utils.FindingsMatcher
@@ -42,11 +43,15 @@ import org.ossreviewtoolkit.utils.storage.FileArchiver
 class LicenseInfoResolver(
     val provider: LicenseInfoProvider,
     val copyrightGarbage: CopyrightGarbage,
-    val archiver: FileArchiver?
+    val archiver: FileArchiver?,
+    licenseFilenamePatterns: LicenseFilenamePatterns = LicenseFilenamePatterns.DEFAULT
 ) {
     private val resolvedLicenseInfo: ConcurrentMap<Identifier, ResolvedLicenseInfo> = ConcurrentHashMap()
     private val resolvedLicenseFiles: ConcurrentMap<Identifier, ResolvedLicenseFileInfo> = ConcurrentHashMap()
-    private val rootLicenseMatcher = RootLicenseMatcher(rootLicenseFilenamePatterns = emptyList())
+    private val rootLicenseMatcher = RootLicenseMatcher(
+        licenseFilenamePatterns = licenseFilenamePatterns.copy(rootLicenseFilenames = emptyList())
+    )
+    private val findingsMatcher = FindingsMatcher(RootLicenseMatcher(licenseFilenamePatterns))
 
     /**
      * Get the [ResolvedLicenseInfo] for the project or package identified by [id].
@@ -140,7 +145,7 @@ class LicenseInfoResolver(
             //       resolved license for completeness, e.g. to show in a report that a license finding was marked as
             //       false positive.
             val curatedLicenseFindings = licenseCurationResults.keys.filterNotNull().toSet()
-            val matchResult = FindingsMatcher().match(curatedLicenseFindings, findings.copyrights)
+            val matchResult = findingsMatcher.match(curatedLicenseFindings, findings.copyrights)
 
             matchResult.matchedFindings.forEach { (licenseFinding, copyrightFindings) ->
                 val resolvedCopyrightFindings = resolveCopyrights(

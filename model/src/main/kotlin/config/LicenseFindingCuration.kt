@@ -27,10 +27,10 @@ import com.fasterxml.jackson.databind.util.StdConverter
 import org.ossreviewtoolkit.spdx.SpdxExpression
 
 /**
- * A curation for license findings.
+ * A curation for a license finding. Use it to correct a license finding or to add a license that was not previously
+ * detected.
  */
 data class LicenseFindingCuration(
-
     /**
      * A glob to match the file path of a license finding.
      */
@@ -77,11 +77,12 @@ data class LicenseFindingCuration(
     val comment: String = ""
 ) {
     init {
-        require(startLines.all { it >= 0 }) {
-            "All values for start lines must not be negative."
+        require(startLines.all { it > 0 }) {
+            "All start line values must be greater than 0."
         }
-        require(lineCount == null || lineCount >= 0) {
-            "The value for line count must not be negative."
+
+        require(lineCount == null || lineCount > 0) {
+            "If specified, the line count value must be greater than 0."
         }
     }
 }

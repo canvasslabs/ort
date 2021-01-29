@@ -31,20 +31,20 @@ import com.github.ajalt.clikt.parameters.types.enum
 import com.github.ajalt.clikt.parameters.types.file
 
 import java.io.IOException
-import java.net.URL
+import java.net.URI
 
-import org.ossreviewtoolkit.clearlydefined.ClearlyDefinedService
-import org.ossreviewtoolkit.clearlydefined.ClearlyDefinedService.ContributionInfo
-import org.ossreviewtoolkit.clearlydefined.ClearlyDefinedService.ContributionPatch
-import org.ossreviewtoolkit.clearlydefined.ClearlyDefinedService.Curation
-import org.ossreviewtoolkit.clearlydefined.ClearlyDefinedService.Described
-import org.ossreviewtoolkit.clearlydefined.ClearlyDefinedService.Licensed
-import org.ossreviewtoolkit.clearlydefined.ClearlyDefinedService.Patch
-import org.ossreviewtoolkit.clearlydefined.ClearlyDefinedService.Server
-import org.ossreviewtoolkit.clearlydefined.ContributionType
-import org.ossreviewtoolkit.clearlydefined.ErrorResponse
-import org.ossreviewtoolkit.clearlydefined.HarvestStatus
-import org.ossreviewtoolkit.clearlydefined.string
+import org.ossreviewtoolkit.clients.clearlydefined.ClearlyDefinedService
+import org.ossreviewtoolkit.clients.clearlydefined.ClearlyDefinedService.ContributionInfo
+import org.ossreviewtoolkit.clients.clearlydefined.ClearlyDefinedService.ContributionPatch
+import org.ossreviewtoolkit.clients.clearlydefined.ClearlyDefinedService.Curation
+import org.ossreviewtoolkit.clients.clearlydefined.ClearlyDefinedService.Described
+import org.ossreviewtoolkit.clients.clearlydefined.ClearlyDefinedService.Licensed
+import org.ossreviewtoolkit.clients.clearlydefined.ClearlyDefinedService.Patch
+import org.ossreviewtoolkit.clients.clearlydefined.ClearlyDefinedService.Server
+import org.ossreviewtoolkit.clients.clearlydefined.ContributionType
+import org.ossreviewtoolkit.clients.clearlydefined.ErrorResponse
+import org.ossreviewtoolkit.clients.clearlydefined.HarvestStatus
+import org.ossreviewtoolkit.clients.clearlydefined.string
 import org.ossreviewtoolkit.model.PackageCuration
 import org.ossreviewtoolkit.model.jsonMapper
 import org.ossreviewtoolkit.model.readValue
@@ -190,7 +190,7 @@ private fun PackageCuration.toContributionPatch(): ContributionPatch? {
     val licenseExpression = data.concludedLicense?.toString() ?: data.declaredLicenses?.joinToString(" AND ")
 
     val described = Described(
-        projectWebsite = data.homepageUrl?.let { URL(it) },
+        projectWebsite = data.homepageUrl?.let { URI(it) },
         sourceLocation = id.toClearlyDefinedSourceLocation(data.vcs, data.sourceArtifact)
     )
 

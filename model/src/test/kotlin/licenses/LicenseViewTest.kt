@@ -36,12 +36,13 @@ import org.ossreviewtoolkit.spdx.SpdxExpression
 import org.ossreviewtoolkit.spdx.SpdxSingleLicenseExpression
 import org.ossreviewtoolkit.spdx.toSpdx
 import org.ossreviewtoolkit.utils.storage.FileArchiver
+import org.ossreviewtoolkit.utils.test.createDefault
 
 class LicenseViewTest : WordSpec() {
     private val licenseInfoResolver = LicenseInfoResolver(
         DefaultLicenseInfoProvider(ortResult, SimplePackageConfigurationProvider.EMPTY),
         CopyrightGarbage(),
-        FileArchiver.DEFAULT
+        FileArchiver.createDefault()
     )
 
     private fun LicenseView.getLicensesWithSources(
@@ -131,9 +132,9 @@ class LicenseViewTest : WordSpec() {
             }
         }
 
-        "CONCLUDED_OR_REST" should {
+        "CONCLUDED_OR_DECLARED_AND_DETECTED" should {
             "return the correct licenses" {
-                val view = LicenseView.CONCLUDED_OR_REST
+                val view = LicenseView.CONCLUDED_OR_DECLARED_AND_DETECTED
 
                 view.getLicensesWithSources(packageWithoutLicense) should beEmpty()
 

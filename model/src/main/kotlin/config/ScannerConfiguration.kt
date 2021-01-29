@@ -59,5 +59,13 @@ data class ScannerConfiguration(
      * A list with the IDs of scan storages that are called to persist scan results. The strings in this list
      * must match keys in the storages map.
      */
-    val storageWriters: List<String>? = null
+    val storageWriters: List<String>? = null,
+
+    /**
+     * A list of glob expressions that match file paths which are to be excluded from scan results.
+     */
+    val ignorePatterns: List<String> = listOf(
+        "**/*.ort.yml",
+        "**/META-INF/DEPENDENCIES"
+    )
 )
