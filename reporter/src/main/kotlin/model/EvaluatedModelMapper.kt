@@ -31,12 +31,14 @@ import org.ossreviewtoolkit.model.ScanResult
 import org.ossreviewtoolkit.model.TextLocation
 import org.ossreviewtoolkit.model.VcsInfo
 import org.ossreviewtoolkit.model.config.IssueResolution
+import org.ossreviewtoolkit.model.config.LicenseFilenamePatterns
 import org.ossreviewtoolkit.model.config.LicenseFindingCuration
 import org.ossreviewtoolkit.model.config.PathExclude
 import org.ossreviewtoolkit.model.config.RuleViolationResolution
 import org.ossreviewtoolkit.model.config.ScopeExclude
 import org.ossreviewtoolkit.model.utils.FindingCurationMatcher
 import org.ossreviewtoolkit.model.utils.FindingsMatcher
+import org.ossreviewtoolkit.model.utils.RootLicenseMatcher
 import org.ossreviewtoolkit.model.yamlMapper
 import org.ossreviewtoolkit.reporter.ReporterInput
 import org.ossreviewtoolkit.reporter.utils.StatisticsCalculator
@@ -62,7 +64,8 @@ internal class EvaluatedModelMapper(private val input: ReporterInput) {
     private val ruleViolationResolutions = mutableListOf<RuleViolationResolution>()
 
     private val curationsMatcher = FindingCurationMatcher()
-    private val findingsMatcher = FindingsMatcher()
+    private val findingsMatcher =
+        FindingsMatcher(RootLicenseMatcher(input.ortConfig.licenseFilePatterns ?: LicenseFilenamePatterns.DEFAULT))
 
     private data class PackageExcludeInfo(
         var id: Identifier,
@@ -216,7 +219,6 @@ internal class EvaluatedModelMapper(private val input: ReporterInput) {
             id = project.id,
             isProject = true,
             definitionFilePath = project.definitionFilePath,
-            purl = project.id.toPurl(),
             declaredLicenses = project.declaredLicenses.map { licenses.addIfRequired(LicenseId(it)) },
             declaredLicensesProcessed = project.declaredLicensesProcessed.evaluate(),
             detectedLicenses = detectedLicenses,
@@ -254,7 +256,7 @@ internal class EvaluatedModelMapper(private val input: ReporterInput) {
             it.type == EvaluatedFindingType.LICENSE && it.pathExcludes.isEmpty()
         }.mapNotNullTo(mutableSetOf()) { it.license }
 
-        detectedExcludedLicenses.addAll(detectedLicenses - includedDetectedLicenses)
+        detectedExcludedLicenses += detectedLicenses - includedDetectedLicenses
     }
 
     private fun addPackage(curatedPkg: CuratedPackage) {
@@ -313,7 +315,7 @@ internal class EvaluatedModelMapper(private val input: ReporterInput) {
             it.type == EvaluatedFindingType.LICENSE && it.pathExcludes.isEmpty()
         }.mapNotNullTo(mutableSetOf()) { it.license }
 
-        detectedExcludedLicenses.addAll(detectedLicenses - includedDetectedLicenses)
+        detectedExcludedLicenses += detectedLicenses - includedDetectedLicenses
     }
 
     private fun addAnalyzerIssues(id: Identifier, pkg: EvaluatedPackage): List<EvaluatedOrtIssue> {
@@ -332,7 +334,7 @@ internal class EvaluatedModelMapper(private val input: ReporterInput) {
 
     private fun addRuleViolation(ruleViolation: RuleViolation) {
         val resolutions = addResolutions(ruleViolation)
-        val pkg = packages.getValue(ruleViolation.pkg)
+        val pkg = packages[ruleViolation.pkg] ?: createEmptyPackage(ruleViolation.pkg)
         val license = ruleViolation.license?.let { licenses.addIfRequired(LicenseId(it.toString())) }
 
         val evaluatedViolation = EvaluatedRuleViolation(
@@ -447,7 +449,7 @@ internal class EvaluatedModelMapper(private val input: ReporterInput) {
     }
 
     private fun createEmptyPackage(id: Identifier): EvaluatedPackage {
-        val excludeInfo = packageExcludeInfo.getValue(id)
+        val excludeInfo = packageExcludeInfo[id] ?: PackageExcludeInfo(id, isExcluded = false)
 
         val evaluatedPathExcludes = pathExcludes.addIfRequired(excludeInfo.pathExcludes)
         val evaluatedScopeExcludes = scopeExcludes.addIfRequired(excludeInfo.scopeExcludes)
@@ -456,7 +458,7 @@ internal class EvaluatedModelMapper(private val input: ReporterInput) {
             id = id,
             isProject = false,
             definitionFilePath = "",
-            purl = id.toPurl(),
+            purl = null,
             declaredLicenses = emptyList(),
             declaredLicensesProcessed = EvaluatedProcessedDeclaredLicense(null, emptyList(), emptyList()),
             detectedLicenses = emptySet(),

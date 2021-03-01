@@ -94,10 +94,10 @@ fun expandNpmShortcutURL(url: String): String {
     if (path.startsWith("git@") || path.startsWith("github.com") || path.startsWith("gitlab.com")) return url
 
     return if (!path.isNullOrEmpty() && listOf(uri.authority, uri.query).all { it == null }) {
-        // See https://docs.npmjs.com/files/package.json#github-urls.
+        // See https://docs.npmjs.com/cli/v7/configuring-npm/package-json#github-urls.
         val revision = if (uri.hasRevisionFragment()) "#${uri.fragment}" else ""
 
-        // See https://docs.npmjs.com/files/package.json#repository.
+        // See https://docs.npmjs.com/cli/v7/configuring-npm/package-json#repository.
         when (uri.scheme) {
             null, "github" -> "https://github.com/$path.git$revision"
             "gist" -> "https://gist.github.com/$path$revision"
@@ -133,6 +133,21 @@ fun readProxySettingsFromNpmRc(npmRc: String): ProtocolProxyMap {
     }
 
     return map
+}
+
+/**
+ * Return the npm registry defined in the provided [NPM configuration][npmRc] or null.
+ */
+fun readRegistryFromNpmRc(npmRc: String): String? {
+    npmRc.lines().forEach { line ->
+        val keyAndValue = line.split('=', limit = 2).map { it.trim() }
+        if (keyAndValue.size != 2) return@forEach
+
+        val (key, value) = keyAndValue
+        if (key == "registry") return value
+    }
+
+    return null
 }
 
 private val NPM_LOCK_FILES = listOf("npm-shrinkwrap.json", "package-lock.json")

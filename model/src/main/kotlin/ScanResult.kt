@@ -50,30 +50,12 @@ data class ScanResult(
     fun filterByPath(path: String): ScanResult {
         if (path.isBlank()) return this
 
-        val applicableLicenseFiles = RootLicenseMatcher().getApplicableRootLicenseFindingsForDirectories(
-            licenseFindings = summary.licenseFindings,
-            directories = listOf(path)
-        ).values.flatten().mapTo(mutableSetOf()) { it.location.path }
-
-        fun TextLocation.matchesPath() = this.path.startsWith("$path/") || this.path in applicableLicenseFiles
-
         val newProvenance = provenance.copy(
             vcsInfo = provenance.vcsInfo?.copy(path = path),
             originalVcsInfo = provenance.originalVcsInfo?.copy(path = path)
         )
 
-        val licenseFindings = summary.licenseFindings.filter { it.location.matchesPath() }.toSortedSet()
-        val copyrightFindings = summary.copyrightFindings.filter { it.location.matchesPath() }.toSortedSet()
-        val fileCount = mutableSetOf<String>().also { set ->
-            licenseFindings.mapTo(set) { it.location.path }
-            copyrightFindings.mapTo(set) { it.location.path }
-        }.size
-
-        val summary = summary.copy(
-            fileCount = fileCount,
-            licenseFindings = licenseFindings,
-            copyrightFindings = copyrightFindings
-        )
+        val summary = summary.filterByPath(path)
 
         return ScanResult(newProvenance, scanner, summary)
     }
@@ -83,4 +65,11 @@ data class ScanResult(
      */
     fun filterByVcsPath(): ScanResult =
         filterByPath(provenance.vcsInfo?.takeUnless { it.type == VcsType.GIT_REPO }?.path.orEmpty())
+
+    /**
+     * Return a [ScanResult] whose [summary] contains only findings whose location / path is not matched by any glob
+     * expression in [ignorePatterns].
+     */
+    fun filterByIgnorePatterns(ignorePatterns: Collection<String>): ScanResult =
+        copy(summary = summary.filterByIgnorePatterns(ignorePatterns))
 }

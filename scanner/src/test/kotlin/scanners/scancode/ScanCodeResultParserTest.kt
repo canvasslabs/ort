@@ -50,7 +50,7 @@ class ScanCodeResultParserTest : WordSpec({
             val summary = generateSummary(Instant.now(), Instant.now(), resultFile, result)
 
             summary.fileCount shouldBe 10
-            summary.packageVerificationCode shouldBe "9e3fdffc51568b300a457228055f8dc8a99fc64b"
+            summary.packageVerificationCode shouldBe "875d4d6eabe5bf8cda99be52e28b04cc194de6ea"
         }
     }
 
@@ -65,7 +65,7 @@ class ScanCodeResultParserTest : WordSpec({
             val summary = generateSummary(Instant.now(), Instant.now(), resultFile, result)
 
             summary.fileCount shouldBe 10
-            summary.packageVerificationCode shouldBe "8ec22f05b1a7006ae667901ae0853beff197c576"
+            summary.packageVerificationCode shouldBe "285b79745a96a1c561fef5591586a97176f19457"
         }
     }
 
@@ -392,6 +392,24 @@ class ScanCodeResultParserTest : WordSpec({
             )
         }
 
+        "properly parse license expressions for ScanCode 3.2.1" {
+            val resultFile = File("src/test/assets/h2database-1.4.200_scancode-3.2.1.json")
+            val result = parseResultsFile(resultFile)
+
+            val summary = generateSummary(Instant.now(), Instant.now(), resultFile, result)
+
+            summary.licenseFindings should containExactlyInAnyOrder(
+                LicenseFinding(
+                    license = "(MPL-2.0 OR EPL-1.0) AND LicenseRef-scancode-proprietary-license",
+                    location = TextLocation("h2/src/main/org/h2/table/Column.java", 2, 3)
+                ),
+                LicenseFinding(
+                    license = "LicenseRef-scancode-public-domain",
+                    location = TextLocation("h2/src/main/org/h2/table/Column.java", 317)
+                )
+            )
+        }
+
         "properly summarize the copyright findings for ScanCode 2.2.1" {
             // TODO: minimize this test case
             val resultFile = File("src/test/assets/esprima-2.7.3_scancode-2.2.1.json")
@@ -623,7 +641,6 @@ class ScanCodeResultParserTest : WordSpec({
             details.version shouldBe "2.9.7"
             details.configuration shouldContain "--copyright true"
             details.configuration shouldContain "--ignore *.ort.yml"
-            details.configuration shouldContain "--ignore HERE_NOTICE"
             details.configuration shouldContain "--ignore META-INF/DEPENDENCIES"
             details.configuration shouldContain "--info true"
         }

@@ -199,7 +199,9 @@ internal fun OrtResult.fetchScannedSources(id: Identifier): File {
         }
     }
 
-    return Downloader.download(pkg, tempDir).downloadDirectory
+    Downloader.download(pkg, tempDir)
+
+    return tempDir
 }
 
 /**
@@ -254,7 +256,10 @@ internal fun OrtResult.processAllCopyrightStatements(
         licenseInfoResolver.resolveLicenseInfo(id).forEach innerForEach@{ resolvedLicense ->
             if (omitExcluded && resolvedLicense.isDetectedExcluded) return@innerForEach
 
-            val copyrights = resolvedLicense.getResolvedCopyrights(omitExcluded).flatMap { resolvedCopyright ->
+            val copyrights = resolvedLicense.getResolvedCopyrights(
+                process = false,
+                omitExcluded = omitExcluded
+            ).flatMap { resolvedCopyright ->
                 resolvedCopyright.findings.map { it.statement }
             }
 
@@ -399,7 +404,7 @@ fun OrtResult.getScanIssues(omitExcluded: Boolean = false): List<OrtIssue> {
     scanner?.results?.scanResults?.forEach { container ->
         if (!omitExcluded || !isExcluded(container.id)) {
             container.results.forEach { scanResult ->
-                result.addAll(scanResult.summary.issues)
+                result += scanResult.summary.issues
             }
         }
     }

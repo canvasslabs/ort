@@ -60,6 +60,7 @@ import org.ossreviewtoolkit.utils.collectMessagesAsString
 import org.ossreviewtoolkit.utils.getPathFromEnvironment
 import org.ossreviewtoolkit.utils.log
 import org.ossreviewtoolkit.utils.normalizeLineBreaks
+import org.ossreviewtoolkit.utils.resolveWindowsExecutable
 import org.ossreviewtoolkit.utils.safeDeleteRecursively
 import org.ossreviewtoolkit.utils.showStackTrace
 import org.ossreviewtoolkit.utils.textValueOrEmpty
@@ -206,23 +207,19 @@ class Pip(
     private fun runPipInVirtualEnv(virtualEnvDir: File, workingDir: File, vararg commandArgs: String) =
         runInVirtualEnv(virtualEnvDir, workingDir, command(workingDir), *TRUSTED_HOSTS, *commandArgs)
 
-    private fun runInVirtualEnv(virtualEnvDir: File, workingDir: File, commandName: String, vararg commandArgs: String):
-            ProcessCapture {
+    private fun runInVirtualEnv(
+        virtualEnvDir: File,
+        workingDir: File,
+        commandName: String,
+        vararg commandArgs: String
+    ): ProcessCapture {
         val binDir = if (Os.isWindows) "Scripts" else "bin"
-        var command = virtualEnvDir.resolve(binDir + File.separator + commandName)
-
-        if (Os.isWindows && command.extension.isEmpty()) {
-            // On Windows specifying the extension is optional, so try them in order.
-            val extensions = Os.env["PATHEXT"]?.splitToSequence(File.pathSeparatorChar).orEmpty()
-            val commandWin = extensions.map { File(command.path + it.toLowerCase()) }.find { it.isFile }
-            if (commandWin != null) {
-                command = commandWin
-            }
-        }
+        val command = virtualEnvDir.resolve(binDir).resolve(commandName)
+        val resolvedCommand = resolveWindowsExecutable(command)?.takeIf { Os.isWindows } ?: command
 
         // TODO: Maybe work around long shebang paths in generated scripts within a virtualenv by calling the Python
         //       executable in the virtualenv directly, see https://github.com/pypa/virtualenv/issues/997.
-        val process = ProcessCapture(workingDir, command.path, *commandArgs)
+        val process = ProcessCapture(workingDir, resolvedCommand.path, *commandArgs)
         log.debug { process.stdout }
         return process
     }
@@ -263,7 +260,8 @@ class Pip(
         }
         pip.requireSuccess()
 
-        var declaredLicenses: SortedSet<String> = sortedSetOf<String>()
+        var authors: SortedSet<String> = sortedSetOf()
+        var declaredLicenses: SortedSet<String> = sortedSetOf()
 
         // First try to get meta-data from "setup.py" in any case, even for "requirements.txt" projects.
         val (setupName, setupVersion, setupHomepage) = if (workingDir.resolve("setup.py").isFile) {
@@ -283,6 +281,7 @@ class Pip(
             // - "download_url", denoting the "location where the package may be downloaded".
             // So the best we can do is to map it to the project's homepage URL.
             jsonMapper.readTree(pydep.stdout).let {
+                authors = parseAuthors(it)
                 declaredLicenses = getDeclaredLicenses(it)
                 listOf(
                     it["project_name"].textValue(), it["version"].textValueOrEmpty(),
@@ -376,11 +375,12 @@ class Pip(
                 version = projectVersion
             ),
             definitionFilePath = VersionControlSystem.getPathInfo(definitionFile).path,
+            authors = authors,
             declaredLicenses = declaredLicenses,
             vcs = VcsInfo.EMPTY,
             vcsProcessed = processProjectVcs(workingDir, VcsInfo.EMPTY, setupHomepage),
             homepageUrl = setupHomepage,
-            scopes = scopes
+            scopeDependencies = scopes
         )
 
         // Remove the virtualenv by simply deleting the directory.
@@ -421,6 +421,19 @@ class Pip(
 
         return RemoteArtifact(url, Hash.create(hash))
     }
+
+    private fun parseAuthors(pkgInfo: JsonNode): SortedSet<String> =
+        parseAuthorString(pkgInfo["author"]?.textValue())
+
+    private fun parseAuthorString(author: String?): SortedSet<String> =
+        author?.takeIf(::isValidAuthor)?.let { sortedSetOf(it) } ?: sortedSetOf()
+
+    /**
+     * Check if the given [author] string represents a valid author name. There are some non-null strings that
+     * indicate that no author information is available. For instance, setup.py files can contain empty strings;
+     * the "pip show" command prints the string "None" in this case.
+     */
+    private fun isValidAuthor(author: String): Boolean = author.isNotBlank() && author != "None"
 
     private fun getDeclaredLicenses(pkgInfo: JsonNode): SortedSet<String> {
         val declaredLicenses = sortedSetOf<String>()
@@ -557,6 +570,7 @@ class Pip(
                     name = dependency["package_name"].textValue(),
                     version = dependency["installed_version"].textValue()
                 ),
+                authors = sortedSetOf(),
                 declaredLicenses = sortedSetOf(),
                 description = "",
                 homepageUrl = "",
@@ -619,6 +633,7 @@ class Pip(
                     id = id,
                     homepageUrl = homepageUrl,
                     description = pkgInfo["summary"]?.textValue().orEmpty(),
+                    authors = parseAuthors(pkgInfo),
                     declaredLicenses = getDeclaredLicenses(pkgInfo),
                     binaryArtifact = getBinaryArtifact(pkgRelease),
                     sourceArtifact = getSourceArtifact(pkgRelease),
@@ -650,7 +665,7 @@ class Pip(
             *allPackages.map { it.name }.toTypedArray()
         ).requireSuccess().stdout
 
-        return output.normalizeLineBreaks().split("---\n").mapNotNull { parsePipShowOutput(it) }
+        return output.normalizeLineBreaks().split("---\n").map { parsePipShowOutput(it) }
     }
 
     /**
@@ -671,7 +686,7 @@ class Pip(
     /**
      * Parse the output of 'pip show <package-name> --verbose' to a package.
      */
-    private fun parsePipShowOutput(output: String): Package? {
+    private fun parsePipShowOutput(output: String): Package {
         val map = mutableMapOf<String, MutableList<String>>()
 
         var previousKey: String? = null
@@ -700,6 +715,8 @@ class Pip(
         getLicenseFromLicenseField(map["License"]?.single())?.let { declaredLicenses += it }
         map["Classifiers"]?.mapNotNullTo(declaredLicenses) { getLicenseFromClassifier(it) }
 
+        val authors = parseAuthorString(map["Author"]?.singleOrNull())
+
         return Package(
             id = Identifier(
                 type = "PyPI",
@@ -709,6 +726,7 @@ class Pip(
             ),
             description = map["Summary"]?.single().orEmpty(),
             homepageUrl = map["Home-page"]?.single().orEmpty(),
+            authors = authors,
             declaredLicenses = declaredLicenses,
             binaryArtifact = RemoteArtifact.EMPTY,
             sourceArtifact = RemoteArtifact.EMPTY,
@@ -723,6 +741,7 @@ private fun Package.enrichWith(other: Package?): Package =
             id = id,
             homepageUrl = homepageUrl.takeUnless { it.isBlank() } ?: other.homepageUrl,
             description = description.takeUnless { it.isBlank() } ?: other.description,
+            authors = authors.takeUnless { it.isEmpty() } ?: other.authors,
             declaredLicenses = declaredLicenses.takeUnless { it.isEmpty() } ?: other.declaredLicenses,
             binaryArtifact = binaryArtifact.takeUnless { it == RemoteArtifact.EMPTY } ?: other.binaryArtifact,
             sourceArtifact = sourceArtifact.takeUnless { it == RemoteArtifact.EMPTY } ?: other.sourceArtifact,

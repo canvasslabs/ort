@@ -25,15 +25,20 @@ import java.util.ServiceLoader
 
 import kotlinx.coroutines.runBlocking
 
+import org.ossreviewtoolkit.model.AdvisorDetails
 import org.ossreviewtoolkit.model.AdvisorRecord
 import org.ossreviewtoolkit.model.AdvisorResult
 import org.ossreviewtoolkit.model.AdvisorResultContainer
 import org.ossreviewtoolkit.model.AdvisorRun
-import org.ossreviewtoolkit.model.Environment
+import org.ossreviewtoolkit.model.AdvisorSummary
 import org.ossreviewtoolkit.model.OrtResult
 import org.ossreviewtoolkit.model.Package
 import org.ossreviewtoolkit.model.config.AdvisorConfiguration
+import org.ossreviewtoolkit.model.createAndLogIssue
 import org.ossreviewtoolkit.model.readValue
+import org.ossreviewtoolkit.utils.Environment
+import org.ossreviewtoolkit.utils.collectMessagesAsString
+import org.ossreviewtoolkit.utils.showStackTrace
 
 /**
  * The class to retrieve security advisories.
@@ -43,7 +48,7 @@ abstract class Advisor(val advisorName: String, protected val config: AdvisorCon
         private val LOADER = ServiceLoader.load(AdvisorFactory::class.java)!!
 
         /**
-         * The list of all available advisors in the classpath
+         * The list of all available advisors in the classpath.
          */
         val ALL by lazy { LOADER.iterator().asSequence().toList() }
     }
@@ -61,26 +66,55 @@ abstract class Advisor(val advisorName: String, protected val config: AdvisorCon
         val ortResult = ortResultFile.readValue<OrtResult>()
 
         requireNotNull(ortResult.analyzer) {
-            "The provided ORT result file '${ortResultFile.invariantSeparatorsPath}' does not contain an analyzer " +
-                    "result."
+            "The provided ORT result file '${ortResultFile.canonicalPath}' does not contain an analyzer result."
         }
 
         val packages = ortResult.getPackages(skipExcluded).map { it.pkg }
-
         val results = runBlocking { retrievePackageVulnerabilities(packages) }
+
         val resultContainers = results.map { (pkg, results) ->
             AdvisorResultContainer(pkg.id, results)
         }.toSortedSet()
+
         val advisorRecord = AdvisorRecord(resultContainers)
 
         val endTime = Instant.now()
 
         val advisorRun = AdvisorRun(startTime, endTime, Environment(), config, advisorRecord)
-
         return ortResult.copy(advisor = advisorRun)
     }
 
     protected abstract suspend fun retrievePackageVulnerabilities(
         packages: List<Package>
     ): Map<Package, List<AdvisorResult>>
+
+    protected fun createFailedResults(
+        startTime: Instant,
+        packages: List<Package>,
+        t: Throwable
+    ): Map<Package, List<AdvisorResult>> {
+        val endTime = Instant.now()
+
+        t.showStackTrace()
+
+        val failedResults = listOf(
+            AdvisorResult(
+                vulnerabilities = emptyList(),
+                advisor = AdvisorDetails(advisorName),
+                summary = AdvisorSummary(
+                    startTime = startTime,
+                    endTime = endTime,
+                    issues = listOf(
+                        createAndLogIssue(
+                            source = advisorName,
+                            message = "Failed to retrieve security vulnerabilities from $advisorName: " +
+                                    t.collectMessagesAsString()
+                        )
+                    )
+                )
+            )
+        )
+
+        return packages.associateWith { failedResults }
+    }
 }

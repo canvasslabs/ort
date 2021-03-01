@@ -113,7 +113,7 @@ abstract class ScanResultsStorage {
                 is FileBasedStorageConfiguration -> createFileBasedStorage(config)
                 is PostgresStorageConfiguration -> createPostgresStorage(config)
                 is ClearlyDefinedStorageConfiguration -> createClearlyDefinedStorage(config)
-                is Sw360StorageConfiguration -> TODO()
+                is Sw360StorageConfiguration -> configureSw360Storage(config)
             }
 
         /**
@@ -141,7 +141,7 @@ abstract class ScanResultsStorage {
             }
 
             require(config.schema.isNotBlank()) {
-                "Database for PostgreSQL storage is missing."
+                "Schema for PostgreSQL storage is missing."
             }
 
             require(config.username.isNotBlank()) {
@@ -156,6 +156,7 @@ abstract class ScanResultsStorage {
                 jdbcUrl = config.url
                 username = config.username
                 password = config.password
+                schema = config.schema
 
                 // Use a value slightly higher than the number of threads accessing the storage.
                 maximumPoolSize = LocalScanner.NUM_STORAGE_THREADS + 3
@@ -171,7 +172,7 @@ abstract class ScanResultsStorage {
                 addDataSourcePropertyIfDefined("sslrootcert", config.sslrootcert)
             }
 
-            return PostgresStorage(HikariDataSource(dataSourceConfig), config.schema).also { it.setupDatabase() }
+            return PostgresStorage(HikariDataSource(dataSourceConfig))
         }
 
         /**
@@ -188,6 +189,12 @@ abstract class ScanResultsStorage {
         private fun HikariConfig.addDataSourcePropertyIfDefined(key: String, value: String?) {
             value?.let { addDataSourceProperty(key, it) }
         }
+
+        /**
+         * Configure a [Sw360Storage] as the current storage backend.
+         */
+        private fun configureSw360Storage(config: Sw360StorageConfiguration): ScanResultsStorage =
+            Sw360Storage(config)
     }
 
     /**
@@ -202,10 +209,10 @@ abstract class ScanResultsStorage {
 
     /**
      * Read all [ScanResult]s for a package with [id] from the storage. Return a [ScanResultContainer] wrapped in a
-     * [Result], which is a [Failure] if no [ScanResult] was found and a [Success] otherwise.
+     * [Result], which is a [Failure] if an unexpected error occurred and a [Success] otherwise.
      */
     fun read(id: Identifier): Result<ScanResultContainer> {
-        val (result, duration) = measureTimedValue { readFromStorage(id) }
+        val (result, duration) = measureTimedValue { readInternal(id) }
 
         stats.numReads.incrementAndGet()
 
@@ -229,11 +236,11 @@ abstract class ScanResultsStorage {
      * [Package.vcs], and [Package.vcsProcessed] are used to check if the scan result matches the expected source code
      * location. That check is important to find the correct results when different revisions of a package using the
      * same version name are used (e.g. multiple scans of a "1.0-SNAPSHOT" version during development). Return a
-     * [ScanResultContainer] wrapped in a [Result], which is a [Failure] if no [ScanResult] was found and a [Success]
+     * [ScanResultContainer] wrapped in a [Result], which is a [Failure] if an unexpected error occurred and a [Success]
      * otherwise.
      */
     fun read(pkg: Package, scannerCriteria: ScannerCriteria): Result<ScanResultContainer> {
-        val (result, duration) = measureTimedValue { readFromStorage(pkg, scannerCriteria) }
+        val (result, duration) = measureTimedValue { readInternal(pkg, scannerCriteria) }
 
         stats.numReads.incrementAndGet()
 
@@ -277,7 +284,7 @@ abstract class ScanResultsStorage {
             return Failure(message)
         }
 
-        val (result, duration) = measureTimedValue { addToStorage(id, scanResult) }
+        val (result, duration) = measureTimedValue { addInternal(id, scanResult) }
 
         log.perf {
             "Added scan result for '${id.toCoordinates()}' to ${javaClass.simpleName} in ${duration.inMilliseconds}ms."
@@ -289,14 +296,14 @@ abstract class ScanResultsStorage {
     /**
      * Internal version of [read] that does not update the [access statistics][stats].
      */
-    protected abstract fun readFromStorage(id: Identifier): Result<ScanResultContainer>
+    protected abstract fun readInternal(id: Identifier): Result<ScanResultContainer>
 
     /**
      * Internal version of [read] that does not update the [access statistics][stats]. Implementations may want to
      * override this function if they can filter for the wanted [scannerCriteria] in a more efficient way.
      */
-    protected open fun readFromStorage(pkg: Package, scannerCriteria: ScannerCriteria): Result<ScanResultContainer> {
-        val scanResults = when (val readResult = readFromStorage(pkg.id)) {
+    protected open fun readInternal(pkg: Package, scannerCriteria: ScannerCriteria): Result<ScanResultContainer> {
+        val scanResults = when (val readResult = readInternal(pkg.id)) {
             is Success -> readResult.result.results.toMutableList()
             is Failure -> return readResult
         }
@@ -329,5 +336,5 @@ abstract class ScanResultsStorage {
     /**
      * Internal version of [add] that skips common sanity checks.
      */
-    protected abstract fun addToStorage(id: Identifier, scanResult: ScanResult): Result<Unit>
+    protected abstract fun addInternal(id: Identifier, scanResult: ScanResult): Result<Unit>
 }

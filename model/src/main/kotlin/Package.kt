@@ -24,6 +24,7 @@ import com.fasterxml.jackson.annotation.JsonInclude
 
 import java.util.SortedSet
 
+import org.ossreviewtoolkit.model.utils.toPurl
 import org.ossreviewtoolkit.spdx.SpdxExpression
 import org.ossreviewtoolkit.spdx.SpdxOperator
 import org.ossreviewtoolkit.utils.DeclaredLicenseProcessor
@@ -50,6 +51,15 @@ data class Package(
      * An additional identifier in [package URL syntax](https://github.com/package-url/purl-spec).
      */
     val purl: String = id.toPurl(),
+
+    /**
+     * The list of authors declared for this package.
+     *
+     * TODO: The annotation can be removed after all package manager implementations have filled the field [authors]
+     *       accordingly.
+     */
+    @JsonInclude(JsonInclude.Include.NON_DEFAULT)
+    val authors: SortedSet<String> = sortedSetOf(),
 
     /**
      * The list of licenses the authors have declared for this package. This does not necessarily correspond to the
@@ -124,6 +134,7 @@ data class Package(
         val EMPTY = Package(
             id = Identifier.EMPTY,
             purl = "",
+            authors = sortedSetOf(),
             declaredLicenses = sortedSetOf(),
             declaredLicensesProcessed = ProcessedDeclaredLicense.EMPTY,
             concludedLicense = null,
@@ -152,6 +163,7 @@ data class Package(
         }
 
         return PackageCurationData(
+            authors = authors.takeIf { it != other.authors },
             declaredLicenses = declaredLicenses.takeIf { it != other.declaredLicenses },
             description = description.takeIf { it != other.description },
             homepageUrl = homepageUrl.takeIf { it != other.homepageUrl },

@@ -2,31 +2,35 @@
 
 &nbsp;
 
-| Linux (OpenJDK 11)             | Windows (Oracle JDK 11)         | JitPack (OpenJDK 11)            |
-| :----------------------------- | :------------------------------ | :------------------------------ |
-| [![Linux build status][1]][2]  | [![Windows build status][3]][4] | [![JitPack build status][5]][6] |
-| [![Linux code coverage][7]][8] |                                 |                                 |
+[![Slack][1]][2]
 
-| License status           | Code quality      | TODOs              | Interact with us!              |
-| :----------------------- | :---------------- | :----------------- | :----------------------------- |
-| [![REUSE status][9]][10] | [![LGTM][11]][12] | [![TODOs][13]][14] | [![ort-talk][15]][16]          |
+[![Linux build status][4]][3] [![Windows build status][5]][3] [![Docker build status][6]][3] [![JitPack build status][10]][11]
 
-[1]: https://travis-ci.com/oss-review-toolkit/ort.svg?branch=master
-[2]: https://travis-ci.com/oss-review-toolkit/ort
-[3]: https://ci.appveyor.com/api/projects/status/8oh5ld40c8h19jr5/branch/master?svg=true
-[4]: https://ci.appveyor.com/project/oss-review-toolkit/ort/branch/master
-[5]: https://jitpack.io/v/oss-review-toolkit/ort.svg
-[6]: https://jitpack.io/#oss-review-toolkit/ort
-[7]: https://codecov.io/gh/oss-review-toolkit/ort/branch/master/graph/badge.svg
-[8]: https://codecov.io/gh/oss-review-toolkit/ort/
-[9]: https://api.reuse.software/badge/github.com/oss-review-toolkit/ort
-[10]: https://api.reuse.software/info/github.com/oss-review-toolkit/ort
-[11]: https://img.shields.io/lgtm/alerts/g/oss-review-toolkit/ort.svg?logo=lgtm&logoWidth=18
-[12]: https://lgtm.com/projects/g/oss-review-toolkit/ort/alerts/
-[13]: https://badgen.net/https/api.tickgit.com/badgen/github.com/oss-review-toolkit/ort
-[14]: https://www.tickgit.com/browse?repo=github.com/oss-review-toolkit/ort
-[15]: https://img.shields.io/badge/slack-ort--talk-blue.svg?longCache=true&logo=slack
-[16]: https://join.slack.com/t/ort-talk/shared_invite/enQtMzk3MDU5Njk0Njc1LThiNmJmMjc5YWUxZTU4OGI5NmY3YTFlZWM5YTliZmY5ODc0MGMyOWIwYmRiZWFmNGMzOWY2NzVhYTI0NTJkNmY
+[![Linux analyzer tests][7]][3] [![Windows analyzer tests][8]][3] [![Code coverage][12]][13]
+
+[![TODOs][14]][15] [![Static Analysis][9]][3] [![LGTM][16]][17] [![REUSE status][18]][19] [![CII][20]][21]
+
+[1]: https://img.shields.io/badge/Join_us_on_Slack!-ort--talk-blue.svg?longCache=true&logo=slack
+[2]: https://join.slack.com/t/ort-talk/shared_invite/enQtMzk3MDU5Njk0Njc1LThiNmJmMjc5YWUxZTU4OGI5NmY3YTFlZWM5YTliZmY5ODc0MGMyOWIwYmRiZWFmNGMzOWY2NzVhYTI0NTJkNmY
+[3]: https://dev.azure.com/oss-review-toolkit/ort/_build/latest?definitionId=2&branchName=master
+[4]: https://dev.azure.com/oss-review-toolkit/ort/_apis/build/status/oss-review-toolkit.ort?branchName=master&jobName=LinuxTest&label=Linux%20Build
+[5]: https://dev.azure.com/oss-review-toolkit/ort/_apis/build/status/oss-review-toolkit.ort?branchName=master&jobName=WindowsTest&label=Windows%20Build
+[6]: https://dev.azure.com/oss-review-toolkit/ort/_apis/build/status/oss-review-toolkit.ort?branchName=master&jobName=DockerBuild&label=Docker%20Build
+[7]: https://dev.azure.com/oss-review-toolkit/ort/_apis/build/status/oss-review-toolkit.ort?branchName=master&jobName=LinuxAnalyzerTest&label=Linux%20Analyzer%20Tests
+[8]: https://dev.azure.com/oss-review-toolkit/ort/_apis/build/status/oss-review-toolkit.ort?branchName=master&jobName=WindowsAnalyzerTest&label=Windows%20Analyzer%20Tests
+[9]: https://dev.azure.com/oss-review-toolkit/ort/_apis/build/status/oss-review-toolkit.ort?branchName=master&jobName=StaticAnalysis&label=Static%20Analysis
+[10]: https://jitpack.io/v/oss-review-toolkit/ort.svg
+[11]: https://jitpack.io/#oss-review-toolkit/ort
+[12]: https://codecov.io/gh/oss-review-toolkit/ort/branch/master/graph/badge.svg
+[13]: https://codecov.io/gh/oss-review-toolkit/ort/
+[14]: https://badgen.net/https/api.tickgit.com/badgen/github.com/oss-review-toolkit/ort
+[15]: https://www.tickgit.com/browse?repo=github.com/oss-review-toolkit/ort
+[16]: https://img.shields.io/lgtm/alerts/g/oss-review-toolkit/ort.svg?logo=lgtm&logoWidth=18
+[17]: https://lgtm.com/projects/g/oss-review-toolkit/ort/alerts/
+[18]: https://api.reuse.software/badge/github.com/oss-review-toolkit/ort
+[19]: https://api.reuse.software/info/github.com/oss-review-toolkit/ort
+[20]: https://bestpractices.coreinfrastructure.org/projects/4618/badge
+[21]: https://bestpractices.coreinfrastructure.org/projects/4618
 
 # Introduction
 
@@ -314,6 +318,7 @@ Currently, the following package managers are supported:
 * [Bundler](http://bundler.io/) (Ruby)
 * [Cargo](https://doc.rust-lang.org/cargo/) (Rust)
 * [Carthage](https://github.com/Carthage/Carthage) (iOS / Cocoa)
+* [Composer](https://getcomposer.org/) (PHP)
 * [Conan](https://conan.io/) (C / C++, *experimental* as the VCS locations often times do not contain the actual source
   code, see [issue #2037](https://github.com/oss-review-toolkit/ort/issues/2037))
 * [dep](https://golang.github.io/dep/) (Go)
@@ -328,7 +333,6 @@ Currently, the following package managers are supported:
 * [NPM](https://www.npmjs.com/) (Node.js)
 * [NuGet](https://www.nuget.org/) (.NET, with currently some
   [limitations](https://github.com/oss-review-toolkit/ort/pull/1303#issue-253860146))
-* [Composer](https://getcomposer.org/) (PHP)
 * [PIP](https://pip.pypa.io/) (Python)
 * [Pipenv](https://pipenv.readthedocs.io/) (Python)
 * [Pub](https://pub.dev/) (Dart / Flutter)
@@ -641,7 +645,7 @@ the following steps to import the project.
 
 ## Debugging
 
-To set up a basic run configuration for debugging, navigate to `Main.kt` in the `cli` module and look for the
+To set up a basic run configuration for debugging, navigate to `OrtMain.kt` in the `cli` module and look for the
 `fun main(args: Array<String>)` function. In the gutter next to it, a green "Play" icon should be displayed. Click on it
 and select `Run 'org.ossreviewtoolkit.Main'` to run the entry point, which implicitly creates a run configuration.
 Double-check that running ORT without any arguments will simply show the command line help in IDEA's *Run* tool window.
@@ -655,7 +659,7 @@ needs to be installed. Afterwards tests can be run via the green "Play" icon fro
 
 # License
 
-Copyright (C) 2017-2020 HERE Europe B.V.
+Copyright (C) 2017-2021 HERE Europe B.V.
 
 See the [LICENSE](./LICENSE) file in the root of this project for license details.
 

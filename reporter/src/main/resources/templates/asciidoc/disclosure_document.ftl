@@ -31,7 +31,14 @@ Excluded projects and packages are ignored.
 :sectnums:
 :toc: preamble
 
-= Disclosure Document
+[#assign errorTitle = "DISCLAIMER! THERE ARE UNRESOLVED ISSUES.
+    THIS DOCUMENT SHOULD NOT BE DISTRIBUTED UNTIL THESE ISSUES ARE RESOLVED."?replace("\n", " ")]
+
+[#--
+The alert role needs to be defined in the pdf-theme file, where the color can be customized.
+If not present, the text is displayed normally.
+--]
+= [#if helper.hasUnresolvedIssues()][.alert]#${errorTitle}#[#else] Disclosure Document[/#if]
 :author-name: OSS Review Toolkit
 [#assign now = .now]
 :revdate: ${now?date?iso_local}
@@ -91,13 +98,13 @@ License File: <<${licenseFile.path}, ${licenseFile.path}>>
 
 [/#list]
 [#--
-Filter the licenses of the package using LicenseView.CONCLUDED_OR_REST. This is the default view which ignores declared
-and detected licenses if a license conclusion for the package was made. If copyrights were detected for a concluded
-license those statements are kept.
+Filter the licenses of the package using LicenseView.CONCLUDED_OR_DECLARED_AND_DETECTED. This is the default view which
+ignores declared and detected licenses if a license conclusion for the package was made. If copyrights were detected
+for a concluded license those statements are kept.
 --]
 [#assign
 resolvedLicenses =
-    helper.licenseView("CONCLUDED_OR_REST").filter(package.licensesNotInLicenseFiles())
+    helper.licenseView("CONCLUDED_OR_DECLARED_AND_DETECTED").filter(package.licensesNotInLicenseFiles())
 ]
 [#if resolvedLicenses?has_content]
 
@@ -125,7 +132,7 @@ Append the text of all licenses that have been listed in the above lists for lic
 [appendix]
 == License Texts
 
-[#assign mergedLicenses = helper.mergeLicenses(projects + packages, helper.licenseView("CONCLUDED_OR_REST"))]
+[#assign mergedLicenses = helper.mergeLicenses(projects + packages, helper.licenseView("CONCLUDED_OR_DECLARED_AND_DETECTED"))]
 [#list mergedLicenses as resolvedLicense]
 === ${resolvedLicense.license}
 

@@ -28,8 +28,8 @@ import java.util.ServiceLoader
 import org.ossreviewtoolkit.model.Package
 import org.ossreviewtoolkit.model.VcsInfo
 import org.ossreviewtoolkit.model.VcsType
+import org.ossreviewtoolkit.model.config.LicenseFilenamePatterns
 import org.ossreviewtoolkit.utils.CommandLineTool
-import org.ossreviewtoolkit.utils.LicenseFilenamePatterns.ALL_LICENSE_FILENAMES
 import org.ossreviewtoolkit.utils.collectMessagesAsString
 import org.ossreviewtoolkit.utils.log
 import org.ossreviewtoolkit.utils.showStackTrace
@@ -134,7 +134,7 @@ abstract class VersionControlSystem {
          * Return glob patterns matching all potential license or patent files.
          */
         internal fun getLicenseFileGlobPatterns(): List<String> =
-            ALL_LICENSE_FILENAMES.generateCapitalizationVariants().map { "**/$it" }
+            LicenseFilenamePatterns.getInstance().allLicenseFilenames.generateCapitalizationVariants().map { "**/$it" }
 
         private fun Collection<String>.generateCapitalizationVariants() =
             flatMap { listOf(it, it.toUpperCase(), it.capitalize()) }
@@ -151,11 +151,6 @@ abstract class VersionControlSystem {
     protected open val priority: Int = 0
 
     /**
-     * The name of the remote branch that gets checked out by default if none if specified.
-     */
-    abstract val defaultBranchName: String
-
-    /**
      * A list of symbolic names that point to the latest revision.
      */
     protected abstract val latestRevisionNames: List<String>
@@ -164,6 +159,11 @@ abstract class VersionControlSystem {
      * Return the VCS command's version string, or an empty string if the version cannot be determined.
      */
     abstract fun getVersion(): String
+
+    /**
+     * Return the name of the default branch for the repository at [url], or null if there is no default remote branch.
+     */
+    abstract fun getDefaultBranchName(url: String): String?
 
     /**
      * Return a working tree instance for this VCS.

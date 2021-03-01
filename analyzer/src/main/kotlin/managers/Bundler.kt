@@ -112,11 +112,13 @@ class Bundler(
             val project = Project(
                 id = projectId,
                 definitionFilePath = VersionControlSystem.getPathInfo(definitionFile).path,
+                // TODO: Find a way to track authors.
+                authors = sortedSetOf(),
                 declaredLicenses = declaredLicenses.toSortedSet(),
                 vcs = VcsInfo.EMPTY,
                 vcsProcessed = processProjectVcs(workingDir, VcsInfo.EMPTY, homepageUrl),
                 homepageUrl = homepageUrl,
-                scopes = scopes.toSortedSet()
+                scopeDependencies = scopes.toSortedSet()
             )
 
             return listOf(ProjectAnalyzerResult(project, packages, issues))
@@ -146,7 +148,7 @@ class Bundler(
 
         try {
             var gemSpec = getGemspec(gemName, workingDir)
-            val gemId = Identifier(managerName, "", gemSpec.name, gemSpec.version)
+            val gemId = Identifier("Gem", "", gemSpec.name, gemSpec.version)
 
             // The project itself can be listed as a dependency if the project is a gem (i.e. there is a .gemspec file
             // for it, and the Gemfile refers to it). In that case, skip querying Rubygems and adding Package and
@@ -162,6 +164,8 @@ class Bundler(
 
                 packages += Package(
                     id = gemId,
+                    // TODO: Find a way to track authors.
+                    authors = sortedSetOf(),
                     declaredLicenses = gemSpec.declaredLicenses,
                     description = gemSpec.description,
                     homepageUrl = gemSpec.homepageUrl,

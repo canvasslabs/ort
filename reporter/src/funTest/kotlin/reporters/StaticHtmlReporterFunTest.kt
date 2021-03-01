@@ -28,25 +28,22 @@ import javax.xml.transform.TransformerFactory
 
 import kotlin.io.path.createTempDirectory
 
-import org.ossreviewtoolkit.model.Environment
-import org.ossreviewtoolkit.model.OrtIssue
 import org.ossreviewtoolkit.model.OrtResult
 import org.ossreviewtoolkit.model.utils.DefaultResolutionProvider
 import org.ossreviewtoolkit.reporter.HowToFixTextProvider
 import org.ossreviewtoolkit.reporter.ReporterInput
+import org.ossreviewtoolkit.utils.Environment
 import org.ossreviewtoolkit.utils.ORT_NAME
 import org.ossreviewtoolkit.utils.test.patchExpectedResult
 import org.ossreviewtoolkit.utils.test.readOrtResult
 
-private val HOW_TO_FIX_TEXT_PROVIDER: HowToFixTextProvider = object : HowToFixTextProvider {
-    override fun getHowToFixText(issue: OrtIssue): String? {
-        return """
-            * *Step 1*
-            * __Step 2__
-            * ***Step 3***
-            ```Some long issue resolution text to verify that overflow:scroll is working as expected.``` 
-        """.trimIndent()
-    }
+private val HOW_TO_FIX_TEXT_PROVIDER = HowToFixTextProvider {
+    """
+        * *Step 1*
+        * __Step 2__
+        * ***Step 3***
+        ```Some long issue resolution text to verify that overflow:scroll is working as expected.``` 
+    """.trimIndent()
 }
 
 class StaticHtmlReporterFunTest : WordSpec({

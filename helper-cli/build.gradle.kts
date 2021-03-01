@@ -52,6 +52,16 @@ repositories {
             includeGroup("org.gradle")
         }
     }
+
+    exclusiveContent {
+        forRepository {
+            maven("https://repo.eclipse.org/content/groups/sw360/")
+        }
+
+        filter {
+            includeGroup("org.eclipse.sw360")
+        }
+    }
 }
 
 dependencies {

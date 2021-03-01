@@ -30,6 +30,7 @@ import io.kotest.matchers.string.shouldNotContain
 import io.kotest.matchers.string.shouldNotStartWith
 import io.kotest.matchers.string.shouldStartWith
 
+import org.ossreviewtoolkit.model.utils.toPurl
 import org.ossreviewtoolkit.utils.test.containExactly
 
 class IdentifierTest : WordSpec({
@@ -129,16 +130,10 @@ class IdentifierTest : WordSpec({
             purl shouldBe purl.toLowerCase()
         }
 
-        "Use PURL type instead of package manager type" {
-            val purl = Identifier("gradle", "namespace", "name", "version").toPurl()
+        "use given type if it is not a known package manager" {
+            val purl = Identifier("FooBar", "namespace", "name", "version").toPurl()
 
-            purl shouldStartWith "pkg:maven"
-        }
-
-        "Use given type if it is not a known package manager" {
-            val purl = Identifier("PyPI", "namespace", "name", "version").toPurl()
-
-            purl shouldStartWith "pkg:pypi"
+            purl shouldStartWith "pkg:foobar"
         }
 
         "not use '/' for empty namespaces" {
