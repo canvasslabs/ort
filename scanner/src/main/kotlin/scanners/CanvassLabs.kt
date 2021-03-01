@@ -25,13 +25,16 @@ import java.io.File
 import java.io.IOException
 import java.net.HttpURLConnection
 import java.time.Instant
+
 import kotlin.io.path.createTempDirectory
+
 import okhttp3.Request
+
 import org.ossreviewtoolkit.model.EMPTY_JSON_NODE
 import org.ossreviewtoolkit.model.LicenseFinding
 import org.ossreviewtoolkit.model.CopyrightFinding
-import org.ossreviewtoolkit.model.Provenance
-import org.ossreviewtoolkit.model.ScanResult
+//import org.ossreviewtoolkit.model.Provenance
+//import org.ossreviewtoolkit.model.ScanResult
 import org.ossreviewtoolkit.model.ScanSummary
 import org.ossreviewtoolkit.model.TextLocation
 import org.ossreviewtoolkit.model.config.ScannerConfiguration
@@ -46,8 +49,7 @@ import org.ossreviewtoolkit.utils.Os
 import org.ossreviewtoolkit.utils.ProcessCapture
 import org.ossreviewtoolkit.utils.log
 import org.ossreviewtoolkit.utils.unpackZip
-import java.io.PrintWriter
-
+//import java.io.PrintWriter
 
 class CanvassLabs(name: String, config: ScannerConfiguration) : LocalScanner(name, config) {
     class Factory : AbstractScannerFactory<CanvassLabs>("CanvassLabs") {
@@ -99,11 +101,12 @@ class CanvassLabs(name: String, config: ScannerConfiguration) : LocalScanner(nam
 
             log.info { "Unpacking '$archive' to '$unpackDir'... " }
             body.bytes().unpackZip(unpackDir)
+
             unpackDir
         }
     }
 
-    override fun scanPathInternal(path: File, resultsFile: File): ScanResult {
+    override fun scanPathInternal(path: File, resultsFile: File): ScanSummary {
         val startTime = Instant.now()
 
         val process = ProcessCapture(
@@ -121,8 +124,7 @@ class CanvassLabs(name: String, config: ScannerConfiguration) : LocalScanner(nam
         with(process) {
             if (isSuccess) {
                 val result = getRawResult(resultsFile)
-                val summary = generateSummary(startTime, endTime, path, result)
-                return ScanResult(Provenance(), details, summary)
+                return generateSummary(startTime, endTime, path, result)
             } else {
                 throw ScanException(errorMessage)
             }
@@ -150,8 +152,23 @@ class CanvassLabs(name: String, config: ScannerConfiguration) : LocalScanner(nam
             assertion downstream.
         */
 
+	/* STOCK
+	result.flatMapTo(licenseFindings) { file ->
+            val filePath = File(file["Directory"].textValue(), file["Filename"].textValue())
+            file["LicenseGuesses"].map {
+                LicenseFinding(
+                    license = getSpdxLicenseIdString(it["LicenseId"].textValue()),
+                    location = TextLocation(
+                        // Turn absolute paths in the native result into relative paths to not expose any information.
+                        relativizePath(scanPath, filePath),
+                        TextLocation.UNKNOWN_LINE
+                    )
+                )
+            }
+        }
+	*/
+
         result.flatMapTo(licenseFindings) { file ->
-            //val filePath = File(file["local_file_path"].textValue())
             file["matches"].mapNotNull {   
                 // currently, if matched_type does not equal copyright, it will be the
                 // SPDX name for a known license.
@@ -172,7 +189,6 @@ class CanvassLabs(name: String, config: ScannerConfiguration) : LocalScanner(nam
         }
 
         result.flatMapTo(copyrightFindings) { file ->
-            //val filePath = File(file["local_file_path"].textValue())
             file["matches"].mapNotNull {   
                 it -> if(it["matched_type"].textValue().equals("copyright"))
                     CopyrightFinding(
@@ -195,7 +211,7 @@ class CanvassLabs(name: String, config: ScannerConfiguration) : LocalScanner(nam
             endTime = endTime,
             fileCount = result.size(),
             packageVerificationCode = calculatePackageVerificationCode(scanPath),
-            licenseFindings = licenseFindings,  
+            licenseFindings = licenseFindings,
             copyrightFindings = copyrightFindings,
             issues = mutableListOf()
         )
