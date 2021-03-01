@@ -1,5 +1,6 @@
 /*
  * Copyright (C) 2017-2019 HERE Europe B.V.
+ * Copyright (C) 2020-2021 Bosch.IO GmbH
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -25,6 +26,9 @@ import com.fasterxml.jackson.databind.ser.std.ToStringSerializer
 
 import org.antlr.v4.runtime.CharStreams
 import org.antlr.v4.runtime.CommonTokenStream
+
+import org.ossreviewtoolkit.spdx.SpdxConstants.DOCUMENT_REF_PREFIX
+import org.ossreviewtoolkit.spdx.SpdxConstants.LICENSE_REF_PREFIX
 
 /**
  * An SPDX expression as defined by version 2.1 of the [SPDX specification, appendix IV][1].
@@ -154,6 +158,22 @@ sealed class SpdxExpression {
     open fun offersChoice(): Boolean = false
 
     /**
+     * Apply a license [choice], optionally limited to the given [subExpression], and return a [SpdxExpression] where
+     * the choice is resolved.
+     */
+    open fun applyChoice(choice: SpdxExpression, subExpression: SpdxExpression = this): SpdxExpression {
+        if (this != subExpression) {
+            throw InvalidSubExpressionException("$subExpression is not a valid subExpression for $this")
+        }
+
+        if (this != choice) {
+            throw InvalidLicenseChoiceException("Cannot select $choice for expression $this.")
+        }
+
+        return this
+    }
+
+    /**
      * Concatenate [this][SpdxExpression] and [other] using [SpdxOperator.AND].
      */
     infix fun and(other: SpdxExpression) = SpdxCompoundExpression(this, SpdxOperator.AND, other)
@@ -235,6 +255,47 @@ class SpdxCompoundExpression(
             SpdxOperator.OR -> true
             SpdxOperator.AND -> left.offersChoice() || right.offersChoice()
         }
+
+    override fun applyChoice(choice: SpdxExpression, subExpression: SpdxExpression): SpdxExpression {
+        if (!subExpression.validChoices().containsAll(choice.validChoices())) {
+            throw InvalidLicenseChoiceException(
+                "$choice is not a valid choice for $subExpression. Valid choices are: ${validChoices()}."
+            )
+        }
+
+        if (!isValidSubExpression(subExpression)) {
+            throw InvalidSubExpressionException("$subExpression is not not a valid subExpression of $this")
+        }
+
+        return replaceSubexpressionWithChoice(subExpression, choice)
+    }
+
+    private fun replaceSubexpressionWithChoice(subExpression: SpdxExpression, choice: SpdxExpression): SpdxExpression {
+        val expressionString = toString()
+        val subExpressionString = subExpression.toString()
+        val choiceString = choice.toString()
+
+        return if (expressionString.contains(subExpressionString)) {
+            expressionString.replace(subExpressionString, choiceString).toSpdx()
+        } else {
+            val dismissedLicense = subExpression.validChoices().first { it != choice }
+            val unchosenLicenses = validChoices().filter { it != dismissedLicense }
+
+            if (unchosenLicenses.isEmpty()) {
+                throw IllegalArgumentException("No licenses left after applying choice $choice to $subExpression")
+            } else {
+                unchosenLicenses.reduce(SpdxExpression::or)
+            }
+        }
+    }
+
+    private fun isValidSubExpression(subExpression: SpdxExpression): Boolean {
+        val expressionString = toString()
+        val subExpressionString = subExpression.toString()
+
+        return validChoices().containsAll(subExpression.validChoices()) ||
+                expressionString.contains(subExpressionString)
+    }
 
     override fun equals(other: Any?): Boolean {
         if (other !is SpdxExpression) return false
@@ -360,12 +421,14 @@ class SpdxLicenseWithExceptionExpression(
     override fun equals(other: Any?) =
         when (other) {
             is SpdxLicenseWithExceptionExpression -> license == other.license && exception == other.exception
+
             is SpdxExpression -> {
                 val decomposed = other.decompose()
                 decomposed.size == 1 && decomposed.first().let {
                     it is SpdxLicenseWithExceptionExpression && it.license == license && it.exception == exception
                 }
             }
+
             else -> false
         }
 
@@ -425,12 +488,14 @@ class SpdxLicenseIdExpression(
     override fun equals(other: Any?) =
         when (other) {
             is SpdxLicenseIdExpression -> id == other.id && orLaterVersion == other.orLaterVersion
+
             is SpdxExpression -> {
                 val decomposed = other.decompose()
                 decomposed.size == 1 && decomposed.first().let {
                     it is SpdxLicenseIdExpression && it.id == id && it.orLaterVersion == orLaterVersion
                 }
             }
+
             else -> false
         }
 
@@ -467,20 +532,20 @@ data class SpdxLicenseReferenceExpression(
     override fun normalize(mapDeprecated: Boolean) = this
 
     override fun validate(strictness: Strictness) {
-        if (!(id.startsWith("LicenseRef-") ||
-                    (id.startsWith("DocumentRef-") && id.contains(":LicenseRef-")))
-        ) {
-            throw SpdxException("'$id' is not an SPDX license reference.")
-        }
+        val isLicenseRef = id.startsWith(LICENSE_REF_PREFIX)
+        val isDocumentRefToLicenseRef = id.startsWith(DOCUMENT_REF_PREFIX) && id.contains(":$LICENSE_REF_PREFIX")
+        if (!isLicenseRef && !isDocumentRefToLicenseRef) throw SpdxException("'$id' is not an SPDX license reference.")
     }
 
     override fun equals(other: Any?) =
         when (other) {
             is SpdxLicenseReferenceExpression -> id == other.id
+
             is SpdxExpression -> {
                 val decomposed = other.decompose()
                 decomposed.size == 1 && decomposed.first().let { it is SpdxLicenseReferenceExpression && it.id == id }
             }
+
             else -> false
         }
 
@@ -516,3 +581,7 @@ enum class SpdxOperator(
      */
     OR(0)
 }
+
+class InvalidLicenseChoiceException(message: String) : SpdxException(message)
+
+class InvalidSubExpressionException(message: String) : SpdxException(message)

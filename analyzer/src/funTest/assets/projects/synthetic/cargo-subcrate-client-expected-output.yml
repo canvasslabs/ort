@@ -2,6 +2,8 @@
 project:
   id: "Cargo::client:0.1.0"
   definition_file_path: "<REPLACE_DEFINITION_FILE_PATH>"
+  authors:
+  - "anon"
   declared_licenses: []
   declared_licenses_processed: {}
   vcs:
@@ -18,14 +20,16 @@ project:
   scopes:
   - name: "dependencies"
     dependencies:
-    - id: "Cargo::lib:0.1.0"
+    - id: "Crate::lib:0.1.0"
       linkage: "PROJECT_STATIC"
       dependencies:
-      - id: "Cargo::cfg-if:0.1.9"
+      - id: "Crate::cfg-if:0.1.9"
         linkage: "STATIC"
 packages:
-- id: "Cargo::cfg-if:0.1.9"
+- id: "Crate::cfg-if:0.1.9"
   purl: "pkg:cargo/cfg-if@0.1.9"
+  authors:
+  - "Alex Crichton"
   declared_licenses:
   - "MIT OR Apache-2.0"
   declared_licenses_processed:

@@ -37,8 +37,20 @@ import org.ossreviewtoolkit.model.ScannerDetails
 import org.ossreviewtoolkit.model.TextLocation
 import org.ossreviewtoolkit.model.jsonMapper
 import org.ossreviewtoolkit.spdx.SpdxConstants
+import org.ossreviewtoolkit.spdx.SpdxConstants.LICENSE_REF_PREFIX
 import org.ossreviewtoolkit.spdx.calculatePackageVerificationCode
 import org.ossreviewtoolkit.utils.textValueOrEmpty
+
+private data class LicenseExpression(
+    val expression: String,
+    val startLine: Int,
+    val endLine: Int
+)
+
+private data class LicenseKeyReplacement(
+    val scanCodeLicenseKey: String,
+    val spdxExpression: String
+)
 
 // Note: The "(File: ...)" part in the patterns below is actually added by our own getRawResult() function.
 private val UNKNOWN_ERROR_REGEX = Pattern.compile(
@@ -70,27 +82,42 @@ internal fun parseResultsFile(resultsFile: File): JsonNode =
 
 /**
  * Generate a summary from the given raw ScanCode [result], using [startTime] and [endTime] metadata.
- * From the [scanPath] the package verification code is generated.
+ * From the [scanPath] the package verification code is generated. If [parseExpressions] is true, license findings are
+ * preferably parsed as license expressions.
  */
-internal fun generateSummary(startTime: Instant, endTime: Instant, scanPath: File, result: JsonNode) =
+internal fun generateSummary(
+    startTime: Instant,
+    endTime: Instant,
+    scanPath: File,
+    result: JsonNode,
+    parseExpressions: Boolean = true
+) =
     generateSummary(
         startTime,
         endTime,
         calculatePackageVerificationCode(scanPath),
-        result
+        result,
+        parseExpressions
     )
 
 /**
  * Generate a summary from the given raw ScanCode [result], using [startTime], [endTime], and [verificationCode]
- * metadata. This variant can be used if the result is not read from a local file.
+ * metadata. This variant can be used if the result is not read from a local file. If [parseExpressions] is true,
+ * license findings are preferably parsed as license expressions.
  */
-internal fun generateSummary(startTime: Instant, endTime: Instant, verificationCode: String, result: JsonNode) =
+internal fun generateSummary(
+    startTime: Instant,
+    endTime: Instant,
+    verificationCode: String,
+    result: JsonNode,
+    parseExpressions: Boolean = true
+) =
     ScanSummary(
         startTime = startTime,
         endTime = endTime,
         fileCount = getFileCount(result),
         packageVerificationCode = verificationCode,
-        licenseFindings = getLicenseFindings(result).toSortedSet(),
+        licenseFindings = getLicenseFindings(result, parseExpressions).toSortedSet(),
         copyrightFindings = getCopyrightFindings(result).toSortedSet(),
         issues = getIssues(result)
     )
@@ -117,22 +144,42 @@ private fun getFileCount(result: JsonNode): Int {
 }
 
 /**
- * Get the license findings from the given [result].
+ * Get the license findings from the given [result]. If [parseExpressions] is true and license expressions are contained
+ * in the result, these are preferred over separate license findings. Otherwise only separate license findings are
+ * parsed.
  */
-private fun getLicenseFindings(result: JsonNode): List<LicenseFinding> {
+private fun getLicenseFindings(result: JsonNode, parseExpressions: Boolean): List<LicenseFinding> {
     val licenseFindings = mutableListOf<LicenseFinding>()
 
     val files = result["files"]?.asSequence().orEmpty()
     files.flatMapTo(licenseFindings) { file ->
         val licenses = file["licenses"]?.asSequence().orEmpty()
-        licenses.map {
+
+        licenses.groupBy(
+            keySelector = {
+                LicenseExpression(
+                    // Older ScanCode versions do not produce the `license_expression` field.
+                    // Just use the `key` field in this case.
+                    it["matched_rule"]?.get("license_expression")?.textValue().takeIf { parseExpressions }
+                        ?: it["key"].textValue(),
+                    it["start_line"].intValue(),
+                    it["end_line"].intValue()
+                )
+            },
+            valueTransform = {
+                LicenseKeyReplacement(it["key"].textValue(), getLicenseId(it))
+            }
+        ).map { (licenseExpression, replacements) ->
+            val spdxLicenseExpression = replacements.fold(licenseExpression.expression) { expression, replacement ->
+                expression.replace(replacement.scanCodeLicenseKey, replacement.spdxExpression)
+            }
+
             LicenseFinding(
-                license = getLicenseId(it),
+                license = spdxLicenseExpression,
                 location = TextLocation(
-                    // The path is already relative as we run ScanCode with "--strip-root".
                     path = file["path"].textValue(),
-                    startLine = it["start_line"].intValue(),
-                    endLine = it["end_line"].intValue()
+                    startLine = licenseExpression.startLine,
+                    endLine = licenseExpression.endLine
                 )
             )
         }
@@ -162,7 +209,7 @@ private fun getLicenseId(license: JsonNode): String {
     // [2] https://github.com/nexB/scancode-toolkit/issues/1217
     // [3] https://github.com/nexB/scancode-toolkit/issues/1336
     // [4] https://github.com/nexB/scancode-toolkit/pull/2247
-    if (name.isEmpty() || name.startsWith("LicenseRef-")) {
+    if (name.isEmpty() || name.startsWith(LICENSE_REF_PREFIX)) {
         val key = license["key"].textValue().replace('_', '-')
         name = if (key in UNKNOWN_LICENSE_KEYS) {
             SpdxConstants.NOASSERTION
@@ -240,12 +287,12 @@ private fun generateScannerDetailsFromNode(result: JsonNode, optionsNode: String
 private fun generateScannerOptions(options: JsonNode?): String {
     fun addValues(list: MutableList<String>, node: JsonNode, key: String) {
         if (node.isEmpty) {
-            list.add(key)
-            list.add(node.asText())
+            list += key
+            list += node.asText()
         } else {
             node.forEach {
-                list.add(key)
-                list.add(it.asText())
+                list += key
+                list += it.asText()
             }
         }
     }

@@ -22,13 +22,12 @@ package org.ossreviewtoolkit.model.config
 import io.kotest.assertions.throwables.shouldThrow
 import io.kotest.core.spec.style.WordSpec
 import io.kotest.extensions.system.withEnvironment
-import io.kotest.matchers.collections.containExactly
 import io.kotest.matchers.collections.shouldContainExactly
 import io.kotest.matchers.collections.shouldContainExactlyInAnyOrder
-import io.kotest.matchers.nulls.shouldBeNull
-import io.kotest.matchers.nulls.shouldNotBeNull
+import io.kotest.matchers.nulls.beNull
 import io.kotest.matchers.should
 import io.kotest.matchers.shouldBe
+import io.kotest.matchers.shouldNot
 import io.kotest.matchers.types.shouldBeInstanceOf
 
 import java.io.File
@@ -46,17 +45,33 @@ class OrtConfigurationTest : WordSpec({
             val refConfig = File("src/test/assets/reference.conf")
             val ortConfig = OrtConfiguration.load(configFile = refConfig)
 
+            ortConfig.analyzer shouldNotBeNull {
+                ignoreToolVersions shouldBe true
+                allowDynamicVersions shouldBe true
+
+                sw360Configuration shouldNotBeNull {
+                    restUrl shouldBe "https://your-sw360-rest-url"
+                    authUrl shouldBe "https://your-authentication-url"
+                    username shouldBe "username"
+                    password shouldBe "password"
+                    clientId shouldBe "clientId"
+                    clientPassword shouldBe "clientPassword"
+                    token shouldBe "token"
+                }
+            }
+
             ortConfig.scanner shouldNotBeNull {
                 archive shouldNotBeNull {
-                    patterns should containExactly("LICENSE*", "COPYING*")
-                    storage.httpFileStorage.shouldBeNull()
+                    storage.httpFileStorage should beNull()
                     storage.localFileStorage shouldNotBeNull {
                         directory shouldBe File("~/.ort/scanner/archive")
                     }
                 }
 
                 storages shouldNotBeNull {
-                    keys shouldContainExactlyInAnyOrder setOf("local", "http", "clearlyDefined", "postgres")
+                    keys shouldContainExactlyInAnyOrder setOf(
+                        "local", "http", "clearlyDefined", "postgres", "sw360Configuration"
+                    )
                     val httpStorage = this["http"]
                     httpStorage.shouldBeInstanceOf<FileBasedStorageConfiguration>()
                     httpStorage.backend.httpFileStorage shouldNotBeNull {
@@ -84,11 +99,29 @@ class OrtConfigurationTest : WordSpec({
                     val cdStorage = this["clearlyDefined"]
                     cdStorage.shouldBeInstanceOf<ClearlyDefinedStorageConfiguration>()
                     cdStorage.serverUrl shouldBe "https://api.clearlydefined.io"
+
+                    val sw360Storage = this["sw360Configuration"]
+                    sw360Storage.shouldBeInstanceOf<Sw360StorageConfiguration>()
+                    sw360Storage.restUrl shouldBe "https://your-sw360-rest-url"
+                    sw360Storage.authUrl shouldBe "https://your-authentication-url"
+                    sw360Storage.username shouldBe "username"
+                    sw360Storage.password shouldBe "password"
+                    sw360Storage.clientId shouldBe "clientId"
+                    sw360Storage.clientPassword shouldBe "clientPassword"
+                    sw360Storage.token shouldBe "token"
                 }
 
-                options.shouldNotBeNull()
+                options shouldNot beNull()
                 storageReaders shouldContainExactly listOf("local", "postgres", "http", "clearlyDefined")
                 storageWriters shouldContainExactly listOf("postgres")
+
+                ignorePatterns shouldContainExactly listOf("**/META-INF/DEPENDENCIES")
+            }
+
+            ortConfig.licenseFilePatterns shouldNotBeNull {
+                licenseFilenames shouldContainExactly listOf("license*")
+                patentFilenames shouldContainExactly listOf("patents")
+                rootLicenseFilenames shouldContainExactly listOf("readme*")
             }
         }
 
@@ -165,7 +198,7 @@ class OrtConfigurationTest : WordSpec({
 
             val config = OrtConfiguration.load(configFile = file, args = args)
 
-            config.scanner.shouldBeNull()
+            config.scanner should beNull()
         }
 
         "support references to environment variables" {

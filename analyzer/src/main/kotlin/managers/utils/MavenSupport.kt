@@ -93,7 +93,7 @@ import org.ossreviewtoolkit.utils.showStackTrace
 
 fun Artifact.identifier() = "$groupId:$artifactId:$version"
 
-class MavenSupport(workspaceReader: WorkspaceReader) {
+class MavenSupport(private val workspaceReader: WorkspaceReader) {
     companion object {
         private const val MAX_DISK_CACHE_SIZE_IN_BYTES = 1024L * 1024L * 1024L
         private const val MAX_DISK_CACHE_ENTRY_AGE_SECONDS = 6 * 60 * 60
@@ -121,6 +121,16 @@ class MavenSupport(workspaceReader: WorkspaceReader) {
                 }
             }
         }
+
+        fun parseAuthors(mavenProject: MavenProject) =
+            sortedSetOf<String>().apply {
+                mavenProject.organization?.let {
+                    if (!it.name.isNullOrEmpty()) add(it.name)
+                }
+
+                val developers = mavenProject.developers.mapNotNull { it.organization.orEmpty().ifEmpty { it.name } }
+                addAll(developers)
+            }
 
         fun parseLicenses(mavenProject: MavenProject) =
             mavenProject.licenses.mapNotNull {
@@ -313,6 +323,55 @@ class MavenSupport(workspaceReader: WorkspaceReader) {
     inline fun <reified T> containerLookup(hint: String = "default"): T =
         container.lookup(T::class.java, hint)
 
+    /**
+     * Build the Maven projects defined in the provided [pomFiles] without resolving dependencies. The result can later
+     * be used to determine if a dependency points to another local project or to an external artifact.
+     *
+     * Note that build extensions are resolved by this function. This is required because extensions can provide
+     * additional repository layouts or transports which are required to resolve dependencies. For details see the Maven
+     * Wagon documentation [1].
+     *
+     * [1]: https://maven.apache.org/wagon/
+     */
+    fun prepareMavenProjects(pomFiles: List<File>): Map<String, ProjectBuildingResult> {
+        val projectBuilder = containerLookup<ProjectBuilder>()
+        val projectBuildingRequest = createProjectBuildingRequest(false).apply {
+            repositorySession = DefaultRepositorySystemSession(repositorySession).apply {
+                workspaceReader = this@MavenSupport.workspaceReader
+            }
+        }
+        val projectBuildingResults = try {
+            projectBuilder.build(pomFiles, false, projectBuildingRequest)
+        } catch (e: ProjectBuildingException) {
+            e.showStackTrace()
+
+            log.warn {
+                "There have been issues building the Maven project models, this could lead to errors during " +
+                        "dependency analysis: ${e.collectMessagesAsString()}"
+            }
+
+            e.results
+        }
+
+        val result = mutableMapOf<String, ProjectBuildingResult>()
+
+        projectBuildingResults.forEach { projectBuildingResult ->
+            if (projectBuildingResult.project == null) {
+                log.warn {
+                    "Project for POM file '${projectBuildingResult.pomFile.absolutePath}' could not be built:\n" +
+                            projectBuildingResult.problems.joinToString("\n")
+                }
+            } else {
+                val project = projectBuildingResult.project
+                val identifier = "${project.groupId}:${project.artifactId}:${project.version}"
+
+                result[identifier] = projectBuildingResult
+            }
+        }
+
+        return result
+    }
+
     fun buildMavenProject(pomFile: File): ProjectBuildingResult {
         val projectBuilder = containerLookup<ProjectBuilder>()
         val projectBuildingRequest = createProjectBuildingRequest(true)
@@ -418,11 +477,11 @@ class MavenSupport(workspaceReader: WorkspaceReader) {
             artifactDownload.isExistenceCheck = true
             artifactDownload.listener = object : AbstractTransferListener() {
                 override fun transferFailed(event: TransferEvent?) {
-                    log.debug { "Transfer failed: $event" }
+                    MavenSupport.log.debug { "Transfer failed: $event" }
                 }
 
                 override fun transferSucceeded(event: TransferEvent?) {
-                    log.debug { "Transfer succeeded: $event" }
+                    MavenSupport.log.debug { "Transfer succeeded: $event" }
                 }
             }
 
@@ -486,7 +545,8 @@ class MavenSupport(workspaceReader: WorkspaceReader) {
             }
         }
 
-        log.warn { "Unable to find '$artifact' in any of ${remoteRepositories.map { it.url }}." }
+        val level = if (artifact.classifier == "sources") Level.DEBUG else Level.WARN
+        log.log(level) { "Unable to find '$artifact' in any of ${remoteRepositories.map { it.url }}." }
 
         return RemoteArtifact.EMPTY.also {
             log.debug { "Writing empty remote artifact for '$artifact' to disk cache." }
@@ -594,6 +654,7 @@ class MavenSupport(workspaceReader: WorkspaceReader) {
                 name = mavenProject.artifactId,
                 version = mavenProject.version
             ),
+            authors = parseAuthors(mavenProject),
             declaredLicenses = parseLicenses(mavenProject),
             description = mavenProject.description.orEmpty(),
             homepageUrl = homepageUrl.orEmpty(),

@@ -22,8 +22,8 @@ package org.ossreviewtoolkit.downloader
 import io.kotest.core.spec.style.StringSpec
 import io.kotest.core.test.TestCase
 import io.kotest.core.test.TestResult
-import io.kotest.matchers.nulls.shouldBeNull
-import io.kotest.matchers.nulls.shouldNotBeNull
+import io.kotest.matchers.nulls.beNull
+import io.kotest.matchers.should
 import io.kotest.matchers.shouldBe
 
 import java.io.File
@@ -81,10 +81,12 @@ class BabelFunTest : StringSpec() {
                 vcsProcessed = vcsMerged
             )
 
-            val downloadResult = Downloader.download(pkg, outputDir)
+            val provenance = Downloader.download(pkg, outputDir)
+            val workingTree = VersionControlSystem.forDirectory(outputDir)
+            val babelCliDir = outputDir.resolve("packages/babel-cli")
 
-            downloadResult.sourceArtifact.shouldBeNull()
-            downloadResult.vcsInfo shouldNotBeNull {
+            provenance.sourceArtifact should beNull()
+            provenance.vcsInfo shouldNotBeNull {
                 type shouldBe pkg.vcsProcessed.type
                 url shouldBe pkg.vcsProcessed.url
                 revision shouldBe "master"
@@ -92,13 +94,11 @@ class BabelFunTest : StringSpec() {
                 path shouldBe pkg.vcsProcessed.path
             }
 
-            val workingTree = VersionControlSystem.forDirectory(downloadResult.downloadDirectory)
+            workingTree shouldNotBeNull {
+                isValid() shouldBe true
+                getRevision() shouldBe "cee4cde53e4f452d89229986b9368ecdb41e00da"
+            }
 
-            workingTree.shouldNotBeNull()
-            workingTree.isValid() shouldBe true
-            workingTree.getRevision() shouldBe "cee4cde53e4f452d89229986b9368ecdb41e00da"
-
-            val babelCliDir = downloadResult.downloadDirectory.resolve("packages/babel-cli")
             babelCliDir.isDirectory shouldBe true
             babelCliDir.walk().count() shouldBe 242
         }

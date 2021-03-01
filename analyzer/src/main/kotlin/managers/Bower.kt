@@ -99,6 +99,8 @@ class Bower(
         private fun extractPackage(node: JsonNode) =
             Package(
                 id = extractPackageId(node),
+                // TODO: Find a way to track authors.
+                authors = sortedSetOf(),
                 declaredLicenses = extractDeclaredLicenses(node),
                 description = node["pkgMeta"]["description"].textValueOrEmpty(),
                 homepageUrl = node["pkgMeta"]["homepage"].textValueOrEmpty(),
@@ -114,14 +116,14 @@ class Bower(
             val result = mutableMapOf<String, Package>()
 
             val stack = Stack<JsonNode>()
-            stack.addAll(getDependencyNodes(node))
+            stack += getDependencyNodes(node)
 
             while (!stack.empty()) {
                 val currentNode = stack.pop()
                 val pkg = extractPackage(currentNode)
                 result["${pkg.id.name}:${pkg.id.version}"] = pkg
 
-                stack.addAll(getDependencyNodes(currentNode))
+                stack += getDependencyNodes(currentNode)
             }
 
             return result
@@ -158,7 +160,7 @@ class Bower(
                     }
                 }
 
-                stack.addAll(getDependencyNodes(currentNode))
+                stack += getDependencyNodes(currentNode)
             }
 
             return result
@@ -233,11 +235,13 @@ class Bower(
             val project = Project(
                 id = projectPackage.id,
                 definitionFilePath = VersionControlSystem.getPathInfo(definitionFile).path,
+                // TODO: Find a way to track authors.
+                authors = sortedSetOf(),
                 declaredLicenses = projectPackage.declaredLicenses,
                 vcs = projectPackage.vcs,
                 vcsProcessed = processProjectVcs(workingDir, projectPackage.vcs, projectPackage.homepageUrl),
                 homepageUrl = projectPackage.homepageUrl,
-                scopes = sortedSetOf(dependenciesScope, devDependenciesScope)
+                scopeDependencies = sortedSetOf(dependenciesScope, devDependenciesScope)
             )
 
             return listOf(ProjectAnalyzerResult(project, packages.values.toSortedSet()))

@@ -22,9 +22,9 @@ package org.ossreviewtoolkit.model.utils
 import org.ossreviewtoolkit.model.Identifier
 import org.ossreviewtoolkit.model.OrtResult
 import org.ossreviewtoolkit.model.config.CopyrightGarbage
+import org.ossreviewtoolkit.model.config.LicenseFilenamePatterns
 import org.ossreviewtoolkit.model.licenses.DefaultLicenseInfoProvider
 import org.ossreviewtoolkit.model.licenses.LicenseInfoResolver
-import org.ossreviewtoolkit.utils.storage.FileArchiver
 
 /**
  * Return a map of concluded licenses for each package [Identifier] that has a concluded license. Note that this
@@ -60,7 +60,7 @@ fun OrtResult.createLicenseInfoResolver(
     archiver: FileArchiver? = null
 ): LicenseInfoResolver {
     val licenseInfoProvider = DefaultLicenseInfoProvider(this, packageConfigurationProvider)
-    return LicenseInfoResolver(licenseInfoProvider, copyrightGarbage, archiver)
+    return LicenseInfoResolver(licenseInfoProvider, copyrightGarbage, archiver, LicenseFilenamePatterns.getInstance())
 }
 
 /**

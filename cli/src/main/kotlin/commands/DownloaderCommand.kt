@@ -175,16 +175,18 @@ class DownloaderCommand : CliktCommand(name = "download", help = "Fetch source c
 
         when (input) {
             is FileType -> {
-                val ortFile = (input as FileType).file
-                val (analyzerResult, duration) = measureTimedValue { ortFile.readValue<OrtResult>().analyzer?.result }
+                val ortResultFile = (input as FileType).file
+                val (analyzerResult, duration) = measureTimedValue {
+                    ortResultFile.readValue<OrtResult>().analyzer?.result
+                }
 
                 log.perf {
-                    "Read ORT result from '${ortFile.name}' (${ortFile.formatSizeInMib}) in " +
+                    "Read ORT result from '${ortResultFile.name}' (${ortResultFile.formatSizeInMib}) in " +
                             "${duration.inMilliseconds}ms."
                 }
 
                 requireNotNull(analyzerResult) {
-                    "The provided ORT result file '$ortFile' does not contain an analyzer result."
+                    "The provided ORT result file '${ortResultFile.canonicalPath}' does not contain an analyzer result."
                 }
 
                 val packages = mutableListOf<Package>().apply {
@@ -240,7 +242,7 @@ class DownloaderCommand : CliktCommand(name = "download", help = "Fetch source c
                 } else {
                     val vcs = VersionControlSystem.forUrl(projectUrl)
                     val vcsType = vcsTypeOption?.let { VcsType(it) } ?: (vcs?.type ?: VcsType.UNKNOWN)
-                    val vcsRevision = vcsRevisionOption ?: vcs?.defaultBranchName.orEmpty()
+                    val vcsRevision = vcsRevisionOption ?: vcs?.getDefaultBranchName(projectUrl).orEmpty()
 
                     val vcsInfo = VcsInfo(
                         type = vcsType,

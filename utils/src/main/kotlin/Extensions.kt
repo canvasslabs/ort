@@ -30,7 +30,6 @@ import java.io.File
 import java.io.IOException
 import java.net.URI
 import java.net.URISyntaxException
-import java.net.URL
 import java.nio.file.CopyOption
 import java.nio.file.FileVisitResult
 import java.nio.file.Files
@@ -313,6 +312,11 @@ fun String.fileSystemEncode() =
         .take(255)
 
 /**
+ * Return true if the string represents a false value, otherwise return false.
+ */
+fun String?.isFalse() = this?.toBoolean()?.not() ?: false
+
+/**
  * Return true if the string represents a true value, otherwise return false.
  */
 fun String?.isTrue() = this?.toBoolean() ?: false
@@ -341,11 +345,6 @@ fun String.isSemanticVersion(type: Semver.SemverType = Semver.SemverType.STRICT)
  * True if the string is a valid [URI], false otherwise.
  */
 fun String.isValidUri() = runCatching { URI(this) }.isSuccess
-
-/**
- * True if the string is a valid [URL], false otherwise.
- */
-fun String.isValidUrl() = runCatching { URL(this) }.isSuccess
 
 /**
  * A regular expression matching the non-linux line breaks "\r\n" and "\r".

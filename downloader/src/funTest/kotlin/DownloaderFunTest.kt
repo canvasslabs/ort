@@ -23,7 +23,8 @@ import io.kotest.assertions.throwables.shouldThrow
 import io.kotest.core.spec.style.StringSpec
 import io.kotest.core.test.TestCase
 import io.kotest.core.test.TestResult
-import io.kotest.matchers.nulls.shouldBeNull
+import io.kotest.matchers.nulls.beNull
+import io.kotest.matchers.should
 import io.kotest.matchers.shouldBe
 
 import java.io.File
@@ -72,18 +73,19 @@ class DownloaderFunTest : StringSpec() {
                 vcs = VcsInfo.EMPTY
             )
 
-            val downloadResult = Downloader.download(pkg, outputDir)
-            downloadResult.vcsInfo.shouldBeNull()
-            downloadResult.sourceArtifact shouldNotBeNull {
+            val provenance = Downloader.download(pkg, outputDir)
+            val licenseFile = outputDir.resolve("LICENSE-junit.txt")
+
+            provenance.vcsInfo should beNull()
+            provenance.sourceArtifact shouldNotBeNull {
                 url shouldBe pkg.sourceArtifact.url
                 hash shouldBe pkg.sourceArtifact.hash
             }
 
-            val licenseFile = downloadResult.downloadDirectory.resolve("LICENSE-junit.txt")
             licenseFile.isFile shouldBe true
             licenseFile.length() shouldBe 11376L
 
-            downloadResult.downloadDirectory.walk().count() shouldBe 234
+            outputDir.walk().count() shouldBe 234
         }
 
         "Download of JAR source package fails when hash is incorrect".config(tags = setOf(ExpensiveTag)) {
@@ -140,18 +142,19 @@ class DownloaderFunTest : StringSpec() {
                 )
             )
 
-            val downloadResult = Downloader.download(pkg, outputDir)
-            downloadResult.vcsInfo.shouldBeNull()
-            downloadResult.sourceArtifact shouldNotBeNull {
+            val provenance = Downloader.download(pkg, outputDir)
+            val licenseFile = outputDir.resolve("LICENSE-junit.txt")
+
+            provenance.vcsInfo should beNull()
+            provenance.sourceArtifact shouldNotBeNull {
                 url shouldBe pkg.sourceArtifact.url
                 hash shouldBe pkg.sourceArtifact.hash
             }
 
-            val licenseFile = downloadResult.downloadDirectory.resolve("LICENSE-junit.txt")
             licenseFile.isFile shouldBe true
             licenseFile.length() shouldBe 11376L
 
-            downloadResult.downloadDirectory.walk().count() shouldBe 234
+            outputDir.walk().count() shouldBe 234
         }
 
         "Can download a TGZ source artifact from SourceForge".config(tags = setOf(ExpensiveTag)) {
@@ -174,14 +177,14 @@ class DownloaderFunTest : StringSpec() {
                 vcs = VcsInfo.EMPTY
             )
 
-            val downloadResult = Downloader.download(pkg, outputDir)
-            downloadResult.vcsInfo.shouldBeNull()
-            downloadResult.sourceArtifact shouldNotBeNull {
+            val provenance = Downloader.download(pkg, outputDir)
+            val tyrexDir = outputDir.resolve("tyrex-1.0.1")
+
+            provenance.vcsInfo should beNull()
+            provenance.sourceArtifact shouldNotBeNull {
                 url shouldBe pkg.sourceArtifact.url
                 hash shouldBe pkg.sourceArtifact.hash
             }
-
-            val tyrexDir = downloadResult.downloadDirectory.resolve("tyrex-1.0.1")
 
             tyrexDir.isDirectory shouldBe true
             tyrexDir.walk().count() shouldBe 409
@@ -207,14 +210,14 @@ class DownloaderFunTest : StringSpec() {
                 vcs = VcsInfo.EMPTY
             )
 
-            val downloadResult = Downloader.download(pkg, outputDir)
-            downloadResult.vcsInfo.shouldBeNull()
-            downloadResult.sourceArtifact shouldNotBeNull {
+            val provenance = Downloader.download(pkg, outputDir)
+            val tslibDir = outputDir.resolve("tslib-1.10.0")
+
+            provenance.vcsInfo should beNull()
+            provenance.sourceArtifact shouldNotBeNull {
                 url shouldBe pkg.sourceArtifact.url
                 hash shouldBe pkg.sourceArtifact.hash
             }
-
-            val tslibDir = downloadResult.downloadDirectory.resolve("tslib-1.10.0")
 
             tslibDir.isDirectory shouldBe true
             tslibDir.walk().count() shouldBe 16
