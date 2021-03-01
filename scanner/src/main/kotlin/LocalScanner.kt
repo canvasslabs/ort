@@ -41,7 +41,6 @@ import kotlinx.coroutines.withContext
 import org.ossreviewtoolkit.downloader.DownloadException
 import org.ossreviewtoolkit.downloader.Downloader
 import org.ossreviewtoolkit.downloader.VersionControlSystem
-import org.ossreviewtoolkit.model.Environment
 import org.ossreviewtoolkit.model.Failure
 import org.ossreviewtoolkit.model.Identifier
 import org.ossreviewtoolkit.model.OrtIssue
@@ -59,11 +58,13 @@ import org.ossreviewtoolkit.model.ScannerRun
 import org.ossreviewtoolkit.model.Severity
 import org.ossreviewtoolkit.model.Success
 import org.ossreviewtoolkit.model.VcsInfo
+import org.ossreviewtoolkit.model.VcsType
 import org.ossreviewtoolkit.model.config.ScannerConfiguration
 import org.ossreviewtoolkit.model.config.createFileArchiver
 import org.ossreviewtoolkit.model.createAndLogIssue
 import org.ossreviewtoolkit.scanner.storages.PostgresStorage
 import org.ossreviewtoolkit.utils.CommandLineTool
+import org.ossreviewtoolkit.utils.Environment
 import org.ossreviewtoolkit.utils.NamedThreadFactory
 import org.ossreviewtoolkit.utils.Os
 import org.ossreviewtoolkit.utils.collectMessagesAsString
@@ -255,7 +256,7 @@ abstract class LocalScanner(name: String, config: ScannerConfiguration) : Scanne
 
         return try {
             val storedResults = withContext(storageDispatcher) {
-                log.info {
+                LocalScanner.log.info {
                     "Looking for stored scan results for ${pkg.id.toCoordinates()} and " +
                             "$scannerCriteria $packageIndex."
                 }
@@ -269,13 +270,28 @@ abstract class LocalScanner(name: String, config: ScannerConfiguration) : Scanne
                             "and $scannerCriteria, not scanning the package again $packageIndex."
                 }
 
+                if (config.createMissingArchives) {
+                    val missingArchives = storedResults.mapNotNullTo(mutableSetOf()) { result ->
+                        result.provenance.takeUnless { archiver.hasArchive(result.provenance) }
+                    }
+
+                    if (missingArchives.isNotEmpty()) {
+                        val pkgDownloadDirectory = downloadDirectory.resolve(pkg.id.toPath())
+                        Downloader.download(pkg, pkgDownloadDirectory)
+
+                        missingArchives.forEach { provenance ->
+                            archiveFiles(pkgDownloadDirectory, pkg.id, provenance)
+                        }
+                    }
+                }
+
                 // Due to a temporary bug that has been fixed by now the scan results for packages were not properly
                 // filtered by VCS path. Filter them again to fix the problem.
                 // TODO: This filtering can be removed after a while.
                 storedResults.map { it.filterByVcsPath().filterByIgnorePatterns(config.ignorePatterns) }
             } else {
                 withContext(scanDispatcher) {
-                    log.info {
+                    LocalScanner.log.info {
                         "No stored result found for ${pkg.id.toCoordinates()} and $scannerCriteria, " +
                                 "scanning package in thread '${Thread.currentThread().name}' " +
                                 "$packageIndex."
@@ -283,7 +299,7 @@ abstract class LocalScanner(name: String, config: ScannerConfiguration) : Scanne
 
                     listOf(
                         scanPackage(details, pkg, outputDirectory, downloadDirectory).also {
-                            log.info {
+                            LocalScanner.log.info {
                                 "Finished scanning ${pkg.id.toCoordinates()} in thread " +
                                         "'${Thread.currentThread().name}' $packageIndex."
                             }
@@ -353,9 +369,10 @@ abstract class LocalScanner(name: String, config: ScannerConfiguration) : Scanne
         downloadDirectory: File
     ): ScanResult {
         val resultsFile = getResultsFile(scannerDetails, pkg, outputDirectory)
+        val pkgDownloadDirectory = downloadDirectory.resolve(pkg.id.toPath())
 
-        val downloadResult = try {
-            Downloader.download(pkg, downloadDirectory.resolve(pkg.id.toPath()))
+        val provenance = try {
+            Downloader.download(pkg, pkgDownloadDirectory)
         } catch (e: DownloadException) {
             e.showStackTrace()
 
@@ -381,20 +398,14 @@ abstract class LocalScanner(name: String, config: ScannerConfiguration) : Scanne
         }
 
         log.info {
-            "Running $scannerDetails on directory '${downloadResult.downloadDirectory.absolutePath}'."
+            "Running $scannerDetails on directory '${pkgDownloadDirectory.absolutePath}'."
         }
 
-        val provenance = Provenance(
-            downloadResult.dateTime, downloadResult.sourceArtifact, downloadResult.vcsInfo,
-            downloadResult.originalVcsInfo
-        )
+        archiveFiles(pkgDownloadDirectory, pkg.id, provenance)
 
-        archiveFiles(downloadResult.downloadDirectory, pkg.id, provenance)
-
-        val (scanResult, scanDuration) = measureTimedValue {
-            scanPathInternal(downloadResult.downloadDirectory, resultsFile)
-                .copy(provenance = provenance)
-                .filterByVcsPath()
+        val (scanSummary, scanDuration) = measureTimedValue {
+            val vcsPath = provenance.vcsInfo?.takeUnless { it.type == VcsType.GIT_REPO }?.path.orEmpty()
+            scanPathInternal(pkgDownloadDirectory, resultsFile).filterByPath(vcsPath)
         }
 
         log.perf {
@@ -402,6 +413,7 @@ abstract class LocalScanner(name: String, config: ScannerConfiguration) : Scanne
                     "${scanDuration.inMilliseconds}ms."
         }
 
+        val scanResult = ScanResult(provenance, scannerDetails, scanSummary)
         val storageResult = ScanResultsStorage.storage.add(pkg.id, scanResult)
         val filteredResult = scanResult.filterByIgnorePatterns(config.ignorePatterns)
 
@@ -413,8 +425,8 @@ abstract class LocalScanner(name: String, config: ScannerConfiguration) : Scanne
                     message = storageResult.error,
                     severity = Severity.WARNING
                 )
-                val issues = scanResult.summary.issues + issue
-                val summary = scanResult.summary.copy(issues = issues)
+                val issues = scanSummary.issues + issue
+                val summary = scanSummary.copy(issues = issues)
                 filteredResult.copy(summary = summary)
             }
         }
@@ -423,9 +435,7 @@ abstract class LocalScanner(name: String, config: ScannerConfiguration) : Scanne
     private fun archiveFiles(directory: File, id: Identifier, provenance: Provenance) {
         log.info { "Archiving files for ${id.toCoordinates()}." }
 
-        val path = "${id.toPath()}/${provenance.hash()}"
-
-        val duration = measureTime { archiver.archive(directory, path) }
+        val duration = measureTime { archiver.archive(directory, provenance) }
 
         log.perf { "Archived files for '${id.toCoordinates()}' in ${duration.inMilliseconds}ms." }
     }
@@ -436,13 +446,13 @@ abstract class LocalScanner(name: String, config: ScannerConfiguration) : Scanne
      *
      * No scan results storage is used by this function.
      *
-     * The return value is a [ScanResult]. If the path could not be scanned, a [ScanException] is thrown.
+     * The return value is a [ScanSummary]. If the path could not be scanned, a [ScanException] is thrown.
      */
-    protected abstract fun scanPathInternal(path: File, resultsFile: File): ScanResult
+    protected abstract fun scanPathInternal(path: File, resultsFile: File): ScanSummary
 
     /**
      * Scan the provided [inputPath] for license information and write the results to [outputDirectory] using the
-     * scanner's native file format. The results file name is derived from [inputPath] and [getDetails].
+     * scanner's native file format. The results file name is derived from [inputPath] and [details].
      *
      * No scan results storage is used by this function.
      *
@@ -459,21 +469,21 @@ abstract class LocalScanner(name: String, config: ScannerConfiguration) : Scanne
 
         log.info { "Scanning path '$absoluteInputPath' with $details..." }
 
-        val result = try {
+        val summary = try {
             val resultsFile = File(
                 outputDirectory.apply { safeMkdirs() },
                 "${inputPath.nameWithoutExtension}_${details.name}.$resultFileExt"
             )
             scanPathInternal(inputPath, resultsFile).also {
                 log.info {
-                    "Detected licenses for path '$absoluteInputPath': ${it.summary.licenses.joinToString()}"
+                    "Detected licenses for path '$absoluteInputPath': ${it.licenses.joinToString()}"
                 }
             }.filterByIgnorePatterns(config.ignorePatterns)
         } catch (e: ScanException) {
             e.showStackTrace()
 
             val now = Instant.now()
-            val summary = ScanSummary(
+            ScanSummary(
                 startTime = now,
                 endTime = now,
                 fileCount = 0,
@@ -487,8 +497,6 @@ abstract class LocalScanner(name: String, config: ScannerConfiguration) : Scanne
                     )
                 )
             )
-
-            ScanResult(Provenance(), details, summary)
         }
 
         // There is no package id for arbitrary paths so create a fake one, ensuring that no ":" is contained.
@@ -497,7 +505,8 @@ abstract class LocalScanner(name: String, config: ScannerConfiguration) : Scanne
             inputPath.name.fileSystemEncode(), ""
         )
 
-        val scanResultContainer = ScanResultContainer(id, listOf(result))
+        val scanResult = ScanResult(Provenance(), details, summary)
+        val scanResultContainer = ScanResultContainer(id, listOf(scanResult))
         val scanRecord = ScanRecord(sortedSetOf(scanResultContainer), ScanResultsStorage.storage.stats)
 
         val endTime = Instant.now()

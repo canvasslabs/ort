@@ -137,11 +137,12 @@ class Maven(
                 version = mavenProject.version
             ),
             definitionFilePath = VersionControlSystem.getPathInfo(definitionFile).path,
+            authors = MavenSupport.parseAuthors(mavenProject),
             declaredLicenses = MavenSupport.parseLicenses(mavenProject),
             vcs = vcsFromPackage,
             vcsProcessed = processProjectVcs(projectDir, vcsFromPackage, *vcsFallbackUrls),
             homepageUrl = homepageUrl.orEmpty(),
-            scopes = scopesByName.values.toSortedSet()
+            scopeDependencies = scopesByName.values.toSortedSet()
         )
 
         val packages = packagesById.values.toSortedSet()

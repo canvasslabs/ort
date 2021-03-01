@@ -100,7 +100,7 @@ class DeclaredLicenseProcessorTest : StringSpec() {
             processableLicenses should beEmpty()
         }
 
-        "SPDX expression only contains valid licenses" {
+        "The SPDX expression only contains valid licenses" {
             val declaredLicenses = listOf("Apache-2.0", "invalid")
 
             val processedLicenses = DeclaredLicenseProcessor.process(declaredLicenses)
@@ -108,6 +108,16 @@ class DeclaredLicenseProcessorTest : StringSpec() {
             processedLicenses.spdxExpression shouldBe SpdxLicenseIdExpression("Apache-2.0")
             processedLicenses.mapped should beEmptyMap()
             processedLicenses.unmapped should containExactly("invalid")
+        }
+
+        "Processing a compound SPDX expression should result in the same expression" {
+            val declaredLicenses = listOf("Apache-2.0 AND LicenseRef-Proprietary")
+
+            val processedLicenses = DeclaredLicenseProcessor.process(declaredLicenses)
+
+            processedLicenses.spdxExpression shouldBe SpdxExpression.parse("Apache-2.0 AND LicenseRef-Proprietary")
+            processedLicenses.mapped should beEmptyMap()
+            processedLicenses.unmapped should beEmpty()
         }
 
         "The declared license mapping is applied" {

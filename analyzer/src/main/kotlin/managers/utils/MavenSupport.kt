@@ -122,6 +122,16 @@ class MavenSupport(private val workspaceReader: WorkspaceReader) {
             }
         }
 
+        fun parseAuthors(mavenProject: MavenProject) =
+            sortedSetOf<String>().apply {
+                mavenProject.organization?.let {
+                    if (!it.name.isNullOrEmpty()) add(it.name)
+                }
+
+                val developers = mavenProject.developers.mapNotNull { it.organization.orEmpty().ifEmpty { it.name } }
+                addAll(developers)
+            }
+
         fun parseLicenses(mavenProject: MavenProject) =
             mavenProject.licenses.mapNotNull {
                 if (it.comments?.startsWith("SPDX-License-Identifier:") == true) {
@@ -467,11 +477,11 @@ class MavenSupport(private val workspaceReader: WorkspaceReader) {
             artifactDownload.isExistenceCheck = true
             artifactDownload.listener = object : AbstractTransferListener() {
                 override fun transferFailed(event: TransferEvent?) {
-                    log.debug { "Transfer failed: $event" }
+                    MavenSupport.log.debug { "Transfer failed: $event" }
                 }
 
                 override fun transferSucceeded(event: TransferEvent?) {
-                    log.debug { "Transfer succeeded: $event" }
+                    MavenSupport.log.debug { "Transfer succeeded: $event" }
                 }
             }
 
@@ -644,6 +654,7 @@ class MavenSupport(private val workspaceReader: WorkspaceReader) {
                 name = mavenProject.artifactId,
                 version = mavenProject.version
             ),
+            authors = parseAuthors(mavenProject),
             declaredLicenses = parseLicenses(mavenProject),
             description = mavenProject.description.orEmpty(),
             homepageUrl = homepageUrl.orEmpty(),

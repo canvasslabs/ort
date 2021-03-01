@@ -256,7 +256,7 @@ internal class EvaluatedModelMapper(private val input: ReporterInput) {
             it.type == EvaluatedFindingType.LICENSE && it.pathExcludes.isEmpty()
         }.mapNotNullTo(mutableSetOf()) { it.license }
 
-        detectedExcludedLicenses.addAll(detectedLicenses - includedDetectedLicenses)
+        detectedExcludedLicenses += detectedLicenses - includedDetectedLicenses
     }
 
     private fun addPackage(curatedPkg: CuratedPackage) {
@@ -315,7 +315,7 @@ internal class EvaluatedModelMapper(private val input: ReporterInput) {
             it.type == EvaluatedFindingType.LICENSE && it.pathExcludes.isEmpty()
         }.mapNotNullTo(mutableSetOf()) { it.license }
 
-        detectedExcludedLicenses.addAll(detectedLicenses - includedDetectedLicenses)
+        detectedExcludedLicenses += detectedLicenses - includedDetectedLicenses
     }
 
     private fun addAnalyzerIssues(id: Identifier, pkg: EvaluatedPackage): List<EvaluatedOrtIssue> {
@@ -334,7 +334,7 @@ internal class EvaluatedModelMapper(private val input: ReporterInput) {
 
     private fun addRuleViolation(ruleViolation: RuleViolation) {
         val resolutions = addResolutions(ruleViolation)
-        val pkg = packages.getValue(ruleViolation.pkg)
+        val pkg = packages[ruleViolation.pkg] ?: createEmptyPackage(ruleViolation.pkg)
         val license = ruleViolation.license?.let { licenses.addIfRequired(LicenseId(it.toString())) }
 
         val evaluatedViolation = EvaluatedRuleViolation(
@@ -449,7 +449,7 @@ internal class EvaluatedModelMapper(private val input: ReporterInput) {
     }
 
     private fun createEmptyPackage(id: Identifier): EvaluatedPackage {
-        val excludeInfo = packageExcludeInfo.getValue(id)
+        val excludeInfo = packageExcludeInfo[id] ?: PackageExcludeInfo(id, isExcluded = false)
 
         val evaluatedPathExcludes = pathExcludes.addIfRequired(excludeInfo.pathExcludes)
         val evaluatedScopeExcludes = scopeExcludes.addIfRequired(excludeInfo.scopeExcludes)

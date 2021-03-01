@@ -39,6 +39,7 @@ import org.ossreviewtoolkit.downloader.Downloader
 import org.ossreviewtoolkit.downloader.VersionControlSystem
 import org.ossreviewtoolkit.model.Identifier
 import org.ossreviewtoolkit.model.Package
+import org.ossreviewtoolkit.model.Provenance
 import org.ossreviewtoolkit.utils.ORT_NAME
 import org.ossreviewtoolkit.utils.safeDeleteRecursively
 import org.ossreviewtoolkit.utils.test.DEFAULT_ANALYZER_CONFIGURATION
@@ -72,18 +73,18 @@ abstract class AbstractIntegrationSpec : StringSpec() {
     /**
      * The temporary parent directory for downloads.
      */
-    private lateinit var outputDir: File
+    protected lateinit var outputDir: File
 
     /**
      * The directory where the source code of [pkg] was downloaded to.
      */
-    protected lateinit var downloadResult: Downloader.DownloadResult
+    protected lateinit var provenance: Provenance
 
     override fun beforeSpec(spec: Spec) {
         // Do not use the usual simple class name as the suffix here to shorten the path which otherwise gets too long
         // on Windows for SimpleFormIntegrationTest.
         outputDir = createTempDirectory("$ORT_NAME-${javaClass.simpleName}").toFile()
-        downloadResult = Downloader.download(pkg, outputDir)
+        provenance = Downloader.download(pkg, outputDir)
     }
 
     override fun afterSpec(spec: Spec) {
@@ -92,19 +93,19 @@ abstract class AbstractIntegrationSpec : StringSpec() {
 
     init {
         "Source code was downloaded successfully".config(tags = setOf(ExpensiveTag)) {
-            VersionControlSystem.forDirectory(downloadResult.downloadDirectory) shouldNotBeNull {
+            VersionControlSystem.forDirectory(outputDir) shouldNotBeNull {
                 isValid() shouldBe true
                 vcsType shouldBe pkg.vcs.type
 
-                downloadResult.sourceArtifact should beNull()
-                downloadResult.vcsInfo shouldNotBeNull {
+                provenance.sourceArtifact should beNull()
+                provenance.vcsInfo shouldNotBeNull {
                     type shouldBe vcsType
                 }
             }
         }
 
         "All package manager definition files are found".config(tags = setOf(ExpensiveTag)) {
-            val managedFiles = PackageManager.findManagedFiles(downloadResult.downloadDirectory)
+            val managedFiles = PackageManager.findManagedFiles(outputDir)
 
             managedFiles.size shouldBe expectedManagedFiles.size
             managedFiles.entries.forAll { (manager, files) ->

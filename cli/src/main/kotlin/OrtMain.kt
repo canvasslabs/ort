@@ -41,9 +41,9 @@ import org.apache.logging.log4j.Level
 import org.apache.logging.log4j.core.config.Configurator
 
 import org.ossreviewtoolkit.commands.*
-import org.ossreviewtoolkit.model.Environment
 import org.ossreviewtoolkit.model.config.LicenseFilenamePatterns
 import org.ossreviewtoolkit.model.config.OrtConfiguration
+import org.ossreviewtoolkit.utils.Environment
 import org.ossreviewtoolkit.utils.ORT_CONFIG_DIR_ENV_NAME
 import org.ossreviewtoolkit.utils.ORT_CONFIG_FILENAME
 import org.ossreviewtoolkit.utils.ORT_DATA_DIR_ENV_NAME
@@ -71,7 +71,7 @@ data class GlobalOptions(
     val forceOverwrite: Boolean
 )
 
-class OrtMain : CliktCommand(name = ORT_NAME, epilog = "* denotes required options.") {
+class OrtMain : CliktCommand(name = ORT_NAME) {
     private val configFile by option("--config", "-c", help = "The path to a configuration file.")
         .convert { it.expandTilde() }
         .file(mustExist = true, canBeFile = true, canBeDir = false, mustBeWritable = false, mustBeReadable = true)
@@ -109,7 +109,10 @@ class OrtMain : CliktCommand(name = ORT_NAME, epilog = "* denotes required optio
                 // If help is invoked without a subcommand, the main run() is not invoked and no header is printed, so
                 // we need to do that manually here.
                 if (currentContext.invokedSubcommand == null) appendLine(getVersionHeader(env.ortVersion))
-                append(super.formatHelp(prolog, epilog, parameters, programName))
+
+                appendLine(super.formatHelp(prolog, epilog, parameters, programName))
+                appendLine()
+                appendLine("* denotes required options.")
             }
     }
 

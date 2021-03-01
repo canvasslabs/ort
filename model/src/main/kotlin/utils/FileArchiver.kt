@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2019 HERE Europe B.V.
+ * Copyright (C) 2019-2021 HERE Europe B.V.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,15 +17,17 @@
  * License-Filename: LICENSE
  */
 
-package org.ossreviewtoolkit.utils.storage
+package org.ossreviewtoolkit.model.utils
 
 import java.io.File
 import java.io.IOException
+import java.security.MessageDigest
 
 import kotlin.io.path.createTempFile
 import kotlin.time.measureTime
 import kotlin.time.measureTimedValue
 
+import org.ossreviewtoolkit.model.Provenance
 import org.ossreviewtoolkit.utils.FileMatcher
 import org.ossreviewtoolkit.utils.ORT_NAME
 import org.ossreviewtoolkit.utils.collectMessagesAsString
@@ -34,6 +36,8 @@ import org.ossreviewtoolkit.utils.ortDataDirectory
 import org.ossreviewtoolkit.utils.packZip
 import org.ossreviewtoolkit.utils.perf
 import org.ossreviewtoolkit.utils.showStackTrace
+import org.ossreviewtoolkit.utils.storage.FileStorage
+import org.ossreviewtoolkit.utils.toHexString
 import org.ossreviewtoolkit.utils.unpackZip
 
 /**
@@ -41,18 +45,17 @@ import org.ossreviewtoolkit.utils.unpackZip
  */
 class FileArchiver(
     /**
-     * A list of globs to match the paths of files that shall be archived. For details about the glob pattern see
+     * A collection of globs to match the paths of files that shall be archived. For details about the glob pattern see
      * [java.nio.file.FileSystem.getPathMatcher].
      */
-    val patterns: List<String>,
+    patterns: Collection<String>,
 
     /**
      * The [FileStorage] to use for archiving files.
      */
-    val storage: FileStorage
+    private val storage: FileStorage
 ) {
     companion object {
-        private const val ARCHIVE_FILE_NAME = "archive.zip"
         val DEFAULT_ARCHIVE_DIR by lazy { ortDataDirectory.resolve("scanner/archive") }
     }
 
@@ -62,15 +65,23 @@ class FileArchiver(
     )
 
     /**
-     * Return whether '[storagePath]/[ARCHIVE_FILE_NAME]' exists.
+     * Return whether an archive corresponding to [provenance] exists.
      */
-    fun hasArchive(storagePath: String) = storage.exists(getArchivePath(storagePath))
+    fun hasArchive(provenance: Provenance): Boolean {
+        if (provenance.sourceArtifact == null && provenance.vcsInfo == null) return false
+
+        val archivePath = getArchivePath(provenance)
+        return storage.exists(archivePath)
+    }
 
     /**
-     * Archive all files in [directory] matching any of the configured [patterns] in the [storage]. The archived files
-     * are zipped in the file '[storagePath]/[ARCHIVE_FILE_NAME]'.
+     * Archive all files in [directory] matching any of the configured [patterns] in the [storage].
      */
-    fun archive(directory: File, storagePath: String) {
+    fun archive(directory: File, provenance: Provenance) {
+        require(provenance.sourceArtifact != null || provenance.vcsInfo != null) {
+            "Unable to create an archive for unknown provenance."
+        }
+
         val zipFile = createTempFile(ORT_NAME, ".zip").toFile()
 
         val zipDuration = measureTime {
@@ -78,10 +89,12 @@ class FileArchiver(
                 val relativePath = file.relativeTo(directory).invariantSeparatorsPath
 
                 matcher.matches(relativePath).also { result ->
-                    if (result) {
-                        log.debug { "Adding '$relativePath' to archive." }
-                    } else {
-                        log.debug { "Not adding '$relativePath' to archive." }
+                    log.debug {
+                        if (result) {
+                            "Adding '$relativePath' to archive."
+                        } else {
+                            "Not adding '$relativePath' to archive."
+                        }
                     }
                 }
             }
@@ -89,7 +102,7 @@ class FileArchiver(
 
         log.perf { "Archived directory '${directory.invariantSeparatorsPath}' in ${zipDuration.inMilliseconds}ms." }
 
-        val writeDuration = measureTime { storage.write(getArchivePath(storagePath), zipFile.inputStream()) }
+        val writeDuration = measureTime { storage.write(getArchivePath(provenance), zipFile.inputStream()) }
 
         log.perf {
             "Wrote archive of directory '${directory.invariantSeparatorsPath}' to storage in " +
@@ -100,11 +113,15 @@ class FileArchiver(
     }
 
     /**
-     * Unarchive the file at '[storagePath]/[ARCHIVE_FILE_NAME]' to [directory].
+     * Unarchive the archive corresponding to [provenance].
      */
-    fun unarchive(directory: File, storagePath: String): Boolean =
-        try {
-            val (input, readDuration) = measureTimedValue { storage.read(getArchivePath(storagePath)) }
+    fun unarchive(directory: File, provenance: Provenance): Boolean {
+        if (provenance.sourceArtifact == null && provenance.vcsInfo == null) return false
+
+        val archivePath = getArchivePath(provenance)
+
+        return try {
+            val (input, readDuration) = measureTimedValue { storage.read(archivePath) }
 
             log.perf {
                 "Read archive of directory '${directory.invariantSeparatorsPath}' from storage in " +
@@ -121,10 +138,27 @@ class FileArchiver(
         } catch (e: IOException) {
             e.showStackTrace()
 
-            log.error { "Could not unarchive from $storagePath: ${e.collectMessagesAsString()}" }
+            log.error { "Could not unarchive from $archivePath: ${e.collectMessagesAsString()}" }
 
             false
         }
+    }
+}
 
-    private fun getArchivePath(storagePath: String) = "${storagePath.removeSuffix("/")}/$ARCHIVE_FILE_NAME"
+private fun getArchivePath(provenance: Provenance): String =
+    "${provenance.hash()}/archive.zip"
+
+private val SHA1_DIGEST by lazy { MessageDigest.getInstance("SHA-1") }
+
+/**
+ * Calculate the SHA-1 hash of the storage key of this [Provenance] instance.
+ */
+private fun Provenance.hash(): String {
+    val key = vcsInfo?.let {
+        "${it.type}${it.url}${it.resolvedRevision}"
+    } ?: sourceArtifact!!.let {
+        "${it.url}${it.hash.value}"
+    }
+
+    return SHA1_DIGEST.digest(key.toByteArray()).toHexString()
 }

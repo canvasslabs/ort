@@ -36,10 +36,10 @@ import com.github.ajalt.clikt.parameters.types.file
 
 import org.ossreviewtoolkit.GlobalOptions
 import org.ossreviewtoolkit.advisor.Advisor
-import org.ossreviewtoolkit.advisor.advisors.NexusIq
 import org.ossreviewtoolkit.model.FileFormat
 import org.ossreviewtoolkit.model.config.AdvisorConfiguration
 import org.ossreviewtoolkit.model.config.NexusIqConfiguration
+import org.ossreviewtoolkit.model.config.VulnerableCodeConfiguration
 import org.ossreviewtoolkit.model.mapper
 import org.ossreviewtoolkit.model.utils.mergeLabels
 import org.ossreviewtoolkit.utils.ORT_CONFIG_FILENAME
@@ -47,7 +47,7 @@ import org.ossreviewtoolkit.utils.expandTilde
 import org.ossreviewtoolkit.utils.ortConfigDirectory
 import org.ossreviewtoolkit.utils.safeMkdirs
 
-class AdvisorCommand : CliktCommand(name = "advise", help = "Run vulnerability detector") {
+class AdvisorCommand : CliktCommand(name = "advise", help = "Check dependencies for security vulnerabilities.") {
     private val input by option(
         "--ort-file", "-i",
         help = "An ORT result file with an analyzer result to use."
@@ -85,7 +85,7 @@ class AdvisorCommand : CliktCommand(name = "advise", help = "Run vulnerability d
     ).convert { advisorName ->
         Advisor.ALL.find { it.advisorName.equals(advisorName, ignoreCase = true) }
             ?: throw BadParameterValue("Advisor '$advisorName' is not one of ${Advisor.ALL}")
-    }.default(NexusIq.Factory())
+    }.required()
 
     private val skipExcluded by option(
         "--skip-excluded",
@@ -95,6 +95,7 @@ class AdvisorCommand : CliktCommand(name = "advise", help = "Run vulnerability d
     private fun configureAdvisor(advisorConfiguration: AdvisorConfiguration?): Advisor {
         val config = when (advisorConfiguration) {
             is NexusIqConfiguration -> advisorConfiguration
+            is VulnerableCodeConfiguration -> advisorConfiguration
             null -> throw IllegalArgumentException(
                 "No advisor configuration found in ${ortConfigDirectory.resolve(ORT_CONFIG_FILENAME)}"
             )

@@ -27,16 +27,16 @@ import java.nio.file.Path
 
 import kotlin.io.path.createTempDirectory
 
-import org.eclipse.sw360.antenna.http.HttpClientFactoryImpl
-import org.eclipse.sw360.antenna.http.config.HttpClientConfig
-import org.eclipse.sw360.antenna.sw360.client.adapter.AttachmentUploadRequest
-import org.eclipse.sw360.antenna.sw360.client.adapter.SW360Connection
-import org.eclipse.sw360.antenna.sw360.client.adapter.SW360ConnectionFactory
-import org.eclipse.sw360.antenna.sw360.client.config.SW360ClientConfig
-import org.eclipse.sw360.antenna.sw360.client.rest.resource.attachments.SW360AttachmentType
-import org.eclipse.sw360.antenna.sw360.client.rest.resource.attachments.SW360SparseAttachment
-import org.eclipse.sw360.antenna.sw360.client.rest.resource.releases.SW360Release
-import org.eclipse.sw360.antenna.sw360.client.utils.SW360ClientException
+import org.eclipse.sw360.clients.adapter.AttachmentUploadRequest
+import org.eclipse.sw360.clients.adapter.SW360Connection
+import org.eclipse.sw360.clients.adapter.SW360ConnectionFactory
+import org.eclipse.sw360.clients.config.SW360ClientConfig
+import org.eclipse.sw360.clients.rest.resource.attachments.SW360AttachmentType
+import org.eclipse.sw360.clients.rest.resource.attachments.SW360SparseAttachment
+import org.eclipse.sw360.clients.rest.resource.releases.SW360Release
+import org.eclipse.sw360.clients.utils.SW360ClientException
+import org.eclipse.sw360.http.HttpClientFactoryImpl
+import org.eclipse.sw360.http.config.HttpClientConfig
 
 import org.ossreviewtoolkit.model.Failure
 import org.ossreviewtoolkit.model.Identifier
@@ -65,7 +65,7 @@ class Sw360Storage(
     )
     private val releaseClient = sw360ConnectionFactory.releaseAdapter
 
-    override fun readFromStorage(id: Identifier): Result<ScanResultContainer> {
+    override fun readInternal(id: Identifier): Result<ScanResultContainer> {
         val tempScanResultFile = createTempFileForUpload(id)
 
         return try {
@@ -86,7 +86,7 @@ class Sw360Storage(
         }
     }
 
-    override fun addToStorage(id: Identifier, scanResult: ScanResult): Result<Unit> {
+    override fun addInternal(id: Identifier, scanResult: ScanResult): Result<Unit> {
         val tempScanResultFile = createTempFileForUpload(id)
 
         return try {
@@ -157,6 +157,7 @@ class Sw360Storage(
             config.password,
             config.clientId,
             config.clientPassword,
+            config.token,
             httpClient,
             jsonMapper
         )

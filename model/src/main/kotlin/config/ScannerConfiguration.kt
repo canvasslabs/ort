@@ -22,7 +22,7 @@ package org.ossreviewtoolkit.model.config
 import com.fasterxml.jackson.annotation.JsonAlias
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties
 
-import org.ossreviewtoolkit.utils.storage.FileArchiver
+import org.ossreviewtoolkit.model.utils.FileArchiver
 import org.ossreviewtoolkit.utils.storage.FileStorage
 
 /**
@@ -34,6 +34,11 @@ data class ScannerConfiguration(
      * Configuration of a [FileArchiver] that archives certain scanned files in an external [FileStorage].
      */
     val archive: FileArchiverConfiguration? = null,
+
+    /**
+     * Create archives for packages that have a stored scan result but no license archive yet.
+     */
+    val createMissingArchives: Boolean = false,
 
     /**
      * Scanner specific configuration options. The key needs to match the name of the scanner class, e.g. "ScanCode"

@@ -34,10 +34,10 @@ import okio.buffer
 import okio.sink
 
 import org.ossreviewtoolkit.downloader.vcs.GitRepo
-import org.ossreviewtoolkit.model.Environment
 import org.ossreviewtoolkit.model.HashAlgorithm
 import org.ossreviewtoolkit.model.Package
 import org.ossreviewtoolkit.model.Project
+import org.ossreviewtoolkit.model.Provenance
 import org.ossreviewtoolkit.model.RemoteArtifact
 import org.ossreviewtoolkit.model.VcsInfo
 import org.ossreviewtoolkit.model.VcsType
@@ -56,45 +56,6 @@ import org.ossreviewtoolkit.utils.unpack
  * The class to download source code. The signatures of public functions in this class define the library API.
  */
 object Downloader {
-    /**
-     * This class describes what was downloaded by any of the download functions.
-     */
-    data class DownloadResult(
-        /**
-         * The date and time when the download was started.
-         */
-        val dateTime: Instant,
-
-        /**
-         * The directory to which files were downloaded.
-         */
-        val downloadDirectory: File,
-
-        /**
-         * The source artifact that was downloaded, or null if either the download was performed from a [VCS][vcsInfo]
-         * or there was no download performed at all because [Package.isMetaDataOnly] is true.
-         */
-        val sourceArtifact: RemoteArtifact? = null,
-
-        /**
-         * Information about the VCS from which was downloaded, or null if either a [source artifact][sourceArtifact]
-         * was downloaded or there was no download performed at all because [Package.isMetaDataOnly] is true.
-         */
-        val vcsInfo: VcsInfo? = null,
-
-        /**
-         * The original VCS information that was passed to the download function. It can be different to [vcsInfo] if
-         * any automatic detection took place.
-         */
-        val originalVcsInfo: VcsInfo? = null
-    ) {
-        init {
-            require(sourceArtifact == null || vcsInfo == null) {
-                "Not both 'sourceArtifact' and 'vcsInfo' may be set, as otherwise it is ambiguous which one to use."
-            }
-        }
-    }
-
     private fun verifyOutputDirectory(outputDirectory: File) {
         require(!outputDirectory.exists() || outputDirectory.list().isEmpty()) {
             "The output directory '$outputDirectory' must not contain any files yet."
@@ -106,12 +67,12 @@ object Downloader {
     /**
      * Download the source code of the [package][pkg] to the [outputDirectory]. The [allowMovingRevisions] parameter
      * indicates whether VCS downloads accept symbolic names, like branches, instead of only fixed revisions. A
-     * [DownloadResult] is returned on success or a [DownloadException] is thrown in case of failure.
+     * [Provenance] is returned on success or a [DownloadException] is thrown in case of failure.
      */
-    fun download(pkg: Package, outputDirectory: File, allowMovingRevisions: Boolean = false): DownloadResult {
+    fun download(pkg: Package, outputDirectory: File, allowMovingRevisions: Boolean = false): Provenance {
         verifyOutputDirectory(outputDirectory)
 
-        if (pkg.isMetaDataOnly) return DownloadResult(dateTime = Instant.now(), downloadDirectory = outputDirectory)
+        if (pkg.isMetaDataOnly) return Provenance(Instant.now())
 
         val exception = DownloadException("Download failed for '${pkg.id.toCoordinates()}'.")
 
@@ -185,10 +146,10 @@ object Downloader {
     /**
      * Download the source code of the [package][pkg] to the [outputDirectory] using it's VCS information. The
      * [allowMovingRevisions] parameter indicates whether the download accepts symbolic names, like branches, instead of
-     * only fixed revisions. A [DownloadResult] is returned on success or a [DownloadException] is thrown in case of
+     * only fixed revisions. A [Provenance] is returned on success or a [DownloadException] is thrown in case of
      * failure.
      */
-    fun downloadFromVcs(pkg: Package, outputDirectory: File, allowMovingRevisions: Boolean): DownloadResult {
+    fun downloadFromVcs(pkg: Package, outputDirectory: File, allowMovingRevisions: Boolean): Provenance {
         verifyOutputDirectory(outputDirectory)
 
         log.info {
@@ -199,17 +160,17 @@ object Downloader {
             val hint = when (pkg.id.type) {
                 "Bundler", "Gem" -> " Please define the \"source_code_uri\" in the \"metadata\" of the Gemspec, " +
                         "see: https://guides.rubygems.org/specification-reference/#metadata"
-                "Gradle" -> " Please make sure the release POM file includes the SCM connection, see: " +
+                "Gradle" -> " Please make sure the published POM file includes the SCM connection, see: " +
                         "https://docs.gradle.org/current/userguide/publishing_maven.html#" +
-                        "example_customizing_the_pom_file"
+                        "sec:modifying_the_generated_pom"
                 "Maven" -> " Please define the \"connection\" tag within the \"scm\" tag in the POM file, " +
                         "see: http://maven.apache.org/pom.html#SCM"
                 "NPM" -> " Please define the \"repository\" in the package.json file, see: " +
-                        "https://docs.npmjs.com/files/package.json#repository"
+                        "https://docs.npmjs.com/cli/v7/configuring-npm/package-json#repository"
                 "PIP", "PyPI" -> " Please make sure the setup.py defines the 'Source' attribute in " +
                         "'project_urls', see: https://packaging.python.org/guides/" +
                         "distributing-packages-using-setuptools/#project-urls"
-                "SBT" -> " Please make sure the released POM file includes the SCM connection, see: " +
+                "SBT" -> " Please make sure the published POM file includes the SCM connection, see: " +
                         "http://maven.apache.org/pom.html#SCM"
                 else -> ""
             }
@@ -281,15 +242,15 @@ object Downloader {
             resolvedRevision = revision,
             path = pkg.vcsProcessed.path
         )
-        return DownloadResult(startTime, outputDirectory, vcsInfo = vcsInfo,
-            originalVcsInfo = pkg.vcsProcessed.takeIf { it != vcsInfo })
+
+        return Provenance(startTime, vcsInfo = vcsInfo, originalVcsInfo = pkg.vcsProcessed.takeIf { it != vcsInfo })
     }
 
     /**
      * Download the source code of the [package][pkg] to the [outputDirectory] using it's source artifact. A
-     * [DownloadResult] is returned on success or a [DownloadException] is thrown in case of failure.
+     * [Provenance] is returned on success or a [DownloadException] is thrown in case of failure.
      */
-    fun downloadSourceArtifact(pkg: Package, outputDirectory: File): DownloadResult {
+    fun downloadSourceArtifact(pkg: Package, outputDirectory: File): Provenance {
         verifyOutputDirectory(outputDirectory)
 
         log.info {
@@ -312,7 +273,6 @@ object Downloader {
                 // See https://github.com/square/okhttp/blob/parent-3.10.0/okhttp/src/main/java/okhttp3/internal/ \
                 // http/BridgeInterceptor.java#L79
                 .header("Accept-Encoding", "identity")
-                .header("User-Agent", Environment.ORT_USER_AGENT)
                 .get()
                 .url(pkg.sourceArtifact.url)
                 .build()
@@ -403,7 +363,7 @@ object Downloader {
                     "'${outputDirectory.absolutePath}'..."
         }
 
-        return DownloadResult(startTime, outputDirectory, sourceArtifact = pkg.sourceArtifact)
+        return Provenance(startTime, sourceArtifact = pkg.sourceArtifact)
     }
 }
 

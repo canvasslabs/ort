@@ -33,9 +33,9 @@ import kotlinx.html.*
 import kotlinx.html.dom.*
 
 import org.ossreviewtoolkit.downloader.VcsHost
-import org.ossreviewtoolkit.model.Environment
 import org.ossreviewtoolkit.model.Identifier
 import org.ossreviewtoolkit.model.Project
+import org.ossreviewtoolkit.model.Provenance
 import org.ossreviewtoolkit.model.RemoteArtifact
 import org.ossreviewtoolkit.model.Severity
 import org.ossreviewtoolkit.model.VcsInfo
@@ -52,6 +52,7 @@ import org.ossreviewtoolkit.reporter.utils.ReportTableModel.ResolvableIssue
 import org.ossreviewtoolkit.reporter.utils.ReportTableModelMapper
 import org.ossreviewtoolkit.reporter.utils.SCOPE_EXCLUDE_LIST_COMPARATOR
 import org.ossreviewtoolkit.reporter.utils.containsUnresolved
+import org.ossreviewtoolkit.utils.Environment
 import org.ossreviewtoolkit.utils.ORT_FULL_NAME
 import org.ossreviewtoolkit.utils.isValidUri
 import org.ossreviewtoolkit.utils.normalizeLineBreaks
@@ -530,17 +531,25 @@ class StaticHtmlReporter : Reporter {
                 }
 
                 if (row.detectedLicenses.isNotEmpty()) {
-                    em { +"Detected Licenses:" }
+                    // All license location from a package share the same provenance, so just picking the first is fine.
+                    val firstLicenseLocation = row.detectedLicenses.first().locations.firstOrNull()
+
+                    em {
+                        +"Detected Licenses"
+                        provenanceLink(firstLicenseLocation?.provenance)
+                        +":"
+                    }
+
                     dl {
                         dd {
                             row.detectedLicenses.forEach { license ->
-                                val firstFinding =
-                                    license.locations.firstOrNull { it.matchingPathExcludes.isEmpty() }
-                                        ?: license.locations.firstOrNull()
+                                val firstFinding = license.locations.firstOrNull { it.matchingPathExcludes.isEmpty() }
+                                    ?: license.locations.firstOrNull()
 
                                 val permalink = firstFinding?.permalink(row.id)
-                                val pathExcludes =
-                                    license.locations.flatMapTo(mutableSetOf()) { it.matchingPathExcludes }
+                                val pathExcludes = license.locations.flatMapTo(mutableSetOf()) {
+                                    it.matchingPathExcludes
+                                }
 
                                 if (!license.isDetectedExcluded) {
                                     div {
@@ -616,6 +625,18 @@ class StaticHtmlReporter : Reporter {
         val document = markdownParser.parse(markdown)
         val renderer = HtmlRenderer.builder().build()
         unsafe { +renderer.render(document) }
+    }
+}
+
+private fun EM.provenanceLink(provenance: Provenance?) {
+    provenance?.sourceArtifact?.let { artifact ->
+        +" (from "
+        a(href = artifact.url) { +"artifact" }
+        +")"
+    } ?: provenance?.vcsInfo?.let { vcs ->
+        +" (from "
+        a(href = vcs.url) { +"VCS" }
+        +")"
     }
 }
 

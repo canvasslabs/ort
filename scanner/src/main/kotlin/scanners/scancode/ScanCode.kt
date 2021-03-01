@@ -33,8 +33,7 @@ import okhttp3.Request
 import okio.buffer
 import okio.sink
 
-import org.ossreviewtoolkit.model.Provenance
-import org.ossreviewtoolkit.model.ScanResult
+import org.ossreviewtoolkit.model.ScanSummary
 import org.ossreviewtoolkit.model.ScannerDetails
 import org.ossreviewtoolkit.model.config.ScannerConfiguration
 import org.ossreviewtoolkit.scanner.AbstractScannerFactory
@@ -45,6 +44,7 @@ import org.ossreviewtoolkit.utils.ORT_NAME
 import org.ossreviewtoolkit.utils.OkHttpClientHelper
 import org.ossreviewtoolkit.utils.Os
 import org.ossreviewtoolkit.utils.ProcessCapture
+import org.ossreviewtoolkit.utils.isTrue
 import org.ossreviewtoolkit.utils.log
 import org.ossreviewtoolkit.utils.unpack
 
@@ -135,13 +135,13 @@ class ScanCode(
     }
 
     override fun bootstrap(): File {
-        val versionWithoutHypen = expectedVersion.replace("-", "")
+        val versionWithoutHyphen = expectedVersion.replace("-", "")
 
         val archive = when {
             // Use the .zip file despite it being slightly larger than the .tar.gz file here as the latter for some
             // reason does not complete to unpack on Windows.
-            Os.isWindows -> "v$versionWithoutHypen.zip"
-            else -> "v$versionWithoutHypen.tar.gz"
+            Os.isWindows -> "v$versionWithoutHyphen.zip"
+            else -> "v$versionWithoutHyphen.tar.gz"
         }
 
         // Use the source code archive instead of the release artifact from S3 to enable OkHttp to cache the download
@@ -176,13 +176,13 @@ class ScanCode(
                 log.warn { "Unable to delete temporary file '$scannerArchive'." }
             }
 
-            val scannerDir = unpackDir.resolve("scancode-toolkit-$versionWithoutHypen")
+            val scannerDir = unpackDir.resolve("scancode-toolkit-$versionWithoutHyphen")
 
             scannerDir
         }
     }
 
-    override fun scanPathInternal(path: File, resultsFile: File): ScanResult {
+    override fun scanPathInternal(path: File, resultsFile: File): ScanSummary {
         val startTime = Instant.now()
 
         val process = ProcessCapture(
@@ -200,7 +200,8 @@ class ScanCode(
         }
 
         val result = getRawResult(resultsFile)
-        val summary = generateSummary(startTime, endTime, path, result)
+        val parseLicenseExpressions = scanCodeConfiguration["parseLicenseExpressions"].isTrue()
+        val summary = generateSummary(startTime, endTime, path, result, parseLicenseExpressions)
 
         val issues = summary.issues.toMutableList()
 
@@ -209,7 +210,7 @@ class ScanCode(
 
         with(process) {
             if (isSuccess || hasOnlyMemoryErrors || hasOnlyTimeoutErrors) {
-                return ScanResult(Provenance(), details, summary.copy(issues = issues))
+                return summary.copy(issues = issues)
             } else {
                 throw ScanException(errorMessage)
             }

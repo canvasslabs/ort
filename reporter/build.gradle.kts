@@ -20,7 +20,6 @@
  */
 
 val apachePoiVersion: String by project
-val apachePoiSchemasVersion: String by project
 val asciidoctorjVersion: String by project
 val asciidoctorjPdfVersion: String by project
 val commonsCompressVersion: String by project
@@ -29,6 +28,7 @@ val flexmarkVersion: String by project
 val freemarkerVersion: String by project
 val hamcrestCoreVersion: String by project
 val jacksonVersion: String by project
+val kotlinxCoroutinesVersion: String by project
 val kotlinxHtmlVersion: String by project
 val retrofitVersion: String by project
 val simpleExcelVersion: String by project
@@ -81,12 +81,12 @@ dependencies {
     implementation("com.squareup.retrofit2:retrofit:$retrofitVersion")
     implementation("com.vladsch.flexmark:flexmark:$flexmarkVersion")
     implementation("org.apache.commons:commons-compress:$commonsCompressVersion")
-    implementation("org.apache.poi:ooxml-schemas:$apachePoiSchemasVersion")
     implementation("org.apache.poi:poi-ooxml:$apachePoiVersion")
     implementation("org.asciidoctor:asciidoctorj:$asciidoctorjVersion")
     implementation("org.asciidoctor:asciidoctorj-pdf:$asciidoctorjPdfVersion")
     implementation("org.cyclonedx:cyclonedx-core-java:$cyclonedxCoreJavaVersion")
     implementation("org.freemarker:freemarker:$freemarkerVersion")
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:$kotlinxCoroutinesVersion")
     implementation("org.jetbrains.kotlinx:kotlinx-html-jvm:$kotlinxHtmlVersion")
 
     // This is required to not depend on the version of Apache Xalan bundled with the JDK. Otherwise the formatting of
