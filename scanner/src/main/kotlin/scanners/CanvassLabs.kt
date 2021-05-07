@@ -18,23 +18,16 @@
  */
 
 package org.ossreviewtoolkit.scanner.scanners
-
 import com.fasterxml.jackson.databind.JsonNode
-
 import java.io.File
 import java.io.IOException
 import java.net.HttpURLConnection
 import java.time.Instant
-
 import kotlin.io.path.createTempDirectory
-
 import okhttp3.Request
-
 import org.ossreviewtoolkit.model.EMPTY_JSON_NODE
 import org.ossreviewtoolkit.model.LicenseFinding
 import org.ossreviewtoolkit.model.CopyrightFinding
-//import org.ossreviewtoolkit.model.Provenance
-//import org.ossreviewtoolkit.model.ScanResult
 import org.ossreviewtoolkit.model.ScanSummary
 import org.ossreviewtoolkit.model.TextLocation
 import org.ossreviewtoolkit.model.config.ScannerConfiguration
@@ -49,7 +42,8 @@ import org.ossreviewtoolkit.utils.Os
 import org.ossreviewtoolkit.utils.ProcessCapture
 import org.ossreviewtoolkit.utils.log
 import org.ossreviewtoolkit.utils.unpackZip
-//import java.io.PrintWriter
+import java.util.UUID
+
 
 class CanvassLabs(name: String, config: ScannerConfiguration) : LocalScanner(name, config) {
     class Factory : AbstractScannerFactory<CanvassLabs>("CanvassLabs") {
@@ -59,6 +53,8 @@ class CanvassLabs(name: String, config: ScannerConfiguration) : LocalScanner(nam
     companion object {
         val CONFIGURATION_OPTIONS = listOf("")
     }
+
+    var user_metadata_id = UUID.randomUUID()
 
     override val expectedVersion = "1.3.1"
     override val configuration = CONFIGURATION_OPTIONS.joinToString(" ")
@@ -112,6 +108,7 @@ class CanvassLabs(name: String, config: ScannerConfiguration) : LocalScanner(nam
         val process = ProcessCapture(
             scannerPath.absolutePath,
             "-i", path.absolutePath,
+            "-u", "$user_metadata_id",
             "-o", resultsFile.absolutePath
         )
 
