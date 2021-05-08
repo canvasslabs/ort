@@ -54,8 +54,6 @@ class CanvassLabs(name: String, config: ScannerConfiguration) : LocalScanner(nam
         val CONFIGURATION_OPTIONS = listOf("")
     }
 
-    var user_metadata_id = UUID.randomUUID()
-
     override val expectedVersion = "1.3.1"
     override val configuration = CONFIGURATION_OPTIONS.joinToString(" ")
     override val resultFileExt = "json"
@@ -108,7 +106,6 @@ class CanvassLabs(name: String, config: ScannerConfiguration) : LocalScanner(nam
         val process = ProcessCapture(
             scannerPath.absolutePath,
             "-i", path.absolutePath,
-            "-u", "$user_metadata_id",
             "-o", resultsFile.absolutePath
         )
 
