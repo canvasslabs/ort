@@ -256,31 +256,23 @@ abstract class LocalScanner(name: String, config: ScannerConfiguration) : Scanne
 
         return try {
             val storedResults = withContext(storageDispatcher) {
-                LocalScanner.log.info {
-                    "Looking for stored scan results for ${pkg.id.toCoordinates()} and " +
-                            "$scannerCriteria $packageIndex."
-                }
-
+                LocalScanner.log.info { "Looking for stored scan results for ${pkg.id.toCoordinates()} and " + "$scannerCriteria $packageIndex." }
                 readFromStorage(scannerCriteria, pkg)
             }
 
             if (storedResults.isNotEmpty()) {
-                log.info {
-                    "Found ${storedResults.size} stored scan result(s) for ${pkg.id.toCoordinates()} " +
-                            "and $scannerCriteria, not scanning the package again $packageIndex."
+                log.info { "Found ${storedResults.size} stored scan result(s) for ${pkg.id.toCoordinates()} " + "and $scannerCriteria, not scanning the package again $packageIndex."
                 }
 
                 if (config.createMissingArchives) {
-                    val missingArchives = storedResults.mapNotNullTo(mutableSetOf()) { result ->
-                        result.provenance.takeUnless { archiver.hasArchive(result.provenance) }
+                    val missingArchives = storedResults.mapNotNullTo(mutableSetOf()) { result -> result.provenance.takeUnless { archiver.hasArchive(result.provenance) }
                     }
 
                     if (missingArchives.isNotEmpty()) {
                         val pkgDownloadDirectory = downloadDirectory.resolve(pkg.id.toPath())
                         Downloader.download(pkg, pkgDownloadDirectory)
 
-                        missingArchives.forEach { provenance ->
-                            archiveFiles(pkgDownloadDirectory, pkg.id, provenance)
+                        missingArchives.forEach { provenance -> archiveFiles(pkgDownloadDirectory, pkg.id, provenance)
                         }
                     }
                 }
@@ -347,12 +339,40 @@ abstract class LocalScanner(name: String, config: ScannerConfiguration) : Scanne
     /**
      * Return matching [ScanResult]s for this [Package][pkg] from the [ScanResultsStorage]. If no results are found an
      * empty list is returned.
-     */
     private fun readFromStorage(scannerCriteria: ScannerCriteria, pkg: Package): List<ScanResult> =
         when (val storageResult = ScanResultsStorage.storage.read(pkg, scannerCriteria)) {
             is Success -> storageResult.result.deduplicateScanResults().results
             is Failure -> emptyList()
         }
+     */
+    private fun readFromStorage(scannerCriteria: ScannerCriteria, pkg: Package): List<ScanResult>
+    {
+		val fileName = "/tmp/charlie.txt"
+		val myfile = File(fileName)
+		myfile.writeText(pkg.id.name)
+        myfile.writeText("\n")
+        myfile.writeText(pkg.purl)
+        myfile.writeText("\n")
+        myfile.writeText(pkg.sourceArtifact.url)
+        myfile.writeText("\n")
+        //myfile.writeText(pkg.sourceArtifact.hash)
+        //myfile.writeText("\n")
+        //myfile.writeText(pkg.vcsInfo)
+        myfile.writeText("\n")
+        myfile.writeText("\n")
+
+        val storageResult = ScanResultsStorage.storage.read(pkg, scannerCriteria)
+
+        if (storageResult is Success) {
+            myfile.writeText("\tStorage Read Successful!\n")
+            return storageResult.result.deduplicateScanResults().results
+            }
+
+        myfile.writeText("\tStorage Read Not successful.\n")
+
+        /* If storageResult isn't a success, then return failure. */    
+        return emptyList()
+    }
 
     /**
      * Scan the provided [pkg] for license information and write the results to [outputDirectory] using the scanner's

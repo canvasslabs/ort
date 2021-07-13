@@ -72,7 +72,8 @@ class CanvassLabs(name: String, config: ScannerConfiguration) : LocalScanner(nam
         }
 
         val archive = "ORT2LiAn-$expectedVersion-$platform.zip"
-        val url = "https://ortclient.s3-us-west-2.amazonaws.com/v$expectedVersion/$archive"
+        //val url = "https://ortclient.s3-us-west-2.amazonaws.com/v$expectedVersion/$archive"
+        val url = "https://rivera.canvasslabs.com:5000/glue/download/v$expectedVersion/$archive"
         
         log.info { "Downloading $scannerName from $url... " }
 
