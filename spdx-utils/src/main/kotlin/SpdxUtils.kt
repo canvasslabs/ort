@@ -31,9 +31,6 @@ import java.util.EnumSet
 
 import org.ossreviewtoolkit.spdx.SpdxConstants.LICENSE_REF_PREFIX
 
-import java.io.FileWriter
-
-
 /**
  * A list of directories used by version control systems to store metadata.
  */
@@ -61,36 +58,7 @@ internal val yamlMapper = YAMLMapper().registerKotlinModule()
  * [1]: https://spdx.dev/spdx_specification_2_0_html#h.2p2csry
  */
 @JvmName("calculatePackageVerificationCodeForStrings")
-fun calculatePackageVerificationCode(sha1sums: Sequence<String>, excludes: Sequence<String> = emptySequence()): String
-{
-    var a = sha1sums.sorted()
-
-    val fileName = "/tmp/charlie.txt"
-    val myfile = FileWriter(fileName, true)
-
-    for (item in a)
-    {
-        myfile.write(item.toString())
-        myfile.write(" ")
-    }
-
-
-    val sha1sum = a.fold(MessageDigest.getInstance("SHA-1")) { digest, sha1sum ->
-        digest.apply { update(sha1sum.toByteArray()) }
-    }.digest().toHexString()
-
-    myfile.write(" = ")
-    myfile.write(sha1sum)
-    myfile.write("\n")
-    myfile.close()
-
-    return if (excludes.none()) {
-        sha1sum
-    } else {
-        "$sha1sum (excludes: ${excludes.joinToString()})"
-    }
-
-/*
+fun calculatePackageVerificationCode(sha1sums: Sequence<String>, excludes: Sequence<String> = emptySequence()): String {
     val sha1sum = sha1sums.sorted().fold(MessageDigest.getInstance("SHA-1")) { digest, sha1sum ->
         digest.apply { update(sha1sum.toByteArray()) }
     }.digest().toHexString()
@@ -100,7 +68,6 @@ fun calculatePackageVerificationCode(sha1sums: Sequence<String>, excludes: Seque
     } else {
         "$sha1sum (excludes: ${excludes.joinToString()})"
     }
-*/
 }
 
 /**
